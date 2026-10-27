@@ -684,3 +684,48 @@ running. So a save requested together with the exit is written behind the black 
 "Save and Return to Title" works. A run-ending death retires the mission (death menu never built), and at mission FAILED
 the DLL closes the session (cb8 = 0, OpenSession blocked), ORs 0x201 into the save mask and raises the title request
 in the same frame: no garage on screen, and the title sees a closed session (no improper-exit warning).
+
+## Save storage, reroll cadence, starting credits (2026-10-27, task 1)
+
+**Event-flag blocks.** CSEventFlagMan holds 640 blocks of 1000 flags (`tools/flag_blocks.py` lists them): blocks 0-9
+(flags 0..9999) plus 630 map blocks 2100102.. (ids 21xxxxx), all type 1 (pages in the shared page array). In the
+garage of the fresh3 save, blocks 4 and 7 hold only our own bits: old probes 4000/4500/4900/7000/7500 (set in
+September, still there = already saved) and the shop state 7800-7829 / 7900+. Block 8 and 9 are game-used (88xx,
+99xx). New Game re-creates the pages: blocks 4 and 7 are EMPTY at the first mission start of a new game (verified
+twice), so every new run starts with clean state.
+
+**Persistence proof.** Set 4001/4150/4318/4501/4818/4999/7001/7318/7799/7830/7837 (direct bit write + dirty byte, like
+the DLL) → save request (bit 0 of the save mask) → file written → game killed → relaunch → Continue → all 11 read back
+set. Then cleared again.
+
+**Layout** (offsets.rs): row bitsets = flag base + lineup row index (318 flags each), avoiding the old probes —
+`ROWS_SOLD` 4100..4417 (sold since the reroll), `ROWS_LOST` 4550..4867 (lost forever), `ROWS_ROLLED` 7100..7417
+(already rolled); `REROLL_COUNTER_BASE` 7830..7837 = missions cleared since the last reroll (8 bits, LSB first). Free
+for later: 4418..4549, 4868..4899, 4901..4999, 7418..7499, 7501..7799, 7838..7899, 7945..7999. Helpers on `Game`:
+`read_rows` / `write_rows` / `clear_rows` / `put_row` / `has_row`, `get_bits` / `put_bits`.
+
+**Reroll cadence.** `[shop] reroll_interval` (1..255). `on_mission_end`: no shop state (first mission end of a run) or
+counter + 1 >= interval → reroll, counter = 0; otherwise counter + 1, shop kept. Rewards are untouched (every
+mission). Verified with interval 2 (debug `mission_end`: kept 1/2 → reroll → kept 1/2; counter survives a relaunch)
+and on a real clear (new game, first shop rolled, counter 0).
+
+**No shop before the Market unlocks.** The Parts Shop menu opens with flag 3127, set by the game at the mission 2
+clear (with wave 6200) — about 30 s AFTER 5074 and after the commit autosave (measured: 5074↑ 99351, commit 99363,
+3127↑ 99381). A mission end with 3127 off rolls nothing and does not count toward reroll_interval; the loop rolls the
+first shop when 3127 rises (only after such a mission end, never on a save load) and requests a save, since the
+autosave already passed. Verified on a new game: mission 1 and 2 clears → first shop at 3127↑, same shop after a
+relaunch.
+
+**Starting credits.** `[economy] starting_credits` (100000) = the pay (`currencyReward`) of MissionParam row 2010
+(Illegal Entry), the forced first mission of every New Game; every other mission still pays mission_pay_percent (0).
+Replay Mission is locked, so each run gets it exactly once and runs already past mission 1 never do. The game shows it
+on the results screen and nets the mission's costs from it in ONE AddCoam at the commit (new game, mission 1:
+0 -> 78332 = 100000 - 21668, no deficit, shop rolled). Rejected first design (user's idea replaced it): add the
+credits from the DLL on the game thread when the first shop is rolled. Added at the commit, they came right AFTER the
+game charged the costs on a balance of 0: AddCoam clamps to 0, the COAM detour records the unclamped -27090, the
+auto-sell runs on that stale deficit -> reward part sold -> GAME OVER at the first mission end. Lesson: the commit is
+where the game charges ammo/repair; money must exist before it.
+
+**Seen on the way (not changed):** the first mission of a New Game starts without the escrow flag (no deployment
+talk before it); a death retires the mission and the DLL re-queues the reward just before the abort commit, but the
+game drops it (reward not owned afterwards).

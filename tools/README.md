@@ -5,6 +5,9 @@ Run from this folder with the game running (`PYTHONIOENCODING=utf-8 python <scri
 - `ac6_lib.py` — ReadProcessMemory wrapper, module image, capstone disassembly, `callers()`, rip-relative annotation.
 - `flag_test.py` — finds the live shop-list container (vtable exe+395CE18), reads a shop entry's release flag via the
   reimplemented CSEventFlagMan bit lookup, clears it, re-reads the list, restores it. **Needs the Parts Shop open.**
+- `flag_blocks.py` — lists CSEventFlagMan's blocks (id // 1000) with their set flags; `--show`, `--snap`/`--diff`,
+  `--set ID VAL…` (direct bit write + dirty byte, like the DLL), `--save` (requests a save). Used to pick and prove the
+  saved flag ranges of the mod's state.
 - `lineup_dump.py` — parses the 318 live `EquipmentLineupParam` rows (data at type-string − 318·0x20) and prints
   flag/price/reward populations and the rows behind the `CSEquipmentLineupData` +0x08 bool map.
 - `flagman_xrefs.py` — confirms the CSEventFlagMan instance/global, lists every code site loading it, intersects with the

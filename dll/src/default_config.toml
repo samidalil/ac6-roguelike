@@ -5,6 +5,7 @@ mission_pay_percent = 0          # % of the game's mission pay you receive (0 = 
 arena_repeat_pay_percent = 0     # % of the arena's pay for repeat fights
 ammo_cost_percent = 100          # % of the game's ammunition costs charged after a mission
 repair_cost_percent = 100        # % of the game's repair costs charged after a mission
+starting_credits = 100000        # pay of the first mission of a run (Illegal Entry), the run's starting money
 
 [rewards]
 parts_per_mission = 1            # parts given at the end of each cleared mission (0 to 3)
@@ -20,6 +21,7 @@ weapon_sell_percent = 25         # weapons sell for this % of their value
 item_charge_percent = 100        # every part (weapons included) costs this % of its value
 shop_weapons = 1                 # weapons offered after each cleared mission
 shop_parts = 2                   # other parts offered after each cleared mission (weapons + parts: 8 at most)
+reroll_interval = 1              # cleared missions between shop rerolls (1 = every mission; rewards still come every mission)
 
 [rarity]
 # Shop offers and mission rewards are drawn by rarity tier, then uniformly within the tier. Tiers come from

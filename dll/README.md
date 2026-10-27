@@ -19,9 +19,10 @@ Log: `%USERPROFILE%\ac6_roguelike_dll.log` (rewritten at every launch).
 Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config.toml` when missing.
 
 ## Modules
-- `lib.rs` — boot (config, param lookup, hooks), the shop (pool, rarity pick, reroll at mission end, state kept in
-  event flags), mission rewards (queued at mission start through the game's give path), the game-thread loop and the
-  game-over exit sequence.
+- `lib.rs` — boot (config, param lookup, hooks), the shop (pool, rarity pick, reroll every `reroll_interval` cleared
+  missions, state kept in event flags), saved state helpers (flags, multi-bit values, row bitsets one flag per lineup
+  row: `read_rows` / `write_rows` / `clear_rows` / `put_row` / `has_row` over `o::ROWS_*`), economy (mission pay, first mission = starting credits), mission rewards (queued at mission start through the game's give
+  path), the game-thread loop and the game-over exit sequence.
 - `penalty.rs` — failure plan built at sortie (escrow flag), penalty on the next garage load, auto-sell, game over,
   part values (shop price, stat model, `[prices]` overrides) and the sell-price hook.
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, rarity, prices).

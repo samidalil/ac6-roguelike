@@ -330,6 +330,35 @@ impl Game {
         }
     }
 
+    /// Unsigned value stored in `bits` consecutive flags from `base`, LSB first.
+    unsafe fn get_bits(&self, man: usize, base: u32, bits: u32) -> u32 {
+        (0..bits).filter(|b| self.get_flag(man, base + b) == Some(true)).fold(0, |x, b| x | 1 << b)
+    }
+    unsafe fn put_bits(&self, man: usize, base: u32, bits: u32, v: u32) {
+        for b in 0..bits { self.put_flag(man, base + b, (v >> b) & 1 != 0); }
+    }
+
+    // --- row bitsets: one flag per EquipmentLineupParam row index from `set` (o::ROWS_SOLD / LOST / ROLLED) ---
+    /// Row indices present in the set.
+    #[allow(dead_code)]
+    unsafe fn read_rows(&self, man: usize, set: u32) -> Vec<u16> {
+        (0..o::ROW_COUNT as u16).filter(|&i| self.get_flag(man, set + i as u32) == Some(true)).collect()
+    }
+    /// Replace the set with exactly `rows`.
+    #[allow(dead_code)]
+    unsafe fn write_rows(&self, man: usize, set: u32, rows: &[u16]) {
+        for i in 0..o::ROW_COUNT as u16 { self.put_flag(man, set + i as u32, rows.contains(&i)); }
+    }
+    #[allow(dead_code)]
+    unsafe fn clear_rows(&self, man: usize, set: u32) { self.write_rows(man, set, &[]); }
+    /// Add (`true`) or remove one row.
+    #[allow(dead_code)]
+    unsafe fn put_row(&self, man: usize, set: u32, row: u16, v: bool) {
+        if (row as usize) < o::ROW_COUNT { self.put_flag(man, set + row as u32, v); }
+    }
+    #[allow(dead_code)]
+    unsafe fn has_row(&self, man: usize, set: u32, row: u16) -> bool { self.get_flag(man, set + row as u32) == Some(true) }
+
     // --- persisted shop state: slots 0..2 = 3 x 9-bit row indices + valid bit (flags 7800..7827, the original
     // layout); slots 3.. = 9 bits each from STATE_FLAG_EXTRA_BASE holding row index + 1 (0 = empty) ---
     unsafe fn read_state(&self, man: usize) -> Option<Vec<u16>> {
@@ -423,6 +452,15 @@ unsafe fn apply_economy(base: usize) -> usize {
         for (_, r) in param_rows(f) {
             if mem::is_readable(r, o::ARENA_ROW_SIZE) { scale(r + o::ARENA_REPEAT_COAM, cfg.arena_repeat_pay_percent, false); }
         }
+    }
+    // the first mission of every run (New Game always starts with it, Replay Mission is locked) pays the starting
+    // credits: shown on its results screen, and the game nets that mission's costs from it
+    if let Some(r) = param_file(base, o::PARAM_IDX_MISSION)
+        .and_then(|f| param_rows(f).into_iter().find(|(id, _)| *id == o::MISSION_FIRST).map(|(_, r)| r))
+    {
+        let (a, v) = (r + o::MISSION_CURRENCY_REWARD, cfg.starting_credits as i32);
+        if mem::rd_i32(a) != v { mem::wr_i32(a, v); changed += 1; }
+        written.insert(a, v);
     }
     changed
 }
@@ -600,6 +638,8 @@ struct Run {
     /// a mission actually ran (defer went 0->1) since the last reroll; guards against a stale
     /// 5074 read on save load triggering a reroll
     mission_ran: bool,
+    /// a mission was cleared while the Parts Shop was still locked: roll the first shop when it unlocks
+    market_wait: bool,
 }
 
 impl Run {
@@ -679,7 +719,29 @@ impl Run {
         }
     }
 
+    /// A mission was cleared: reroll the shop every reroll_interval missions (counter in the save). The first
+    /// mission end of a run with the Parts Shop open (no shop state yet) always rolls; while the shop is locked
+    /// nothing happens (no roll, no count) and the first shop is rolled when it unlocks.
     unsafe fn on_mission_end(&mut self, gd: usize, man: usize) {
+        let cfg = config::get();
+        if self.game.get_flag(man, o::FLAG_MARKET) != Some(true) {
+            self.market_wait = true;
+            log("mission end: Parts Shop still locked, no shop yet");
+            return;
+        }
+        self.market_wait = false;
+        let first = self.game.read_state(man).is_none();
+        let done = self.game.get_bits(man, o::REROLL_COUNTER_BASE, o::REROLL_COUNTER_BITS) + 1;
+        if !first && done < cfg.reroll_interval {
+            self.game.put_bits(man, o::REROLL_COUNTER_BASE, o::REROLL_COUNTER_BITS, done);
+            logf!("mission end: shop kept ({}/{} missions before the reroll)", done, cfg.reroll_interval);
+            return;
+        }
+        self.game.put_bits(man, o::REROLL_COUNTER_BASE, o::REROLL_COUNTER_BITS, 0);
+        self.reroll(gd, man);
+    }
+
+    unsafe fn reroll(&mut self, gd: usize, man: usize) {
         let sel = self.pick_shop(gd);
         if sel.is_empty() { log("mission end: nothing left to offer"); }
         let idx: Vec<u16> = sel.iter().map(|p| p.idx).collect();
@@ -766,7 +828,7 @@ fn boot() {
     let n = unsafe { apply_economy(base) };
     logf!("economy: {} reward fields scaled at boot", n);
 
-    let mut run = Run { game, pool, rng: Rng::seeded(), reward_handles: Vec::new(), reward_parts: Vec::new(), last_grant_tick: 0, mission_ran: false };
+    let mut run = Run { game, pool, rng: Rng::seeded(), reward_handles: Vec::new(), reward_parts: Vec::new(), last_grant_tick: 0, mission_ran: false, market_wait: false };
     let mut prev_defer: Option<u8> = None;
     let mut coam_seen: u32 = 0;
     // death tax state for the current sortie
@@ -906,13 +968,24 @@ fn boot() {
                         exit_phase = 1;
                     }
                 }
-                // DEBUG: %USERPROFILE%/ac6_debug.txt with a command ("reroll" = new shop now), then deleted
+                // DEBUG: %USERPROFILE%/ac6_debug.txt with a command ("reroll" = new shop now, "mission_end" = what a
+                // cleared mission does to the shop, "rows_test" = row bitset round trip), then deleted
                 let dbg_cmd = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_debug.txt");
                 if tick % 5 == 0 && dbg_cmd.exists() {
                     let cmd = std::fs::read_to_string(&dbg_cmd).unwrap_or_default();
                     let _ = std::fs::remove_file(&dbg_cmd);
                     match cmd.trim() {
-                        "reroll" => { log("DEBUG: reroll"); run.on_mission_end(gd, man); prev_state = None; }
+                        "reroll" => { log("DEBUG: reroll"); run.reroll(gd, man); prev_state = None; }
+                        "mission_end" => { log("DEBUG: mission end"); run.on_mission_end(gd, man); prev_state = None; }
+                        "rows_test" => {
+                            let g = &run.game;
+                            g.write_rows(man, o::ROWS_SOLD, &[0, 5, 317]);
+                            g.put_row(man, o::ROWS_SOLD, 100, true);
+                            g.put_row(man, o::ROWS_SOLD, 5, false);
+                            logf!("DEBUG: rows {:?} has(100)={} has(5)={}", g.read_rows(man, o::ROWS_SOLD), g.has_row(man, o::ROWS_SOLD, 100), g.has_row(man, o::ROWS_SOLD, 5));
+                            g.clear_rows(man, o::ROWS_SOLD);
+                            logf!("DEBUG: rows after clear {:?}", g.read_rows(man, o::ROWS_SOLD));
+                        }
                         c => logf!("DEBUG: unknown command {:?}", c),
                     }
                 }
@@ -926,6 +999,14 @@ fn boot() {
                 }
                 let pb = PAUSE_BLOCKED.swap(0, Relaxed);
                 if pb > 0 { logf!("pause menu blocked ({} request{})", pb, if pb > 1 { "s" } else { "" }); }
+
+                // the Parts Shop unlocked after a mission end that found it locked: the game sets 3127 ~30 s after
+                // 5074, after the commit autosave, so save the new shop state ourselves
+                if run.market_wait && run.game.get_flag(man, o::FLAG_MARKET) == Some(true) {
+                    log("Parts Shop unlocked -> first shop (save requested)");
+                    run.on_mission_end(gd, man); prev_state = None;
+                    run.game.request_save();
+                }
 
                 // Replay Mission stays locked (menu command gated by this flag)
                 if run.game.get_flag(man, o::FLAG_REPLAY_MISSION) == Some(true) {
@@ -941,7 +1022,7 @@ fn boot() {
                         // mission start (sortie): the game is idle here, the give call returns at once.
                         // The dialog content is built at the mission-clear instant, so the reward must
                         // already be queued by then; check_reward re-queues if the game empties the list.
-                        log("defer 0->1 (mission active)"); run.reward_handles.clear(); run.reward_parts.clear(); run.mission_ran = true;
+                        log("defer 0->1 (mission active)"); run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.mission_ran = true;
                         alive = false; dead = false; cleared_seen = false;
                         msg::GAME_OVER_TEXT.store(false, Relaxed);
                         // escrow should already be in the save (armed during the pre-mission talk); the game

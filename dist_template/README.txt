@@ -12,8 +12,10 @@ INSTALL
 
 HOW IT PLAYS
 - Missions pay nothing. Selling parts is your income; ammunition and repairs still cost money.
-- The parts shop only offers a few random parts (1 weapon + 2 parts by default), rerolled after every cleared
-  mission. Each cleared mission also gives you a random part. Rarer parts come up less often.
+- The first mission of a run (Illegal Entry) pays 100 000 credits, your starting money. No other mission pays.
+- The parts shop (open from mission 2 on) only offers a few random parts (1 weapon + 2 parts by default), rerolled after every cleared
+  mission (or every few missions: reroll_interval). Each cleared mission also gives you a random part.
+  Rarer parts come up less often.
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
 - No pause menu during missions: no retry, no quitting.
 - Dying, or leaving a mission any other way (even closing the game), counts as a failed sortie:
@@ -26,7 +28,8 @@ HOW IT PLAYS
 
 SETTINGS
 ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restart the game:
-mission pay %, ammo/repair cost %, sell and buy %, shop size, parts per mission, part prices, rarity odds and tiers.
+mission pay %, starting credits, ammo/repair cost %, sell and buy %, shop size, reroll interval, parts per mission,
+part prices, rarity odds and tiers.
 Each setting is explained in the file. Delete the file to get the defaults back.
 
 LOG
