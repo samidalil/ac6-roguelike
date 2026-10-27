@@ -221,6 +221,10 @@ unsafe fn fill_tiles(base: usize, _content: usize, _record: *const u8) {
     let sel = new_handle();
     get_child(root, sel, b"_Content_/SelIdx\0".as_ptr());
     SEL_HANDLE.store(sel as usize, Relaxed);
+    SEL.store(0, Relaxed);
+    COUNT.store(n as u32, Relaxed);
+    PREV_INPUT.store(u32::MAX, Relaxed); // ignore what is held when the grid opens
+    GRID_OPEN.store(true, Relaxed);
     set_selection(base, 0, n);
 }
 /// Write "selected/count" into _Content_/SelIdx (game thread).
@@ -289,5 +293,76 @@ pub unsafe fn install(base: usize) {
     match install_call_hook_saving_rsi(base, o::CONTENT_LOOKUP_CALLSITE, o::FN_GET_CHILD, content_lookup_hook as *const () as usize) {
         Ok(cave) => logf!("reward grid hook installed: exe+{:X} -> cave {:#X} (saves rsi)", o::CONTENT_LOOKUP_CALLSITE, cave),
         Err(e) => logf!("reward grid hook exe+{:X} FAILED: {}", o::CONTENT_LOOKUP_CALLSITE, e),
+    }
+}
+// ---- selection: the movie gets no input, so the DLL reads the pad / keyboard and moves the highlight
+static GRID_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static SEL: AtomicU32 = AtomicU32::new(0);
+static COUNT: AtomicU32 = AtomicU32::new(0);
+static PREV_INPUT: AtomicU32 = AtomicU32::new(0);
+/// The part picked in the last grid (0 = none yet).
+pub static PICKED: AtomicU32 = AtomicU32::new(0);
+const COLS: u32 = 3;
+const IN_UP: u32 = 1; const IN_DOWN: u32 = 2; const IN_LEFT: u32 = 4; const IN_RIGHT: u32 = 8; const IN_OK: u32 = 16;
+
+#[repr(C)]
+struct XInputState { packet: u32, buttons: u16, lt: u8, rt: u8, lx: i16, ly: i16, rx: i16, ry: i16 }
+type FnXInputGetState = unsafe extern "system" fn(user: u32, state: *mut XInputState) -> u32;
+static XINPUT: AtomicUsize = AtomicUsize::new(0);
+#[link(name = "user32")]
+extern "system" { fn GetAsyncKeyState(vk: i32) -> i16; }
+extern "system" {
+    fn LoadLibraryA(name: *const u8) -> usize;
+    fn GetProcAddress(module: usize, name: *const u8) -> usize;
+}
+
+/// Directions + confirm from the first pad (d-pad, left stick, A) and the keyboard (arrows / WASD, Enter / E / Space).
+unsafe fn read_input() -> u32 {
+    let mut v = 0;
+    if XINPUT.load(Relaxed) == 0 {
+        let m = LoadLibraryA(b"xinput1_4.dll\0".as_ptr());
+        if m != 0 { XINPUT.store(GetProcAddress(m, b"XInputGetState\0".as_ptr()), Relaxed); }
+    }
+    let f = XINPUT.load(Relaxed);
+    if f != 0 {
+        let get: FnXInputGetState = core::mem::transmute(f);
+        let mut s = XInputState { packet: 0, buttons: 0, lt: 0, rt: 0, lx: 0, ly: 0, rx: 0, ry: 0 };
+        if get(0, &mut s) == 0 {
+            let b = s.buttons;
+            if b & 0x1 != 0 || s.ly > 16000 { v |= IN_UP; }
+            if b & 0x2 != 0 || s.ly < -16000 { v |= IN_DOWN; }
+            if b & 0x4 != 0 || s.lx < -16000 { v |= IN_LEFT; }
+            if b & 0x8 != 0 || s.lx > 16000 { v |= IN_RIGHT; }
+            if b & 0x1000 != 0 { v |= IN_OK; }
+        }
+    }
+    let key = |vk: i32| GetAsyncKeyState(vk) as u16 & 0x8000 != 0;
+    if key(0x26) || key(0x57) { v |= IN_UP; }
+    if key(0x28) || key(0x53) { v |= IN_DOWN; }
+    if key(0x25) || key(0x41) { v |= IN_LEFT; }
+    if key(0x27) || key(0x44) { v |= IN_RIGHT; }
+    if key(0x0D) || key(0x45) || key(0x20) || key(0x01) { v |= IN_OK; }
+    v
+}
+
+/// Game thread, every frame: move the highlight, and take the highlighted part when confirm is pressed (the dialog's
+/// own OK closes it on the same press).
+pub unsafe fn tick(base: usize) {
+    if !GRID_OPEN.load(Relaxed) { return; }
+    let now = read_input();
+    let prev = PREV_INPUT.swap(now, Relaxed);
+    let pressed = now & !prev;
+    if pressed == 0 { return; }
+    let (n, mut sel) = (COUNT.load(Relaxed), SEL.load(Relaxed));
+    if pressed & IN_LEFT != 0 && sel % COLS > 0 { sel -= 1; }
+    if pressed & IN_RIGHT != 0 && sel % COLS < COLS - 1 && sel + 1 < n { sel += 1; }
+    if pressed & IN_UP != 0 && sel >= COLS { sel -= COLS; }
+    if pressed & IN_DOWN != 0 && sel + COLS < n { sel += COLS; }
+    if sel != SEL.load(Relaxed) { SEL.store(sel, Relaxed); set_selection(base, sel as usize, n as usize); }
+    if pressed & IN_OK != 0 {
+        GRID_OPEN.store(false, Relaxed);
+        let id = PARTS[sel as usize].load(Relaxed);
+        PICKED.store(id, Relaxed);
+        logf!("reward choice: part {} picked ({:#X})", sel, id);
     }
 }

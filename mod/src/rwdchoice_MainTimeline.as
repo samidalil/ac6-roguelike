@@ -2,6 +2,7 @@ package _02_GotReward_fla
 {
    import flash.display.DisplayObject;
    import flash.display.MovieClip;
+   import flash.display.Shape;
    import flash.events.Event;
    import flash.geom.Rectangle;
 
@@ -22,7 +23,8 @@ package _02_GotReward_fla
 
       private var orig:Object = null;   // vanilla positions / sizes, read once
       private var shown:String = "";     // last state applied
-      private var GROW:Boolean = true;   // window resize (step 2)
+      private var GROW:Boolean = true;
+      private var hl:Shape = null;        // selection frame (drawn: the movie has no fitting symbol)   // window resize (step 2)
 
       public function MainTimeline()
       {
@@ -82,9 +84,23 @@ package _02_GotReward_fla
             t.x = x0 - tb.x * TILE_SCALE + (i % COLS) * pw;
             t.y = y0 - tb.y * TILE_SCALE + int(i / COLS) * ph;
             t.Sel.visible = i == sel;
-            t.Sel.width = tb.width + 24; t.Sel.height = tb.height + 24; t.Sel.x = tb.x - 12; t.Sel.y = tb.y - 12; t.Sel.alpha = 0.35;
+            t.Sel.visible = false;
          }
          if (this.GROW) this.grow(cols * pw, rows * ph);
+         this.highlight(c, this.tile(c, Math.min(sel, n - 1)));
+      }
+
+      // frame around the selected tile's maker logo + thumbnail
+      private function highlight(c:MovieClip, t:MovieClip) : void
+      {
+         if (this.hl == null) { this.hl = new Shape(); c.addChild(this.hl); }
+         var r:Rectangle = t.ItemIcon.getBounds(c).union(t.MakerLogo.getBounds(c));
+         r.inflate(8, 6);
+         this.hl.graphics.clear();
+         this.hl.graphics.lineStyle(3, 0xFFE9A0, 1);
+         this.hl.graphics.beginFill(0xFFFFFF, 0.08);
+         this.hl.graphics.drawRect(r.x, r.y, r.width, r.height);
+         this.hl.graphics.endFill();
       }
 
       // the window grows by the grid's extra width / height over the vanilla content box
