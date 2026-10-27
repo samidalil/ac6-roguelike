@@ -77,7 +77,6 @@ pub const STATE_FLAG_EXTRA_BASE: u32 = 7900;
 /// probes 4000/4500/4900/7000/7500, avoided); set + save + relaunch + read back verified 2026-10-27.
 #[allow(dead_code)] // used by the buy-back, lost-forever and pool features
 pub const ROWS_SOLD: u32 = 4100;   // 4100..4417: sold since the last reroll (buy-back)
-#[allow(dead_code)]
 pub const ROWS_LOST: u32 = 4550;   // 4550..4867: lost forever (failures)
 #[allow(dead_code)]
 pub const ROWS_ROLLED: u32 = 7100; // 7100..7417: already rolled (pool without repeats)

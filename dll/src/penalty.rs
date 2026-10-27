@@ -89,7 +89,7 @@ fn price_class(kind: u8, id: u32) -> Option<usize> {
 /// Build the price tables from the lineup (DLL thread, at boot). A part's value is the game's shop price; starter
 /// parts (price 0) are worth the cheapest shop part of their class; a [prices] entry replaces the value. Parts sell
 /// for `part_sell_percent` / `weapon_sell_percent` of their value and cost `item_charge_percent` of it: the shop
-/// price is rewritten to that cost, and a failure charges it for each slot already on its starter.
+/// price is rewritten to that cost, and a failure charges it for each starter it buys.
 pub unsafe fn init(base: usize, lu: &Lineup, tank_legs: Vec<u32>) {
     BASE.store(base, Relaxed);
     msg::set_base(base);
