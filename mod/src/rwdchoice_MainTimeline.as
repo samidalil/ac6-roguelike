@@ -17,9 +17,9 @@ package _02_GotReward_fla
       private static const COLS:int = 3;
       private static const MAX:int = 12;
       private static const TILE_SCALE:Number = 0.42;
-      private static const GAP:Number = 14;
+      private static const GAP:Number = 24;
       // one part's box in _Content_ coordinates (thumbnail frame, logo, texts), pixels
-      private static const BOX:Rectangle = new Rectangle(30, 40, 540, 230);
+      private static const BOX:Rectangle = new Rectangle(30, 40, 560, 230);
 
       private var orig:Object = null;   // vanilla positions / sizes, read once
       private var shown:String = "";     // last state applied

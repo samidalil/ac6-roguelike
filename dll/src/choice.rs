@@ -67,8 +67,12 @@ fn ids(pool: &[Part], rows: &[u16]) -> Vec<u32> {
     rows.iter().filter_map(|r| pool.iter().find(|p| p.idx == *r)).map(|p| p.grant_id()).collect()
 }
 
-/// Ask the game thread to open the grid for the pending offer.
-unsafe fn show(pool: &[Part], rows: &[u16]) {
+/// Ask the game thread to open the grid for the pending offer ("Récompense 2/3" when a mission gives several).
+unsafe fn show(g: &Game, man: usize, pool: &[Part], rows: &[u16]) {
+    let total = config::get().parts_per_mission.max(1);
+    let n = total + 1 - sets_left(g, man).clamp(1, total);
+    let title = if total > 1 { format!("CHOISISSEZ UNE PIÈCE ({}/{})", n, total) } else { "CHOISISSEZ UNE PIÈCE".to_string() };
+    if let Ok(mut t) = rewardmenu::TITLE.lock() { *t = title; }
     let v = ids(pool, rows);
     for (k, p) in rewardmenu::PARTS.iter().enumerate() { p.store(v.get(k).copied().unwrap_or(0), Relaxed); }
     rewardmenu::VTABLE.store(rewardmenu::OWN as u32, Relaxed);
@@ -87,14 +91,14 @@ pub unsafe fn on_mission_cleared(g: &Game, gd: usize, man: usize, pool: &[Part])
     let rows: Vec<u16> = rolled.iter().map(|p| p.idx).collect();
     write_offer(g, man, &rows);
     put_sets_left(g, man, cfg.parts_per_mission);
-    show(pool, &rows);
+    show(g, man, pool, &rows);
     true
 }
 
 /// A save was loaded with an offer still pending (quit before picking): show it again.
 pub unsafe fn on_save_loaded(g: &Game, man: usize, pool: &[Part]) {
     let rows = offer(g, man);
-    if !rows.is_empty() { logf!("reward choice: pending offer {:?} found in the save", rows); show(pool, &rows); }
+    if !rows.is_empty() { logf!("reward choice: pending offer {:?} found in the save", rows); show(g, man, pool, &rows); }
 }
 
 /// The player picked `id` (DLL loop): grant it, then roll the next offer or close the reward. Returns true when a
@@ -116,7 +120,7 @@ pub unsafe fn on_picked(g: &Game, gd: usize, man: usize, pool: &[Part], id: u32)
         if !next.is_empty() {
             let rows: Vec<u16> = next.iter().map(|p| p.idx).collect();
             write_offer(g, man, &rows);
-            show(pool, &rows);
+            show(g, man, pool, &rows);
         } else { put_sets_left(g, man, 0); }
     }
     !in_mission

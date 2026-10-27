@@ -47,6 +47,8 @@ pub unsafe fn open_pending(base: usize, game: &Game, gd: usize) {
 // ---- our own factory: the "Pièces obtenues" list built from PARTS (what the results screen does at exe+E9A220)
 /// VTABLE value selecting our own factory.
 pub const OWN: usize = 0xFFFF_FFFF;
+/// Title of the next grid (empty = the game's own "Pièces obtenues").
+pub static TITLE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 /// Item ids listed by our factory (0 = unused).
 pub static PARTS: [AtomicU32; 12] = [const { AtomicU32::new(0) }; 12];
 
@@ -216,6 +218,11 @@ unsafe fn fill_tiles(base: usize, _content: usize, _record: *const u8) {
         release(tile);
         logf!("grid: tile {} filled (controller {:#X}, handle {:X?})", i, ctl, core::slice::from_raw_parts(tile, 4));
     }
+    let title = new_handle();
+    get_child(root, title, b"Title\0".as_ptr());
+    let text: Vec<u16> = TITLE.lock().map(|t| t.clone()).unwrap_or_default().encode_utf16().chain(Some(0)).collect();
+    if text.len() > 1 { let set_text: FnSetText = core::mem::transmute(base + o::FN_SET_TEXT); set_text(title as usize + 8, text.as_ptr()); }
+    release(title);
     let sel = new_handle();
     get_child(root, sel, b"_Content_/SelIdx\0".as_ptr());
     SEL_HANDLE.store(sel as usize, Relaxed);
