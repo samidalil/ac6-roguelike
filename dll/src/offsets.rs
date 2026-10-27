@@ -28,6 +28,8 @@ pub const EFM_DIRTY: usize = 0x60;        // u8 set by SetEventFlag so the save 
 
 // --- event flags the mod watches ---
 pub const FLAG_REPLAY_MISSION: u32 = 3134; // keep OFF for the roguelike
+/// Parts Shop (Market) menu unlocked: set by the game at the mission 2 clear, with the first parts wave 6200
+pub const FLAG_MARKET: u32 = 3127;
 /// rises when the mission is cleared (results pending), falls ~2 s after the obtained-parts commit
 pub const FLAG_MISSION_CLEARED: u32 = 5074;
 
@@ -71,6 +73,17 @@ pub const STATE_FLAG_BASE: u32 = 7800; // block 7: probes 7000/7500/7900 untouch
 pub const STATE_FLAG_BITS: u32 = 27; // bits 0..26 = indices, bit 27 = valid
 /// Shop slots 3.. (config shop size above 3): 9 flags each from here, value = row index + 1 (0 = empty)
 pub const STATE_FLAG_EXTRA_BASE: u32 = 7900;
+/// Row bitsets: flag base + lineup row index (ROW_COUNT flags each). Blocks 4 and 7 hold no game flag (only old
+/// probes 4000/4500/4900/7000/7500, avoided); set + save + relaunch + read back verified 2026-10-27.
+#[allow(dead_code)] // used by the buy-back, lost-forever and pool features
+pub const ROWS_SOLD: u32 = 4100;   // 4100..4417: sold since the last reroll (buy-back)
+#[allow(dead_code)]
+pub const ROWS_LOST: u32 = 4550;   // 4550..4867: lost forever (failures)
+#[allow(dead_code)]
+pub const ROWS_ROLLED: u32 = 7100; // 7100..7417: already rolled (pool without repeats)
+/// Missions cleared since the last shop reroll (8 bits, LSB first).
+pub const REROLL_COUNTER_BASE: u32 = 7830;
+pub const REROLL_COUNTER_BITS: u32 = 8;
 
 // --- param repository (RE 2026-10-26): the shop builder exe+159AAE0 does [exe+4E27300] -> exe+15C8980(repo, 0x29, 0) ---
 pub const PARAM_REPO_GLOBAL: usize = 0x4E27300;
@@ -86,6 +99,8 @@ pub const PARAM_IDX_MISSION: usize = 0x91;
 pub const PARAM_IDX_ARENA: usize = 0xC8;
 // MissionParam (row 0x160): base pay + bonus lines (each {s32 value, s32 text}; stride 8)
 pub const MISSION_ROW_SIZE: usize = 0x160;
+/// MissionParam row of the first mission of every New Game (Illegal Entry): pays [economy] starting_credits.
+pub const MISSION_FIRST: u32 = 2010;
 pub const MISSION_CURRENCY_REWARD: usize = 0x2C;
 pub const MISSION_EVENT_REWARD0: usize = 0x5C;
 pub const MISSION_EVENT_REWARDS: usize = 5;
