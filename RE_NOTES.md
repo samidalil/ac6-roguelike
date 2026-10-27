@@ -868,3 +868,14 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   class's name string exe+39BF5C8 ("02_GotReward", same length) and restores it ~60 garage frames later (the class
   reads the name after the factory returns). Test file = vanilla layout with `Dialog` scaled 0.6 in MainTimeline
   frame 1 (FFDec `-importScript`): the dialog came up scaled, vanilla "Pièces obtenues" unchanged.
+- **Native grid filled: WORKS (2026-10-28).** Each "page" of the parts dialog is a fresh window made by the factory
+  exe+1012BB0 from a page object whose content `std::function` (page+0x48, _Impl ptr at page+0x80, callable vtable
+  exe+39BF948, record at +8 copied with exe+E837C0) fills the part view. The page function (class+0x4F0 = window
+  root, +0x558 = button) does GetChild(root, "_Content_") (call exe+1010A44, rsi = page), `exe+C94640(&h)`, then
+  `_Do_call(callable, &h)`. For the grid: our factory also builds one hidden single-part job per part with
+  exe+10158D0 (never pushed) and finds each job's content callable (search for the vtable); when our dialog binds its
+  content (hooks on exe+1012CD4 / 1012CE4 / 1010A44), for each part: GetChild(root, "_Content_/TileNN"),
+  C94640, `_Do_call(callable_i, &tile)`, `exe+C6A370(&tile)` (handle dtor). "_Content_/SelIdx" gets
+  `exe+C8CBA0(handle+8, L"sel/count")` (SetText); the movie's AS3 lays out count tiles (3 columns) and grows the
+  window. The real dialog gets only the first part, so its OK closes it. Tools: tools/build_rwdchoice.ps1 (+ .py),
+  mod/src/rwdchoice_MainTimeline.as, tools/relaunch.ps1. The movie's AS3 receives NO input (keys, mouse).

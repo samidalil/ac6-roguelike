@@ -71,10 +71,23 @@ unsafe extern "system" fn veh(info: *mut [usize; 2]) -> i32 {
         logf!("TRACE slot {} hit: rip exe+{:X} tid {} rax {:X} rcx {:X} rdx {:X} r8 {:X} r9 {:X} rbx {:X} rsi {:X} rdi {:X} rsp {:X} | stack{}",
             slot, rip.wrapping_sub(base), GetCurrentThreadId(), ctx.u64(0x78), ctx.u64(0x80), ctx.u64(0x88), ctx.u64(0xB8), ctx.u64(0xC0),
             ctx.u64(0x90), ctx.u64(0xA8), ctx.u64(0xB0), ctx.u64(0x98), stack_chain(ctx.u64(0x98) as usize));
-        let deref = |v: u64| if mem::is_readable(v as usize, 8) { mem::rd_usize(v as usize).wrapping_sub(base as usize) as u64 } else { 0 };
-        logf!("TRACE slot {}   [rcx]-base {:X} [rdx]-base {:X} [r8]-base {:X}", slot, deref(ctx.u64(0x80)), deref(ctx.u64(0x88)), deref(ctx.u64(0xB8)));
-        let rcx = ctx.u64(0x80) as usize;
-        if mem::is_readable(rcx, 0x20) { logf!("TRACE slot {}   rcx[0..4] {:X} {:X} {:X} {:X}", slot, mem::rd_usize(rcx), mem::rd_usize(rcx + 8), mem::rd_usize(rcx + 0x10), mem::rd_usize(rcx + 0x18)); }
+        // what each register points to: 4 qwords, or the string when it looks like one
+        let mut s = String::new();
+        for (nm, off) in [("rcx", 0x80), ("rdx", 0x88), ("r8", 0xB8), ("r9", 0xC0), ("rbx", 0x90), ("rsi", 0xA8), ("rdi", 0xB0)] {
+            let p = ctx.u64(off) as usize;
+            if p < 0x10000 || !mem::is_readable(p, 0x20) { continue; }
+            let bytes: Vec<u8> = (0..24).map(|k| mem::rd_u8(p + k)).collect();
+            let ascii = bytes.iter().take_while(|b| **b != 0).count();
+            if ascii >= 3 && bytes[..ascii].iter().all(|b| b.is_ascii_graphic() || *b == b' ') {
+                let _ = write!(s, " {}=\"{}\"", nm, String::from_utf8_lossy(&bytes[..ascii]));
+            } else if bytes[1] == 0 && bytes[0].is_ascii_graphic() && bytes[2].is_ascii_graphic() && bytes[3] == 0 {
+                let w: String = (0..12).map(|k| mem::rd_u16(p + 2 * k)).take_while(|c| *c != 0).map(|c| char::from_u32(c as u32).unwrap_or('?')).collect();
+                let _ = write!(s, " {}=L\"{}\"", nm, w);
+            } else {
+                let _ = write!(s, " {}->[{:X} {:X} {:X} {:X}]", nm, mem::rd_usize(p), mem::rd_usize(p + 8), mem::rd_usize(p + 0x10), mem::rd_usize(p + 0x18));
+            }
+        }
+        logf!("TRACE slot {}  {}", slot, s);
         if left == 1 { logf!("TRACE slot {}: hit limit reached (breakpoint stays set but silent)", slot); }
     }
     ctx.set_u64(0x68, 0);

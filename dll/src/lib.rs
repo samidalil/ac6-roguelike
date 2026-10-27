@@ -935,6 +935,7 @@ fn boot() {
         Ok(cave) => logf!("open-session hook installed: exe+{:X} -> cave {:#X}", o::OPEN_SESSION_CALLSITE, cave),
         Err(e) => logf!("open-session hook FAILED: {}", e),
     }
+    unsafe { rewardmenu::install(base); }
     match unsafe { msg::install(base) } {
         Ok(()) => logf!("message lookup hook installed: exe+{:X}", o::FN_MSG_LOOKUP),
         Err(e) => logf!("message lookup hook FAILED: {}", e),

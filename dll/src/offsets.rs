@@ -197,7 +197,19 @@ pub const FN_GOT_REWARD_PARTS_MENU: usize = 0x10158D0; // (out RefPtr<MenuJob>, 
 pub const FN_DEFAULT_ALLOCATOR: usize = 0x2923D10;
 pub const GOT_REWARD_MOVIE_NAME: usize = 0x39BF5C8;  // UTF-16 "02_GotReward" the class builds its window with
 pub const MENU_TABLE_SPARE_ENTRY: usize = 0x4E29168; // menu table {flags, name} name of 02_OnlineArena_GotReward      // () -> the game's default allocator
-pub const FN_MENU_JOB_PUSH: usize = 0xDC2A70;           // (RefPtr<MenuJob>*): hands the job to the menu manager, releases it
+pub const FN_MENU_JOB_PUSH: usize = 0xDC2A70;
+// component API of the menu framework and the part view (one part's slots: logo, icon, category, name)
+pub const FN_GET_CHILD: usize = 0xC928E0;        // (component handle, out handle, const char* path "A/B")
+pub const FN_SET_TEXT: usize = 0xC8CBA0;
+pub const FN_HANDLE_PREPARE: usize = 0xC94640;    // (handle*): done on the content handle before its page fills it
+pub const FN_HANDLE_DTOR: usize = 0xC6A370;       // (handle*): component handle destructor         // (handle + 8, const wchar_t*)
+pub const FN_PART_VIEW_BIND: usize = 0x1001530;  // (view ~0x8A0 bytes, component handle)
+pub const FN_PART_VIEW_FILL: usize = 0x1000B60;  // (view, item descriptor)
+pub const FN_PART_VIEW_DTOR: usize = 0xE83BE0;   // (view)
+pub const PART_VIEW_BIND_CALLSITE: usize = 0x1012CD4; // in the parts mode update
+pub const PART_VIEW_FILL_CALLSITE: usize = 0x1012CE4;
+pub const CONTENT_LOOKUP_CALLSITE: usize = 0x1010A44;
+pub const PAGE_CONTENT_CALLABLE_VTABLE: usize = 0x39BF948; // a parts page's content std::function _Impl (record at +8) // page function: GetChild(root = this+0x4F0, "_Content_")           // (RefPtr<MenuJob>*): hands the job to the menu manager, releases it
 
 // --- game over ---
 /// Run-over flag (saved): set at game over; a save loaded with it goes straight back to the title.
