@@ -861,6 +861,9 @@ fn boot() {
     logf!("module base = {:#X}", base);
     config::load();
     msg::set_base(base);
+    // before the menus are preloaded: our reward choice movie takes a spare menu table entry
+    for _ in 0..100 { if unsafe { mem::rd_usize(base + o::MENU_TABLE_SPARE_ENTRY) } != 0 { break; } sleep_ms(20); }
+    unsafe { rewardmenu::register_movie(base); }
     let game = unsafe { Game::new(base) };
 
     // wait for GameDataMan (title screen), up to ~60 s

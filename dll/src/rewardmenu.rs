@@ -15,6 +15,9 @@ pub static CAPTURE: AtomicU32 = AtomicU32::new(0);
 struct StdFunction { storage: [usize; 7], callable: usize }
 
 pub unsafe fn open_pending(base: usize, game: &Game, gd: usize) {
+    // the class reads its movie name after our factory returns: restore the vanilla name a little later
+    let left = RESTORE_IN.load(Relaxed);
+    if left > 0 { RESTORE_IN.store(left - 1, Relaxed); if left == 1 { write_wide(base + o::GOT_REWARD_MOVIE_NAME, VANILLA_MOVIE); log("reward choice: vanilla movie name restored"); } }
     let req = OPEN_REQUEST.load(Relaxed);
     if req == 0 || mem::rd_usize(base + o::DIALOG_REQUIRED_GLOBAL) == 0 { return; }
     OPEN_REQUEST.store(0, Relaxed);
@@ -60,6 +63,10 @@ unsafe extern "system" fn own_call(_this: usize, out: *mut usize, ctx: usize) ->
     let v = GameVec { alloc: get_alloc(), begin: buf.as_ptr(), end: buf.as_ptr().add(buf.len()), cap: buf.as_ptr().add(buf.len()) };
     logf!("own factory: parts list {:X?}, ctx {:#X}", buf, ctx);
     let make: unsafe extern "system" fn(*mut usize, usize, *const GameVec) -> *mut usize = core::mem::transmute(base + o::FN_GOT_REWARD_PARTS_MENU);
+    // the class names its movie with this string while it is built: ours for this one construction
+    let name = base + o::GOT_REWARD_MOVIE_NAME;
+    let swap = OWN_MOVIE.load(Relaxed);
+    if swap { write_wide(name, CHOICE_MOVIE); RESTORE_IN.store(60, Relaxed); }
     make(out, ctx, &v)
 }
 unsafe extern "system" fn own_type(_this: usize) -> usize { 0 }
@@ -77,4 +84,32 @@ unsafe fn own_vtable() -> usize {
     *vt.add(4) = own_delete as *const () as usize;
     *vt.add(5) = own_get as *const () as usize;
     vt as usize
+}
+// ---- our own movie (menu/02_rwdchoice.gfx in the mod package)
+/// Movie names (same length: the class's string is patched in place).
+const VANILLA_MOVIE: &str = "02_GotReward";
+const CHOICE_MOVIE: &str = "02_RwdChoice";
+/// Open our factory's dialog with our movie instead of 02_GotReward (debug toggle).
+pub static OWN_MOVIE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+static mut CHOICE_NAME_W: [u16; 13] = [0; 13];
+/// Garage frames left before the vanilla movie name is written back (0 = nothing pending).
+static RESTORE_IN: AtomicU32 = AtomicU32::new(0);
+
+unsafe fn write_wide(at: usize, s: &str) {
+    let w: Vec<u16> = s.encode_utf16().collect();
+    let mut old = 0u32;
+    VirtualProtect(at as *mut c_void, w.len() * 2, PAGE_EXECUTE_READWRITE, &mut old);
+    core::ptr::copy_nonoverlapping(w.as_ptr(), at as *mut u16, w.len());
+    VirtualProtect(at as *mut c_void, w.len() * 2, old, &mut old);
+}
+
+/// Boot: make the game preload our movie, under the menu table entry of 02_OnlineArena_GotReward (online only).
+pub unsafe fn register_movie(base: usize) {
+    let names = core::ptr::addr_of_mut!(CHOICE_NAME_W) as *mut u16;
+    for (k, c) in CHOICE_MOVIE.encode_utf16().enumerate() { *names.add(k) = c; }
+    let entry = base + o::MENU_TABLE_SPARE_ENTRY;
+    let old = mem::rd_usize(entry);
+    core::ptr::write_unaligned(entry as *mut usize, names as usize);
+    logf!("reward choice movie {} registered in menu table entry exe+{:X} (was {:#X})", CHOICE_MOVIE, o::MENU_TABLE_SPARE_ENTRY, old);
+    trace::command(&format!("watch 3 {:X} rw 8 12", names as usize)); // RE: who reads our movie name
 }

@@ -194,7 +194,9 @@ pub const GOT_REWARD_FACTORY_VTABLE: usize = 0x392B7D0;
 pub const GOT_REWARD_FACTORY_INT_VTABLE: usize = 0x392B770; // same, capturing an int (built at exe+DC1B95)
 pub const FN_MENU_JOB_FROM_FACTORY: usize = 0xDA3410;   // (out RefPtr<MenuJob>, const std::function*) -> out
 pub const FN_GOT_REWARD_PARTS_MENU: usize = 0x10158D0; // (out RefPtr<MenuJob>, ctx, const vector<u32>* item ids)
-pub const FN_DEFAULT_ALLOCATOR: usize = 0x2923D10;      // () -> the game's default allocator
+pub const FN_DEFAULT_ALLOCATOR: usize = 0x2923D10;
+pub const GOT_REWARD_MOVIE_NAME: usize = 0x39BF5C8;  // UTF-16 "02_GotReward" the class builds its window with
+pub const MENU_TABLE_SPARE_ENTRY: usize = 0x4E29168; // menu table {flags, name} name of 02_OnlineArena_GotReward      // () -> the game's default allocator
 pub const FN_MENU_JOB_PUSH: usize = 0xDC2A70;           // (RefPtr<MenuJob>*): hands the job to the menu manager, releases it
 
 // --- game over ---

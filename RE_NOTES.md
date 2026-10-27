@@ -862,3 +862,9 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   ItemIcon/Thumbnail, CategoryName, ItemName) as TileNN, filled by the DLL with these calls; the tiles themselves
   selectable (controller cursor + mouse HitArea), max 3 columns x 4 rows (user, 2026-10-28). Open: the item argument
   of exe+1000B60, the framework's button/focus component (Button + HitArea + Cursor) and its press callback.
+- **Own movie file: WORKS (2026-10-28).** `mod/menu/02_rwdchoice.gfx` (me3 `[[packages]] path = 'mod'`) is
+  preloaded under the menu table entry of 02_OnlineArena_GotReward (exe+4E29168 name ptr -> our UTF-16
+  "02_RwdChoice", set at boot before the title preload exe+1604BCC). Our factory writes "02_RwdChoice" over the
+  class's name string exe+39BF5C8 ("02_GotReward", same length) and restores it ~60 garage frames later (the class
+  reads the name after the factory returns). Test file = vanilla layout with `Dialog` scaled 0.6 in MainTimeline
+  frame 1 (FFDec `-importScript`): the dialog came up scaled, vanilla "Pièces obtenues" unchanged.
