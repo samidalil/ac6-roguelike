@@ -56,6 +56,7 @@ mod dialog;
 mod config;
 mod trace;
 mod rewardmenu;
+mod choice;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
 struct Lineup {
@@ -971,6 +972,7 @@ fn boot() {
     let mut prev_state: Option<Option<Vec<u16>>> = None;
     let mut prev_gd = 0usize;
     let mut tick: u64 = 0;
+    let mut choice_save_at: u64 = 0; // a garage pick is saved a second later (after the game thread granted it)
     loop {
         tick += 1;
         unsafe {
@@ -1048,6 +1050,7 @@ fn boot() {
                         exit_phase = 1;
                     } else {
                         penalty::CLEANUP_REQUEST.store(true, Relaxed); run.on_garage_open(man, "save loaded");
+                        choice::on_save_loaded(&run.game, man, &run.pool);
                     }
                 }
                 prev_loaded = loaded;
@@ -1125,6 +1128,7 @@ fn boot() {
                             run.reward_parts.clear(); run.reward_credits.clear();
                         }
                         c if c.starts_with("watch ") || c == "unwatch" => trace::command(c),
+                        "choice" => { log("DEBUG: reward choice of a cleared mission"); if !choice::on_mission_cleared(&run.game, gd, man, &run.pool) { log("DEBUG: nothing to offer"); } }
                         c if c.starts_with("parts ") => { let ids: Vec<u32> = c[6..].split_whitespace().filter_map(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()).collect(); for (k, p) in rewardmenu::PARTS.iter().enumerate() { p.store(ids.get(k).copied().unwrap_or(0), Relaxed); } logf!("DEBUG: own parts menu {:X?}", ids); rewardmenu::VTABLE.store(rewardmenu::OWN as u32, Relaxed); rewardmenu::OPEN_REQUEST.store(1, Relaxed); }
                         c if c.starts_with("gotreward") => { let a: Vec<&str> = c.split_whitespace().collect(); let hex = |i: usize| a.get(i).and_then(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()); let id = hex(2).unwrap_or(1); logf!("DEBUG: open the got-reward menu (vtable {:X?}, item {:#X}, capture {:?})", hex(1), id, hex(3)); rewardmenu::VTABLE.store(hex(1).unwrap_or(0), Relaxed); rewardmenu::CAPTURE.store(hex(3).unwrap_or(0), Relaxed); rewardmenu::OPEN_REQUEST.store(id.max(1), Relaxed); }
                         c if c.starts_with("give ") => match u32::from_str_radix(c[5..].trim().trim_start_matches("0x"), 16) {
@@ -1142,6 +1146,11 @@ fn boot() {
                     dialog::show(txt.trim_end());
                     log("DEBUG: test dialog requested");
                 }
+                // reward choice: the player picked a part in the grid
+                let picked = rewardmenu::PICKED.swap(0, Relaxed);
+                if picked != 0 && choice::on_picked(&run.game, gd, man, &run.pool, picked) { choice_save_at = tick + 10; }
+                if choice_save_at != 0 && tick >= choice_save_at { choice_save_at = 0; logf!("reward choice: save requested (mask before {:?})", run.game.request_save()); }
+
                 let pb = PAUSE_BLOCKED.swap(0, Relaxed);
                 if pb > 0 { logf!("pause menu blocked ({} request{})", pb, if pb > 1 { "s" } else { "" }); }
 
@@ -1174,11 +1183,12 @@ fn boot() {
                         // never saves during a mission, so this is only a fallback for the in-memory state
                         if escrow_save_pending { log("WARNING: mission started before the escrow save was written"); }
                         if run.game.get_flag(man, o::FLAG_ESCROW) != Some(true) { log("WARNING: mission started without the escrow flag"); }
-                        run.queue_reward(gd, man, "mission start");
+                        // pick-1-of-K mode: nothing is given at sortie, the offer is rolled at the mission clear
+                        if config::get().reward_choices <= 1 { run.queue_reward(gd, man, "mission start"); }
                         trace::reapply("mission start");
                     }
                     if p == 1 && d == 0 {
-                        if run.reward_handles.is_empty() && run.reward_credits.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
+                        if run.reward_handles.is_empty() && run.reward_credits.is_empty() && config::get().parts_per_mission > 0 && config::get().reward_choices <= 1 { log("WARNING: mission-end commit with no reward queued"); }
                         log("defer 1->0 (commit)"); run.reward_handles.clear();
                         // ignore the flip caused by the game shutting down / exiting to title (save no longer loaded)
                         if !cleared_seen && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {
@@ -1223,6 +1233,11 @@ fn boot() {
                     // (direct flag writes, no game call) is included in that save.
                     if run.mission_ran {
                         log("mission cleared -> reroll (before the commit autosave)");
+                        if config::get().reward_choices > 1 && !choice::on_mission_cleared(&run.game, gd, man, &run.pool) {
+                            // nothing left to offer: each reward pays a random sellable part's value
+                            let sellable: Vec<Part> = run.pool.iter().copied().filter(|p| penalty::sell_value(p.grant_id()).unwrap_or(0) > 0).collect();
+                            for _ in 0..config::get().parts_per_mission { if let Some(p) = pick_weighted(&mut run.rng, &sellable) { run.reward_credits.push(p); } }
+                        }
                         run.on_mission_cleared(man);
                         run.on_mission_end(gd, man); prev_state = None; run.mission_ran = false;
                     } else { log("5074 rose without a mission having run (stale flag on load): ignored"); }

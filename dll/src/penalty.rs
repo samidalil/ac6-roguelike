@@ -193,9 +193,9 @@ unsafe extern "system" fn frame_hook(this: usize) {
         mem::wr_i32(gd + o::GD_COAM, new);
         logf!("converted reward: +{} COAM ({} -> {})", credits, old, new);
     }
+    rewardmenu::open_pending(base, &game, gd); // the reward choice also opens at the mission clear
     if game.defer_byte(gd) != 0 { return; } // the rest is garage-only work
     dialog::open_pending(base);
-    rewardmenu::open_pending(base, &game, gd);
     if CLEANUP_REQUEST.swap(false, Relaxed) { cleanup_orphans(&game, gd); }
     if PENALTY_REQUEST.swap(false, Relaxed) { apply_penalty(&game, ctx, gd); }
     let give = GIVE_REQUEST.swap(0, Relaxed);

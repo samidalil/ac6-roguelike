@@ -152,12 +152,11 @@ unsafe fn find_content_callable(base: usize, job: usize) -> usize {
 }
 
 static GRID_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// RE switches: give the class only the first part / fill our tiles.
+/// Give the class only the first part (its OK then closes the dialog).
 /// RE: log a real backtrace (unwind data) on the next binds.
-pub static BACKTRACES: AtomicU32 = AtomicU32::new(4);
+pub static BACKTRACES: AtomicU32 = AtomicU32::new(0);
 extern "system" { fn RtlCaptureStackBackTrace(skip: u32, n: u32, out: *mut usize, hash: *mut u32) -> u16; }
 static TRUNCATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-static FILL_TILES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The parts content handle the class just bound its view to (valid during that update).
 static LAST_HANDLE: AtomicUsize = AtomicUsize::new(0);
 /// Handle of _Content_/SelIdx ("selected/count", read by the movie's script). Leaked on purpose: one per dialog.
@@ -167,7 +166,6 @@ static ROOT_HANDLE: AtomicUsize = AtomicUsize::new(0);
 
 type FnBind = unsafe extern "system" fn(view: *mut u8, handle: usize) -> usize;
 type FnFill = unsafe extern "system" fn(view: *mut u8, record: *const u8) -> usize;
-type FnViewDtor = unsafe extern "system" fn(view: *mut u8);
 type FnGetChild = unsafe extern "system" fn(parent: usize, out: *mut usize, path: *const u8) -> usize;
 type FnSetText = unsafe extern "system" fn(target: usize, text: *const u16);
 type FnHandle = unsafe extern "system" fn(handle: *mut usize);
@@ -257,7 +255,7 @@ unsafe extern "system" fn content_lookup_hook(parent: usize, out: *mut usize, pa
     }
     r
 }
-static PAGE_DUMPS: AtomicU32 = AtomicU32::new(3);
+static PAGE_DUMPS: AtomicU32 = AtomicU32::new(0);
 /// Address of the qword where the content lookup cave stores the caller's rsi (the page object).
 static SAVED_RSI: AtomicUsize = AtomicUsize::new(0);
 
