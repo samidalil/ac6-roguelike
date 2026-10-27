@@ -27,6 +27,9 @@ pub static RETIRE_REQUEST: AtomicBool = AtomicBool::new(false);
 pub static RETIRED: AtomicUsize = AtomicUsize::new(0);
 pub static GAME_OVER_PENDING: AtomicBool = AtomicBool::new(false);
 /// DEBUG: an item id (tag | equipId) to grant in the garage, 0 = none.
+/// Credits of mission rewards converted to money (no part left to give), 0 = none. Added on the game thread at the
+/// mission clear, before the commit charges the mission's costs (money must exist before them).
+pub static CREDIT_REQUEST: AtomicI32 = AtomicI32::new(0);
 pub static GIVE_REQUEST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 
@@ -181,6 +184,13 @@ unsafe extern "system" fn frame_hook(this: usize) {
         retire();
         RETIRED.fetch_add(1, Relaxed);
         return;
+    }
+    let credits = CREDIT_REQUEST.swap(0, Relaxed);
+    if credits > 0 {
+        let old = mem::rd_i32(gd + o::GD_COAM);
+        let new = (old as i64 + credits as i64).min(999_999_999) as i32;
+        mem::wr_i32(gd + o::GD_COAM, new);
+        logf!("converted reward: +{} COAM ({} -> {})", credits, old, new);
     }
     if game.defer_byte(gd) != 0 { return; } // the rest is garage-only work
     dialog::open_pending(base);
@@ -472,7 +482,7 @@ pub fn part_name(item: u32) -> String {
 }
 
 /// 1234567 -> "1 234 567" (the game's own thousands separator).
-fn money(v: i64) -> String {
+pub fn money(v: i64) -> String {
     let d = v.abs().to_string();
     let mut out = String::new();
     for (i, c) in d.chars().enumerate() {

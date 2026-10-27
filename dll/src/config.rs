@@ -23,6 +23,8 @@ pub struct Config {
     /// shop size: weapons and other parts offered after each cleared mission (total at most MAX_SHOP_SLOTS)
     pub shop_weapons: u32,
     pub shop_parts: u32,
+    /// test knob: each pool (weapons / other parts) keeps only its first N parts (0 = every part)
+    pub pool_limit: u32,
     /// parts given at the end of each cleared mission
     pub parts_per_mission: u32,
     /// cleared missions between shop rerolls (1 = every mission)
@@ -45,7 +47,7 @@ fn defaults() -> Config {
     Config {
         mission_pay_percent: 0, arena_repeat_pay_percent: 0, part_sell_percent: 25, weapon_sell_percent: 25,
         item_charge_percent: 100, prices: Vec::new(), ammo_cost_percent: 100, repair_cost_percent: 100,
-        shop_weapons: 1, shop_parts: 2, parts_per_mission: 1, reroll_interval: 1, starting_credits: 100_000, unlisted_tier: 1,
+        shop_weapons: 1, shop_parts: 2, pool_limit: 0, parts_per_mission: 1, reroll_interval: 1, starting_credits: 100_000, unlisted_tier: 1,
         common_weight: 60, rare_weight: 30, epic_weight: 10, part_rarity: Vec::new(),
     }
 }
@@ -109,6 +111,7 @@ pub fn load() {
             ("economy", "repair_cost_percent") => c.repair_cost_percent = v,
             ("shop", "shop_weapons") => c.shop_weapons = v,
             ("shop", "shop_parts") => c.shop_parts = v,
+            ("shop", "pool_limit") => c.pool_limit = v,
             ("rewards", "parts_per_mission") => c.parts_per_mission = v.min(3),
             ("shop", "reroll_interval") => c.reroll_interval = v.clamp(1, 255), // 8-bit counter in the save
             ("economy", "starting_credits") => c.starting_credits = v.min(999_999_999),
