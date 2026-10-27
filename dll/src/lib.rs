@@ -48,6 +48,7 @@ macro_rules! logf { ($($a:tt)*) => {{ let mut s = String::new(); let _ = write!(
 
 // declared after logf! so the module can use it (macro_rules scope is textual)
 mod penalty;
+mod buyback;
 mod msg;
 mod dialog;
 mod config;
@@ -501,7 +502,7 @@ unsafe extern "system" fn shop_pred(item_ctx: *const u8) -> u8 {
     for c in &CHOSEN {
         if c.load(Relaxed) == id { return 1; }
     }
-    0
+    buyback::offered(row) as u8
 }
 
 fn set_chosen(ids: &[u32]) {
@@ -746,6 +747,7 @@ impl Run {
         if sel.is_empty() { log("mission end: nothing left to offer"); }
         let idx: Vec<u16> = sel.iter().map(|p| p.idx).collect();
         self.game.write_state(man, &idx);
+        buyback::clear(&self.game, man);
         self.apply_state(&idx, "reroll at mission end");
     }
 }
@@ -778,7 +780,7 @@ fn boot() {
                 if unsafe { anchors_ok(lu.data) } {
                     unsafe { release_rank_rewards(&lu); }
                     pool = unsafe { build_pool(&lu) };
-                    unsafe { penalty::init(base, &lu); }
+                    unsafe { penalty::init(base, &lu); buyback::init(base, &lu); }
                     logf!("lineup (repository) at {:#X}: pool = {} buyable rows ({} weapons)", lu.data, pool.len(), pool.iter().filter(|p| p.is_weapon()).count());
                     if !pool.is_empty() { break; }
                 }
@@ -811,6 +813,12 @@ fn boot() {
         match unsafe { install_call_hook(base, site, o::FN_SELL_PRICE, penalty::sell_price_hook as *const () as usize) } {
             Ok(cave) => logf!("sell price hook installed: exe+{:X} -> cave {:#X}", site, cave),
             Err(e) => logf!("sell price hook exe+{:X} FAILED: {}", site, e),
+        }
+    }
+    for site in o::SALE_REMOVE_CALLSITES {
+        match unsafe { install_call_hook(base, site, o::FN_SHOP_REMOVE, buyback::sale_hook as *const () as usize) } {
+            Ok(cave) => logf!("sale hook installed: exe+{:X} -> cave {:#X}", site, cave),
+            Err(e) => logf!("sale hook exe+{:X} FAILED: {} (buy-back misses Vente sales)", site, e),
         }
     }
     match unsafe { install_call_hook(base, o::OPEN_SESSION_CALLSITE, o::FN_OPEN_SESSION, penalty::open_session_hook as *const () as usize) } {
@@ -914,6 +922,7 @@ fn boot() {
                 // flags arrive (the title screen has none). One check per load.
                 let loaded = run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true);
                 if loaded && !prev_loaded {
+                    buyback::load(&run.game, man);
                     // dead save: flagged, or an unpaid failure (escrow) whose penalty leaves the player broke.
                     // The second case is the same outcome every time it is loaded, so nothing needs saving:
                     // leave for the title at once, before the garage shows.

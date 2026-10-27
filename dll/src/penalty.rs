@@ -406,6 +406,7 @@ unsafe fn sell(game: &Game, gd: usize, parts: &[(i32, u32, u32)], deficit: i64, 
             bal += p as i64;
             sold.push((id, p));
             lines.push(format!("auto-sold {:#X} for {}", id, p));
+            buyback::record(id, "auto-sell");
         }
     }
     mem::wr_i32(gd + o::GD_COAM, bal.max(0) as i32);

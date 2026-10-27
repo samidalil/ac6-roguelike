@@ -16,6 +16,8 @@ HOW IT PLAYS
 - The parts shop (open from mission 2 on) only offers a few random parts (1 weapon + 2 parts by default), rerolled after every cleared
   mission (or every few missions: reroll_interval). Each cleared mission also gives you a random part.
   Rarer parts come up less often.
+- A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
+  so you can buy it back.
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
 - No pause menu during missions: no retry, no quitting.
 - Dying, or leaving a mission any other way (even closing the game), counts as a failed sortie:
