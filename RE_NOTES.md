@@ -824,3 +824,41 @@ mid-mission (22 094 -> 40 844, seen by the COAM detour) and reroll — but the g
 effect of the clear, not a trigger. Still unobserved: the converted-reward dialog after a real result screen (3139↓).
 Arena fights: no 5074, the queued reward is given silently at the end (separate task). Note: one debug `save` request right after a Continue was not written (cause unknown,
 file unchanged); the next one was.
+
+## Native reward choice: menu RE (2026-10-28, task "pick 1 of 3")
+Goal: a native dialog (grid of parts, a TAKE button each). Menus are Scaleform GFX v11 files `menu/<name>.gfx` (me3 can
+override them; the logo-skip mod does). `tools/ac6_unpack.py` extracts single files from Data0-3 (BHD5 RSA keys read
+from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles them (`-export script`, `-dumpSWF`).
+- `02_gotreward.gfx` = "Pièces obtenues" and every other reward popup: AS3 is display-only (frame stops, named slots
+  Title/Button/Thumbnail/Message/HitArea); the C++ class (code ~exe+1012000-1016000, Arxan-split) drives it.
+  Menu names table: exe+4E28CF0 (16-byte entries, GotReward = id 0x46, name ptr at exe+4E29158).
+- Menus are created from `std::function<RefPtr<MenuJob>(ComponentStack&)>` objects (MSVC: 0x38 storage + callable
+  ptr at +0x38; callable = {vtable, captures...}): `exe+DA3410(&job, &func)` makes the job, `exe+DC2A70(&job)` hands
+  it to the menu manager (`[exe+4E15530]+0x18`, exe+D834E0) and releases it. `dll/src/rewardmenu.rs` does this from
+  the garage game thread (debug `gotreward <vtable rva> [item hex] [capture hex]`).
+- GotReward factory vtables (exe+392B500..392B920, call slot -> class function), fired from the garage:
+  392B7D0/392B590/392B6B0 (no capture) -> "Début de la phase de promotion"; 392B770 (int capture = emblem id) ->
+  "Emblème acquis"; 392B800 -> "Fin de la phase de promotion"; 392B860 -> "Plaque obtenue"; 392B890 (0x14 bytes) ->
+  "Progression dans Loghunt"; 392B8F0 (captures a RefPtr to a data object; zero capture CRASHED the game) -> likely
+  the parts list ("Pièces obtenues", class fn exe+1015640); 392B8C0 (moved ptr + int) and 392B920 (8 bytes) untested.
+- RE tracer: `dll/src/trace.rs` = hardware breakpoints on every thread + VEH log (regs, [rcx..], return chain);
+  debug `watch <slot> <addr|exe+rva> <x|w|rw> <len> [max]` / `unwatch`; `%USERPROFILE%\ac6_watch.txt` = commands
+  run at boot; re-armed at sortie and at the mission clear. Screenshots: grant `tabtip.exe` (an invisible
+  full-screen TabTip window otherwise masks the whole screen).
+- **"Pièces obtenues" with our own list: WORKS (2026-10-28).** Real flow: results screen lambda exe+E9A220 builds a
+  `vector<u32>` {allocator (exe+2923D10()), begin, end, cap} with `exe+E9D420(results, &list)` and calls
+  `exe+10158D0(&job, ctx, &list)` (the parts mode of the GotReward class; title code exe+10142B9 runs from
+  exe+1015973). Entries = the tagged item ids the DLL grants with (`Part::grant_id`: weapon bare id, frame
+  0x10000000|id, booster 0x6.., FCS 0x7.., generator 0x5..); a bad id shows "(id rounded to 100) +N". The DLL's own
+  std::function (vtable in rewardmenu.rs: _Copy, _Move, _Do_call(this, out, ctx), _Target_type, _Delete_this, _Get)
+  calls exe+10158D0 with our list; pushed like the others it opens a native one-part-per-page dialog (OK = next page),
+  display only (nothing granted). Debug: `parts <id hex> ...`. Menus pushed while another modal is up wait for it.
+- **How the class fills a part tile** (seen live with a breakpoint in the filler while our dialog opened): in the
+  parts update (around exe+1012CA8..1012D1C, game/menu thread = our garage hook thread):
+  `exe+C92E20(&comp, parent)` -> component handle, `exe+1001530(&view, comp)` builds a part view (binds the
+  children with `exe+C928E0(component, &out, "CategoryName" / "MakerLogo" / "ItemName" ...)` = get child by
+  instance name), `exe+1000B60(&view, item)` fills it, `exe+E83BE0(&view)` destroys the view (~0x8A0 bytes,
+  stack). Grid plan: a modified 02_gotreward.gfx with K copies of the parts content symbol (Symbol 218: MakerLogo,
+  ItemIcon/Thumbnail, CategoryName, ItemName) as TileNN, filled by the DLL with these calls; the tiles themselves
+  selectable (controller cursor + mouse HitArea), max 3 columns x 4 rows (user, 2026-10-28). Open: the item argument
+  of exe+1000B60, the framework's button/focus component (Button + HitArea + Cursor) and its press callback.

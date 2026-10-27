@@ -188,6 +188,14 @@ pub const FN_MENU_JOB_RESET: usize = 0xDBA200;          // (handle): vtable rese
 pub const MENU_JOB_HANDLE_VTABLE: usize = 0x386E0C8;
 /// Global the dialog builder requires (null at the title / during loads -> the game's fatal-error path).
 pub const DIALOG_REQUIRED_GLOBAL: usize = 0x4F348C8;
+// "Pièces obtenues" menu (02_GotReward): std::function<RefPtr<MenuJob>(ComponentStack&)> whose call slot (exe+DC3EC0)
+// builds the menu (exe+DBAE70 -> exe+1015AC0); the captured data is unused.
+pub const GOT_REWARD_FACTORY_VTABLE: usize = 0x392B7D0;
+pub const GOT_REWARD_FACTORY_INT_VTABLE: usize = 0x392B770; // same, capturing an int (built at exe+DC1B95)
+pub const FN_MENU_JOB_FROM_FACTORY: usize = 0xDA3410;   // (out RefPtr<MenuJob>, const std::function*) -> out
+pub const FN_GOT_REWARD_PARTS_MENU: usize = 0x10158D0; // (out RefPtr<MenuJob>, ctx, const vector<u32>* item ids)
+pub const FN_DEFAULT_ALLOCATOR: usize = 0x2923D10;      // () -> the game's default allocator
+pub const FN_MENU_JOB_PUSH: usize = 0xDC2A70;           // (RefPtr<MenuJob>*): hands the job to the menu manager, releases it
 
 // --- game over ---
 /// Run-over flag (saved): set at game over; a save loaded with it goes straight back to the title.

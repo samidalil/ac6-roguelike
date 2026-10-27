@@ -54,6 +54,8 @@ mod buyback;
 mod msg;
 mod dialog;
 mod config;
+mod trace;
+mod rewardmenu;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
 struct Lineup {
@@ -940,6 +942,9 @@ fn boot() {
     }
     let n = unsafe { apply_economy(base) };
     logf!("economy: {} reward fields scaled at boot", n);
+    // RE: %USERPROFILE%/ac6_watch.txt = trace commands run at every boot (kept, unlike ac6_debug.txt)
+    let watch = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_watch.txt");
+    for l in std::fs::read_to_string(&watch).unwrap_or_default().lines().filter(|l| l.starts_with("watch ")) { unsafe { trace::command(l.trim()); } }
 
     let mut run = Run { game, pool, rng: Rng::seeded(), reward_handles: Vec::new(), reward_parts: Vec::new(), reward_credits: Vec::new(), credit_text: None, last_grant_tick: 0, mission_ran: false, market_wait: false };
     let mut prev_defer: Option<u8> = None;
@@ -1115,6 +1120,9 @@ fn boot() {
                             if let Some(t) = run.credit_text.take() { dialog::show(&t); }
                             run.reward_parts.clear(); run.reward_credits.clear();
                         }
+                        c if c.starts_with("watch ") || c == "unwatch" => trace::command(c),
+                        c if c.starts_with("parts ") => { let ids: Vec<u32> = c[6..].split_whitespace().filter_map(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()).collect(); for (k, p) in rewardmenu::PARTS.iter().enumerate() { p.store(ids.get(k).copied().unwrap_or(0), Relaxed); } logf!("DEBUG: own parts menu {:X?}", ids); rewardmenu::VTABLE.store(rewardmenu::OWN as u32, Relaxed); rewardmenu::OPEN_REQUEST.store(1, Relaxed); }
+                        c if c.starts_with("gotreward") => { let a: Vec<&str> = c.split_whitespace().collect(); let hex = |i: usize| a.get(i).and_then(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()); let id = hex(2).unwrap_or(1); logf!("DEBUG: open the got-reward menu (vtable {:X?}, item {:#X}, capture {:?})", hex(1), id, hex(3)); rewardmenu::VTABLE.store(hex(1).unwrap_or(0), Relaxed); rewardmenu::CAPTURE.store(hex(3).unwrap_or(0), Relaxed); rewardmenu::OPEN_REQUEST.store(id.max(1), Relaxed); }
                         c if c.starts_with("give ") => match u32::from_str_radix(c[5..].trim().trim_start_matches("0x"), 16) {
                             Ok(id) => { logf!("DEBUG: give {:#X} (game thread)", id); penalty::GIVE_REQUEST.store(id, Relaxed); }
                             Err(_) => logf!("DEBUG: bad item id {:?}", c),
@@ -1163,6 +1171,7 @@ fn boot() {
                         if escrow_save_pending { log("WARNING: mission started before the escrow save was written"); }
                         if run.game.get_flag(man, o::FLAG_ESCROW) != Some(true) { log("WARNING: mission started without the escrow flag"); }
                         run.queue_reward(gd, man, "mission start");
+                        trace::reapply("mission start");
                     }
                     if p == 1 && d == 0 {
                         if run.reward_handles.is_empty() && run.reward_credits.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
@@ -1204,6 +1213,7 @@ fn boot() {
                     run.game.put_flag(man, o::FLAG_ESCROW, false);
                     penalty::disarm();
                     log("escrow flag CLEARED (mission cleared)");
+                    trace::reapply("mission cleared");
                     logf!("5074 rose (mission cleared); reward queued={}", format!("{:X?}", run.reward_handles));
                     // Reroll NOW: the game autosaves at the commit (~10 s later), so the new shop state
                     // (direct flag writes, no game call) is included in that save.
