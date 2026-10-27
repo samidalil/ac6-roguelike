@@ -815,6 +815,12 @@ Verified in the garage with pool_limit 3 (rows 124/125/126 weapons, 4/5/6 parts)
 2nd roll takes the last one, refills ("2 back in", keeping it), completes with a non-repeat; weapons refill on the 4th
 roll; reward picks an unrolled non-shop row and marks it; with the rest owned (`give`) the reward refills, finds
 nothing, converts DIZZY to +65 000 COAM (527 790 -> 592 790) and shows the dialog. Persistence: rolled [4, 5, 126] +
-shop survived save, kill, relaunch, Continue. Not replayed: a real mission clear (5074 marking, credits before the
-commit, dialog at 3139↓). Note: one debug `save` request right after a Continue was not written (cause unknown,
+shop survived save, kill, relaunch, Continue.
+Real missions: a story clear (Grid 086 area, user-played) gave reward row 118 through "Pièces obtenues", marked it at
+5074, rerolled a shop skipping every rolled row; the commit autosave kept shop + rolled set (read back after a
+restart). Credits path in a real sortie (pool_limit 3, everything else owned): the reward converted at sortie
+(HD-011 MELANDER); 5074 raised BY HAND mid-mission (tools/flag_test.py) made the DLL pay +18 750 on the game thread
+mid-mission (22 094 -> 40 844, seen by the COAM detour) and reroll — but the game did NOT end the mission: 5074 is an
+effect of the clear, not a trigger. Still unobserved: the converted-reward dialog after a real result screen (3139↓).
+Arena fights: no 5074, the queued reward is given silently at the end (separate task). Note: one debug `save` request right after a Continue was not written (cause unknown,
 file unchanged); the next one was.
