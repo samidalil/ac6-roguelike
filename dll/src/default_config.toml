@@ -14,8 +14,8 @@ parts_per_mission = 1            # parts given at the end of each cleared missio
 # A part's value is the game's shop price; [prices] gives values to the parts the game prices at 0 (starter
 # parts...) and can change any other. Without an entry, a 0-priced part is worth the cheapest shop part of its type.
 # Core expansions cannot be sold.
-# charge = what buying costs: the shop price, and on a failed sortie each slot already on its starter part
-# (paying for a starter again is buying it).
+# charge = what buying costs: the shop price, and on a failed sortie each starter part bought to fill an emptied
+# slot (no spare part for it).
 part_sell_percent = 25           # frame parts and internals sell for this % of their value
 weapon_sell_percent = 25         # weapons sell for this % of their value
 item_charge_percent = 100        # every part (weapons included) costs this % of its value

@@ -11,10 +11,9 @@ pub struct Config {
     pub arena_repeat_pay_percent: u32,
     /// frame parts / internals sell for this % of their value
     pub part_sell_percent: u32,
-    /// frame parts / internals cost this % of their value: shop buy price, and the failure charge of a slot already
-    /// on its starter (paying for a starter again is buying it)
+    /// every part costs this % of its value: shop buy price, and the price of a starter bought after a failure
     pub item_charge_percent: u32,
-    /// same two for weapons
+    /// weapons sell for this % of their value
     pub weapon_sell_percent: u32,
     /// [prices]: part value overrides, (part name or equipId as written, value)
     pub prices: Vec<(String, u32)>,
