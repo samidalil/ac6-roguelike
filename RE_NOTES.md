@@ -746,5 +746,9 @@ game drops it (reward not owned afterwards).
 - **Verified live** (gear_test save): sell RF-024 TURNER (right arm, row 148) and HI-32 BU-TT/A (left arm, row 219)
   -> both logged, both in Achat on their own side at shop price (55 000 / 60 000); buying TURNER back logs no sale and
   hides it (owned); save + kill + relaunch -> "2 part(s) from the save [148, 219]", HI-32 still offered; mission-end
-  reroll (debug `mission_end`, same on_mission_end path as a clear) -> list cleared, HI-32 gone. Not exercised live:
-  an auto-sale entering the list.
+  reroll (debug `mission_end`, same on_mission_end path as a clear) -> list cleared, HI-32 gone.
+- **Auto-sales verified live** (gear_test save, COAM set to 600 000 + escrow flag 7828 set, save, Continue): failure
+  penalty charged 5 starter slots (621 000), lost HI-18 / LAMMERGEIER / TALBOT, auto-sold HI-32 (15 000) and TURNER
+  (13 750) -> 7 750; only rows 219 and 148 entered the list ("sold (auto-sell)"), both back in Achat on their side;
+  the lost parts did not. (Writing a negative COAM directly does not trigger the garage auto-sell: the HUD's
+  AddCoam(0) reports the balance already clamped to 0.)
