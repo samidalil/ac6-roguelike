@@ -729,3 +729,22 @@ where the game charges ammo/repair; money must exist before it.
 **Seen on the way (not changed):** the first mission of a New Game starts without the escrow flag (no deployment
 talk before it); a death retires the mission and the DLL re-queues the reward just before the abort commit, but the
 game drops it (reward not owned afterwards).
+
+## Buy-back: Vente sale event (2026-10-27, task 2)
+- **The Vente sale** (live, CE trap on RemoveItemAt during a sale): SellItem **exe+D30A80(listItem, n, flag)** (list
+  entry: gaitem id +0x54, handle +0x50) calls **exe+D309D0(&itemId, handle, n, flag) -> count removed** at exe+D30AE2
+  (and at exe+D30B59 for a linked item when the first removal yields one). D309D0 clamps n to the owned count and
+  calls exe+46B4E0(giveObj, handle, -n, ...) -> exe+46FC7A -> RemoveItemAt exe+475150. D30A80 is reached from
+  exe+D30250 (per-item transaction) and from exe+D2F1B0 / D2F2xx / D2F36F (Vente code).
+- Static dead end: exe+D2FEB0 (cart commit, cart entries stride 0x20, id +0x10, qty +0x14) also has a RemoveItemAt
+  call (exe+D300B8), but a Vente sale never goes through it (hooked: no hit).
+- **DLL (buyback.rs)**: call-site hooks at D30AE2 / D30B59 read the item id, call the original, and when it removed
+  something map the id (tag | equipId) to its lineup row and set the bit in ROWS_SOLD (4100 + row) and a memory mirror.
+  penalty::sell (auto-sell, failure sales) records its sales too; lost parts never pass there. shop_pred lists a row
+  when it is CHOSEN or in the mirror (the game hides owned parts); price = the lineup price (value x item_charge).
+  The reroll clears the set; each save load (flag 1000 edge) reloads the mirror from the flags.
+- **Verified live** (gear_test save): sell RF-024 TURNER (right arm, row 148) and HI-32 BU-TT/A (left arm, row 219)
+  -> both logged, both in Achat on their own side at shop price (55 000 / 60 000); buying TURNER back logs no sale and
+  hides it (owned); save + kill + relaunch -> "2 part(s) from the save [148, 219]", HI-32 still offered; mission-end
+  reroll (debug `mission_end`, same on_mission_end path as a clear) -> list cleared, HI-32 gone. Not exercised live:
+  an auto-sale entering the list.

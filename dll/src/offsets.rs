@@ -171,6 +171,11 @@ pub const FN_RETIRE_MISSION: usize = 0xB002A0;
 pub const FN_SELL_PRICE: usize = 0xB885D0;
 pub const SELL_PRICE_CALLSITES: [usize; 3] = [0xD2FDDA, 0xD303DD, 0x474598];
 pub const SELL_DESC_ITEM_ID: usize = 0x8;
+/// Vente sale (RE 2026-10-27, buy-back): SellItem exe+D30A80(listItem, n, flag) removes the sold item with
+/// `exe+D309D0(&itemId, handle, n, flag) -> count removed` (delta -n through exe+46B4E0 -> RemoveItemAt), called here
+/// (the second site removes a linked item when the first removal yields one).
+pub const FN_SHOP_REMOVE: usize = 0xD309D0;
+pub const SALE_REMOVE_CALLSITES: [usize; 2] = [0xD30AE2, 0xD30B59];
 
 // --- standalone dialog (RE 2026-10-26): talk-script command 17 (5 args) builds menu job type 0xF from its argument list
 pub const FN_MENU_JOB_GENERIC_DIALOG: usize = 0xDC1650; // (out handle[3], args) -> out

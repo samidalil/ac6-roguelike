@@ -25,6 +25,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   path), the game-thread loop and the game-over exit sequence.
 - `penalty.rs` — failure plan built at sortie (escrow flag), penalty on the next garage load, auto-sell, game over,
   part values (shop price, stat model, `[prices]` overrides) and the sell-price hook.
+- `buyback.rs` — parts sold since the last reroll (Vente sale hook + auto-sales) offered again in the shop, kept in
+  the `ROWS_SOLD` bitset, cleared at the reroll.
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, rarity, prices).
 - `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts).
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
