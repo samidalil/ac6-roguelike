@@ -1,0 +1,1037 @@
+//! Armored Core VI roguelike — me3 native DLL.
+//!
+//! Mechanisms (all verified live, see RE_NOTES.md):
+//! * SHOP: the shop builder calls a release predicate per lineup row every frame (exe+E89074). We
+//!   detour that call to `shop_pred`, which returns 1 only for the 3 chosen rows. Copy-migration
+//!   proof, flag-independent, scoped to the shop.
+//! * MISSION SIGNAL: the item manager's DEFER byte (GameData+0x600+0x99) is 1 while a mission is
+//!   active. 0->1 = mission start, 1->0 = the mission-end "obtained parts" commit.
+//! * REWARD: at mission start we grant one random unowned part through the game's give wrapper
+//!   with bypass-defer = 0, so it is queued and the vanilla "Pièces obtenues" dialog shows it at
+//!   mission end and commits it on OK.
+//! * REROLL: at the commit (shop closed) we pick 1 weapon + 2 parts and persist the 3 lineup row
+//!   indices in event flags (saved in the .sl2), so quit + reload restores the same shop. Bought
+//!   parts are hidden by the vanilla ownership filter (slot stays empty until the next reroll).
+
+use std::ffi::c_void;
+use std::fmt::Write as _;
+use std::io::Write as _;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering::*};
+
+mod mem;
+mod offsets;
+use offsets as o;
+
+/// Master switch for anything that WRITES to game memory (hook, grants, flags).
+const ENABLE_PATCHES: bool = true;
+/// Extra logging of every predicate decision change (noisy).
+const VERBOSE: bool = false;
+
+// ---------------------------------------------------------------- logging
+fn log_path() -> std::path::PathBuf {
+    let dir = std::env::var("USERPROFILE").unwrap_or_else(|_| ".".into());
+    std::path::Path::new(&dir).join("ac6_roguelike_dll.log")
+}
+
+fn log(msg: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log_path()) {
+        let _ = writeln!(f, "{} {}", stamp(), msg);
+    }
+}
+
+fn stamp() -> String {
+    // wall clock without pulling in chrono: seconds since boot is enough to correlate with pollers
+    format!("[{:>9.3}]", tick_count() as f64 / 1000.0)
+}
+
+macro_rules! logf { ($($a:tt)*) => {{ let mut s = String::new(); let _ = write!(s, $($a)*); log(&s); }} }
+
+// declared after logf! so the module can use it (macro_rules scope is textual)
+mod penalty;
+mod msg;
+mod dialog;
+mod config;
+
+// ---------------------------------------------------------------- lineup param (read-only use)
+struct Lineup {
+    data: usize, // first row
+}
+
+impl Lineup {
+    unsafe fn row(&self, i: usize) -> usize { self.data + i * o::ROW_STRIDE }
+    unsafe fn equip_id(&self, i: usize) -> u32 { mem::rd_u32(self.row(i) + o::ROW_EQUIP_ID) }
+    unsafe fn price(&self, i: usize) -> i32 { mem::rd_i32(self.row(i) + o::ROW_PRICE) }
+    unsafe fn equip_type(&self, i: usize) -> u8 { mem::rd_u8(self.row(i) + o::ROW_EQUIP_TYPE) }
+    unsafe fn reward_cond(&self, i: usize) -> u32 { mem::rd_u32(self.row(i) + o::ROW_REWARD_COND) }
+}
+
+/// Validate a candidate param data start by its two invariant row anchors (1.09).
+unsafe fn anchors_ok(data: usize) -> bool {
+    if !mem::is_readable(data, o::ROW_COUNT * o::ROW_STRIDE) { return false; }
+    let lu = Lineup { data };
+    lu.equip_id(74) == 50070400 && lu.equip_id(140) == 10000000
+}
+
+/// Vanilla rank / arena rewards (rewardCondition != 0: S-rank counts, arena) become ordinary parts: the game grants
+/// only rows with a condition (the ~297 rows at 0 are never granted), so clearing it stops the grant, and the pool and
+/// the price tables, which skip conditioned rows, take them in with their shop price. Script grants (the Ice Worm's
+/// VE-60SNA) have no condition and are untouched.
+unsafe fn release_rank_rewards(lu: &Lineup) {
+    let mut n = 0;
+    for i in 0..o::ROW_COUNT {
+        let cond = lu.reward_cond(i);
+        if cond == 0 { continue; }
+        mem::wr_u32(lu.row(i) + o::ROW_REWARD_COND, 0);
+        logf!("rank reward released: row {} equip {} (condition {}, price {})", i, lu.equip_id(i), cond, lu.price(i));
+        n += 1;
+    }
+    if n > 0 { logf!("{} vanilla rank/arena reward(s) turned into shop parts", n); }
+}
+
+/// One buyable row, cached from the param (indices are stable for a given game version).
+#[derive(Clone, Copy)]
+struct Part { idx: u16, equip_id: u32, kind: u8, tier: u8 }
+impl Part {
+    fn is_weapon(&self) -> bool { self.kind == 0 }
+    /// id accepted by the item-descriptor builder (grant path)
+    fn grant_id(&self) -> u32 { o::id_tag(self.kind) | (self.equip_id & 0x0FFF_FFFF) }
+}
+
+/// Every row a roguelike shop may offer: priced, not a mission reward, weapon / frame / internal. Each gets a rarity
+/// tier (1 common, 2 rare, 3 epic) from [part_rarity], else the configured unlisted tier.
+unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
+    let cfg = config::get();
+    let mut by_id: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
+    let mut by_name: std::collections::HashMap<String, u8> = std::collections::HashMap::new();
+    for (k, t) in &cfg.part_rarity {
+        match k.parse::<u32>() { Ok(id) => { by_id.insert(id, *t as u8); } Err(_) => { by_name.insert(config::name_key(k), *t as u8); } }
+    }
+    let mut v = Vec::new();
+    let mut counts = [0usize; 4];
+    for i in 0..o::ROW_COUNT {
+        let buyable = lu.price(i) > 0 && lu.reward_cond(i) == 0;
+        let kind = lu.equip_type(i);
+        if buyable && matches!(kind, 0 | 1 | 4 | 5 | 6) {
+            let id = lu.equip_id(i);
+            let mut tier = cfg.unlisted_tier as u8;
+            if let Some(t) = by_id.get(&id) { tier = *t; }
+            else if !by_name.is_empty() {
+                let item = o::id_tag(kind) | (id & 0x0FFF_FFFF);
+                if let Some(t) = by_name.get(&config::name_key(&penalty::part_name(item))) { tier = *t; }
+            }
+            counts[tier as usize] += 1;
+            v.push(Part { idx: i as u16, equip_id: id, kind, tier });
+        }
+    }
+    logf!("rarity: {} common, {} rare, {} epic", counts[1], counts[2], counts[3]);
+    v
+}
+
+/// Weighted rarity pick: a tier by the configured odds (tiers without candidates skipped), then uniform in it.
+fn pick_weighted(rng: &mut Rng, cands: &[Part]) -> Option<Part> {
+    let cfg = config::get();
+    let weights = [0, cfg.common_weight, cfg.rare_weight, cfg.epic_weight];
+    let present: Vec<u8> = (1..=3u8).filter(|t| weights[*t as usize] > 0 && cands.iter().any(|p| p.tier == *t)).collect();
+    let tier = if present.is_empty() {
+        cands.first()?.tier  // every present tier has weight 0: fall back to a uniform pick
+    } else {
+        let total: u64 = present.iter().map(|t| weights[*t as usize] as u64).sum();
+        let mut r = rng.next() % total;
+        let mut chosen = present[0];
+        for t in &present { let w = weights[*t as usize] as u64; if r < w { chosen = *t; break; } r -= w; }
+        chosen
+    };
+    let in_tier: Vec<Part> = cands.iter().copied().filter(|p| present.is_empty() || p.tier == tier).collect();
+    if in_tier.is_empty() { return None; }
+    Some(in_tier[rng.below(in_tier.len())])
+}
+
+// ---------------------------------------------------------------- RNG
+struct Rng(u64);
+impl Rng {
+    fn seeded() -> Self {
+        let t = tick_count();
+        let c = unsafe { core::arch::x86_64::_rdtsc() };
+        Rng((t.rotate_left(17) ^ c ^ 0x9E37_79B9_7F4A_7C15) | 1)
+    }
+    fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x >> 12; x ^= x << 25; x ^= x >> 27;
+        self.0 = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+    fn below(&mut self, n: usize) -> usize { if n == 0 { 0 } else { (self.next() % n as u64) as usize } }
+}
+
+// ---------------------------------------------------------------- game function bindings
+type FnBuildDesc = unsafe extern "system" fn(ctx: usize, out: *mut u8, id: *const u32) -> *const u8;
+// NOTE: bool/byte params are passed as full-width integers on purpose — with u8 the upper bits of
+// the register/stack slot are unspecified on Win64 and the game read some "0" states as non-zero.
+type FnGiveItem = unsafe extern "system" fn(obj: usize, desc: *const u8, qty: u32, a4: u32, a5: u32, a6: u32, a7: u32) -> i32;
+
+struct Game {
+    base: usize,
+    build_desc: FnBuildDesc,
+    give_item: FnGiveItem,
+}
+
+impl Game {
+    unsafe fn new(base: usize) -> Game {
+        Game {
+            base,
+            build_desc: core::mem::transmute(base + o::FN_BUILD_DESC),
+            give_item: core::mem::transmute(base + o::FN_GIVE_ITEM),
+        }
+    }
+    /// player GameData (None at boot / before the title screen finishes)
+    unsafe fn game_data(&self) -> Option<usize> {
+        let slot = self.base + o::GAMEDATAMAN_GLOBAL;
+        if !mem::is_readable(slot, 8) { return None; }
+        let gdm = mem::rd_usize(slot);
+        if gdm == 0 || !mem::is_readable(gdm, 0x48) { return None; }
+        let gd = mem::rd_usize(gdm + o::GDM_PLAYER_GAMEDATA);
+        if gd == 0 || !mem::is_readable(gd + o::GD_ITEM_MGR, 0x100) { return None; }
+        Some(gd)
+    }
+    unsafe fn flag_man(&self) -> Option<usize> {
+        let slot = self.base + o::EVENTFLAGMAN_GLOBAL;
+        if !mem::is_readable(slot, 8) { return None; }
+        let m = mem::rd_usize(slot);
+        if m == 0 || !mem::is_readable(m, 0x40) { return None; }
+        Some(m)
+    }
+    /// Player (AP, max AP) during a mission; None when the chain is not built (garage, loading).
+    unsafe fn player_ap(&self) -> Option<(i32, i32, usize)> {
+        let slot = self.base + o::WORLDCHRMAN_GLOBAL;
+        let wcm = mem::rd_usize(slot);
+        if wcm == 0 || !mem::is_readable(wcm + o::WCM_PLAYER, 8) { return None; }
+        let a = mem::rd_usize(wcm + o::WCM_PLAYER);
+        if a == 0 || !mem::is_readable(a + o::PLAYER_MODULES, 8) { return None; }
+        let b = mem::rd_usize(a + o::PLAYER_MODULES);
+        if b == 0 || !mem::is_readable(b, 8) { return None; }
+        let c = mem::rd_usize(b);
+        if c == 0 || !mem::is_readable(c + o::CHR_AP, 8) { return None; }
+        let (ap, max) = (mem::rd_i32(c + o::CHR_AP), mem::rd_i32(c + o::CHR_AP_MAX));
+        if max <= 0 || ap > max { return None; }
+        Some((ap, max, c))
+    }
+    /// Ask the game to write the save file (same bit the game's own RequestSave() sets). Atomic OR so we
+    /// can never drop a bit the game thread sets at the same moment. Returns the mask before.
+    unsafe fn request_save(&self) -> Option<u32> {
+        let st = mem::rd_usize(self.base + o::SAVE_STATE_GLOBAL);
+        if st == 0 || !mem::is_readable(st + o::SAVE_REQ_MASK, 4) { return None; }
+        let a = &*((st + o::SAVE_REQ_MASK) as *const std::sync::atomic::AtomicU32);
+        Some(a.fetch_or(1, std::sync::atomic::Ordering::SeqCst))
+    }
+    unsafe fn defer_byte(&self, gd: usize) -> u8 { mem::rd_u8(gd + o::GD_ITEM_MGR + o::MGR_DEFER) }
+    /// The pending-obtained vector (4-byte gaitem handles) as a copy.
+    unsafe fn pending(&self, gd: usize) -> Vec<u32> {
+        let mgr = gd + o::GD_ITEM_MGR;
+        let (b, e) = (mem::rd_usize(mgr + o::MGR_PENDING_BEGIN), mem::rd_usize(mgr + o::MGR_PENDING_END));
+        if b == 0 || e < b || e - b > 0x1000 || !mem::is_readable(b, e - b) { return Vec::new(); }
+        (0..(e - b) / 4).map(|i| mem::rd_u32(b + 4 * i)).collect()
+    }
+
+    /// Build the game's item descriptor for `id` into `out` (0x40 bytes is what the game reserves).
+    unsafe fn desc(&self, id: u32, out: &mut [u8; 0x40]) -> *const u8 {
+        let ctx = mem::rd_usize(self.base + o::ITEM_DESC_CTX);
+        (self.build_desc)(ctx, out.as_mut_ptr(), &id)
+    }
+    /// Ownership by reading the gaitem table directly (16-byte entries {handle, id, count, ord},
+    /// free slots = 0xFFFFFFFF). No game code is called, so this is safe from any thread at any time.
+    unsafe fn owned_ids(&self, gd: usize) -> Vec<u32> {
+        let mgr = gd + o::GD_ITEM_MGR;
+        let table = mem::rd_usize(mgr + o::MGR_GAITEM_TABLE);
+        let mut ids = Vec::new();
+        if table == 0 { return ids; }
+        // one readability query per 4 KB page, not per entry (VirtualQuery contends with the
+        // game's own memory traffic during loads and made a scan take tens of seconds)
+        let mut page_ok_until = 0usize;
+        for i in 0..o::GAITEM_TABLE_MAX {
+            let e = table + i * 16;
+            if e + 16 > page_ok_until {
+                if !mem::is_readable(e, 0x1000) { break; }
+                page_ok_until = e + 0x1000;
+            }
+            let (handle, id) = (mem::rd_u32(e), mem::rd_u32(e + 4));
+            if handle == 0xFFFF_FFFF { continue; }
+            if handle == 0 && id == 0 { break; }
+            ids.push(id);
+        }
+        ids
+    }
+    /// Grant through the vanilla give path with bypass-defer = 0. Returns (rax, error code).
+    unsafe fn give_deferred(&self, gd: usize, id: u32) -> (i32, u32) {
+        let mut buf = [0u8; 0x40];
+        let d = self.desc(id, &mut buf);
+        let obj = gd + o::GD_GIVE_OBJ;
+        let r = (self.give_item)(obj, d, 1, 1, 1, 1, 0);
+        (r, mem::rd_u32(obj + o::GIVEOBJ_ERROR))
+    }
+
+    // --- event flags by DIRECT bit-page access (no game calls: IsEventFlag/SetEventFlag take a
+    // lock the game holds for ~20 s around mission clear, and contending there froze the game) ---
+    /// Address of the bit page for `block` (= id / div) in CSEventFlagMan's block map (cached).
+    unsafe fn flag_page(&self, man: usize, block: u32) -> Option<usize> {
+        let slot = block as usize;
+        if slot < PAGE_CACHE.len() && PAGE_CACHE_MAN.load(Relaxed) == man {
+            let p = PAGE_CACHE[slot].load(Relaxed);
+            if p != 0 { return Some(p); }
+        }
+        let p = self.flag_page_walk(man, block)?;
+        if slot < PAGE_CACHE.len() {
+            if PAGE_CACHE_MAN.load(Relaxed) != man { clear_page_cache(); PAGE_CACHE_MAN.store(man, Relaxed); }
+            PAGE_CACHE[slot].store(p, Relaxed);
+        }
+        Some(p)
+    }
+    unsafe fn flag_page_walk(&self, man: usize, block: u32) -> Option<usize> {
+        let bsz = mem::rd_u32(man + o::EFM_BLOCK_BYTES) as usize;
+        let bbase = mem::rd_usize(man + o::EFM_PAGES_BASE);
+        let hdr = mem::rd_usize(man + o::EFM_MAP_HEADER);
+        if hdr == 0 || !mem::is_readable(hdr, 0x40) { return None; }
+        let mut node = mem::rd_usize(hdr + 8);
+        let mut best = hdr;
+        let mut guard = 0;
+        while node != 0 && mem::is_readable(node, 0x40) && mem::rd_u8(node + 0x19) != 1 && guard < 128 {
+            guard += 1;
+            if mem::rd_u32(node + 0x20) < block { node = mem::rd_usize(node + 0x10); }
+            else { best = node; node = mem::rd_usize(node); }
+        }
+        if best == hdr || mem::rd_u32(best + 0x20) != block { return None; }
+        match mem::rd_u32(best + 0x28) {
+            1 => Some(bbase + bsz * mem::rd_u32(best + 0x30) as usize),
+            2 => { let p = mem::rd_usize(best + 0x30); if p == 0 { None } else { Some(p) } }
+            _ => None,
+        }
+    }
+    /// (byte address, mask) of flag `id`; bits are MSB-first within a byte.
+    unsafe fn flag_bit(&self, man: usize, id: u32) -> Option<(usize, u8)> {
+        let div = mem::rd_u32(man + o::EFM_DIVISOR);
+        if div == 0 { return None; }
+        let page = self.flag_page(man, id / div)?;
+        let rem = id % div;
+        let addr = page + (rem / 8) as usize;
+        Some((addr, 1u8 << (7 - (rem % 8))))
+    }
+    unsafe fn get_flag(&self, man: usize, id: u32) -> Option<bool> {
+        let (a, m) = self.flag_bit(man, id)?;
+        Some(mem::rd_u8(a) & m != 0)
+    }
+    unsafe fn put_flag(&self, man: usize, id: u32, v: bool) -> bool {
+        match self.flag_bit(man, id) {
+            Some((a, m)) => {
+                let b = mem::rd_u8(a);
+                mem::wr_u8(a, if v { b | m } else { b & !m });
+                mem::wr_u8(man + o::EFM_DIRTY, 1); // what SetEventFlag does so the save picks it up
+                true
+            }
+            None => false,
+        }
+    }
+
+    // --- persisted shop state: slots 0..2 = 3 x 9-bit row indices + valid bit (flags 7800..7827, the original
+    // layout); slots 3.. = 9 bits each from STATE_FLAG_EXTRA_BASE holding row index + 1 (0 = empty) ---
+    unsafe fn read_state(&self, man: usize) -> Option<Vec<u16>> {
+        let mut bits: u32 = 0;
+        for b in 0..=o::STATE_FLAG_BITS {
+            if self.get_flag(man, o::STATE_FLAG_BASE + b) == Some(true) { bits |= 1 << b; }
+        }
+        if bits & (1 << o::STATE_FLAG_BITS) == 0 { return None; }
+        let mut v = vec![(bits & 0x1FF) as u16, ((bits >> 9) & 0x1FF) as u16, ((bits >> 18) & 0x1FF) as u16];
+        for s in 0..(config::MAX_SHOP_SLOTS - 3) {
+            let mut x: u32 = 0;
+            for b in 0..9 { if self.get_flag(man, o::STATE_FLAG_EXTRA_BASE + s * 9 + b) == Some(true) { x |= 1 << b; } }
+            if x != 0 { v.push((x - 1) as u16); }
+        }
+        Some(v)
+    }
+    unsafe fn write_state(&self, man: usize, idx: &[u16]) {
+        let at = |k: usize| idx.get(k).copied().unwrap_or(0x1FF) as u32 & 0x1FF; // 0x1FF = no row (empty slot)
+        for s in 0..(config::MAX_SHOP_SLOTS - 3) {
+            let x = idx.get(3 + s as usize).map(|i| *i as u32 + 1).unwrap_or(0);
+            for b in 0..9 { self.put_flag(man, o::STATE_FLAG_EXTRA_BASE + s * 9 + b, (x >> b) & 1 != 0); }
+        }
+        let bits = at(0) | (at(1) << 9) | (at(2) << 18) | (1 << o::STATE_FLAG_BITS);
+        for b in 0..=o::STATE_FLAG_BITS {
+            if !self.put_flag(man, o::STATE_FLAG_BASE + b, (bits >> b) & 1 != 0) { logf!("put_flag failed for {}", o::STATE_FLAG_BASE + b); }
+        }
+        let mut back: u32 = 0;
+        for b in 0..=o::STATE_FLAG_BITS {
+            if self.get_flag(man, o::STATE_FLAG_BASE + b) == Some(true) { back |= 1 << b; }
+        }
+        if back != bits { logf!("STATE WRITE MISMATCH: wrote {:#X} read {:#X} (flags {}..)", bits, back, o::STATE_FLAG_BASE); }
+    }
+}
+
+// ---------------------------------------------------------------- param repository
+/// Live param rows through the game's own repository ([exe+4E27300], the object the shop builder
+/// uses). Verified 2026-10-26: same addresses at title and after Continue, so writes are durable.
+unsafe fn param_file(base: usize, idx: usize) -> Option<usize> {
+    let repo = mem::rd_usize(base + o::PARAM_REPO_GLOBAL);
+    if repo == 0 || !mem::is_readable(repo + o::REPO_SLOT0, o::REPO_SLOTS * o::REPO_SLOT_STRIDE) { return None; }
+    let slot = repo + o::REPO_SLOT0 + idx * o::REPO_SLOT_STRIDE;
+    if mem::rd_u32(slot) == 0 { return None; }
+    let res = mem::rd_usize(slot + 8);
+    if res == 0 || !mem::is_readable(res, 0x88) { return None; }
+    let holder = mem::rd_usize(res + o::RES_FILE_HOLDER);
+    if holder == 0 || !mem::is_readable(holder, 0x88) { return None; }
+    let file = mem::rd_usize(holder + o::RES_FILE_HOLDER);
+    if file == 0 || !mem::is_readable(file, 0x40) { return None; }
+    Some(file)
+}
+
+/// Every (row id, row address) of a param file.
+unsafe fn param_rows(file: usize) -> Vec<(u32, usize)> {
+    let n = mem::rd_u16(file + o::PARAMFILE_ROWCOUNT) as usize;
+    if !mem::is_readable(file + o::PARAMFILE_ROWS, n * o::PARAMFILE_ROW_STRIDE) { return Vec::new(); }
+    (0..n).map(|i| {
+        let e = file + o::PARAMFILE_ROWS + i * o::PARAMFILE_ROW_STRIDE;
+        (mem::rd_u32(e), file + mem::rd_usize(e + 8))
+    }).collect()
+}
+
+/// Apply the economy to the live params. Idempotent; returns how many fields it changed.
+/// Values this function wrote, by address: a field that no longer holds our value was reloaded by the game and is
+/// scaled again (never twice).
+static ECONOMY_WRITTEN: std::sync::Mutex<Option<std::collections::HashMap<usize, i32>>> = std::sync::Mutex::new(None);
+
+unsafe fn apply_economy(base: usize) -> usize {
+    let cfg = config::get();
+    let mut guard = ECONOMY_WRITTEN.lock().unwrap();
+    let written = guard.get_or_insert_with(Default::default);
+    let mut changed = 0usize;
+    // integer pay fields, or (float) f32 cost scales stored by their bits
+    let mut scale = |a: usize, pct: u32, float: bool| {
+        let v = mem::rd_i32(a);
+        if (!float && v <= 0) || written.get(&a) == Some(&v) { return; }
+        let nv = if float { (f32::from_bits(v as u32) * pct as f32 / 100.0).to_bits() as i32 } else { (v as i64 * pct as i64 / 100) as i32 };
+        if nv != v { mem::wr_i32(a, nv); changed += 1; }
+        written.insert(a, nv);
+    };
+    if let Some(f) = param_file(base, o::PARAM_IDX_MISSION) {
+        for (_, r) in param_rows(f) {
+            if !mem::is_readable(r, o::MISSION_ROW_SIZE) { continue; }
+            scale(r + o::MISSION_CURRENCY_REWARD, cfg.mission_pay_percent, false);
+            for k in 0..o::MISSION_EVENT_REWARDS { scale(r + o::MISSION_EVENT_REWARD0 + k * 8, cfg.mission_pay_percent, false); }
+            for k in 0..o::MISSION_ENEMY_REWARDS { scale(r + o::MISSION_ENEMY_REWARD0 + k * 8, cfg.mission_pay_percent, false); }
+            scale(r + o::MISSION_BULLET_COST_RATE, cfg.ammo_cost_percent, true);
+            scale(r + o::MISSION_REPAIR_COST_COEF, cfg.repair_cost_percent, true);
+        }
+    }
+    if let Some(f) = param_file(base, o::PARAM_IDX_ARENA) {
+        for (_, r) in param_rows(f) {
+            if mem::is_readable(r, o::ARENA_ROW_SIZE) { scale(r + o::ARENA_REPEAT_COAM, cfg.arena_repeat_pay_percent, false); }
+        }
+    }
+    changed
+}
+
+// ---------------------------------------------------------------- pause menu block
+static PAUSE_BLOCKED: AtomicUsize = AtomicUsize::new(0);
+type FnRequestPause = unsafe extern "system" fn(this: usize);
+
+/// Replaces the game step's call to RequestPauseMenu: dropped while a mission is active (rule: no pause
+/// menu, no settings, no retry/quit during missions), forwarded otherwise.
+unsafe extern "system" fn pause_hook(this: usize) {
+    let base = mem::module_base();
+    let game = Game::new(base);
+    if let Some(gd) = game.game_data() {
+        if game.defer_byte(gd) == 1 { PAUSE_BLOCKED.fetch_add(1, Relaxed); return; }
+    }
+    let orig: FnRequestPause = core::mem::transmute(base + o::FN_REQUEST_PAUSE_MENU);
+    orig(this);
+}
+
+// ---------------------------------------------------------------- shop predicate hook
+/// The chosen shop rows as their `equipId` (row +0). 0 = empty slot.
+static CHOSEN: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
+static PRED_CALLS: AtomicUsize = AtomicUsize::new(0);
+static PAGE_CACHE_MAN: AtomicUsize = AtomicUsize::new(0);
+static PAGE_CACHE: [AtomicUsize; 16] = [const { AtomicUsize::new(0) }; 16];
+fn clear_page_cache() { for c in &PAGE_CACHE { c.store(0, Relaxed); } }
+
+/// Replacement for the release predicate at the shop builder's call site. rcx = itemCtx.
+/// Must mirror the original's contract: returns al != 0 to list the row.
+unsafe extern "system" fn shop_pred(item_ctx: *const u8) -> u8 {
+    PRED_CALLS.fetch_add(1, Relaxed);
+    if item_ctx.is_null() { return 0; }
+    let row = mem::rd_usize(item_ctx as usize + o::ITEMCTX_ROW);
+    if row == 0 { return 0; }
+    let id = mem::rd_u32(row + o::ROW_EQUIP_ID);
+    if id == 0 { return 0; }
+    for c in &CHOSEN {
+        if c.load(Relaxed) == id { return 1; }
+    }
+    0
+}
+
+fn set_chosen(ids: &[u32]) {
+    for (k, c) in CHOSEN.iter().enumerate() { c.store(ids.get(k).copied().unwrap_or(0), Relaxed); }
+}
+fn chosen() -> Vec<u32> { CHOSEN.iter().map(|c| c.load(Relaxed)).collect() }
+
+/// Patch `call exe+159ACB0` at exe+E89074 into `call cave`, cave = `mov rax, shop_pred; jmp rax`.
+/// The cave must sit within +-2 GB of the call site, so it is allocated just below the module.
+/// A fresh RWX page within +-2 GB below the image (for 5-byte rel32 jumps/calls).
+unsafe fn alloc_near_page(base: usize) -> Option<usize> {
+    let mut hint = base - 0x10000;
+    while hint > base.saturating_sub(0x7000_0000) {
+        let p = VirtualAlloc(hint as *mut c_void, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if !p.is_null() { return Some(p as usize); }
+        hint -= 0x10000;
+    }
+    None
+}
+
+unsafe fn write_code(site: usize, bytes: &[u8]) -> bool {
+    let mut old: u32 = 0;
+    if VirtualProtect(site as *mut c_void, bytes.len(), PAGE_EXECUTE_READWRITE, &mut old) == 0 { return false; }
+    core::ptr::copy_nonoverlapping(bytes.as_ptr(), site as *mut u8, bytes.len());
+    VirtualProtect(site as *mut c_void, bytes.len(), old, &mut old);
+    FlushInstructionCache(GetCurrentProcess(), site as *const c_void, bytes.len());
+    true
+}
+
+/// Where the COAM detour stores its observations (inside the cave page).
+static COAM_LAST_RAW: AtomicUsize = AtomicUsize::new(0); // address of i32: unclamped (old + delta) of the last AddCoam
+static COAM_CALLS: AtomicUsize = AtomicUsize::new(0);    // address of u32: number of AddCoam calls
+
+/// Detour AddCoam (exe+48DD70: `mov r8d,[rcx+74]; lea r9d,[r8+rdx]` = 8 bytes) through a cave
+/// that re-executes those two instructions, records r9d (the UNCLAMPED new balance) and a call
+/// counter, then jumps back. No call into Rust from the game thread: just two stores.
+unsafe fn install_coam_hook(base: usize) -> Result<usize, String> {
+    let site = base + o::FN_ADD_COAM;
+    let expect: [u8; 8] = [0x44, 0x8B, 0x41, 0x74, 0x45, 0x8D, 0x0C, 0x10];
+    let mut cur = [0u8; 8];
+    core::ptr::copy_nonoverlapping(site as *const u8, cur.as_mut_ptr(), 8);
+    if cur != expect { return Err(format!("unexpected bytes at AddCoam: {:02X?}", cur)); }
+    let cave = alloc_near_page(base).ok_or("no near page for the COAM cave")?;
+    let data_raw = cave + 0x100;
+    let data_cnt = cave + 0x104;
+    let mut c: Vec<u8> = Vec::new();
+    c.extend_from_slice(&expect);                                   // original 2 instructions
+    // mov [rip+d32], r9d  (44 89 0D d32)
+    let at = cave + c.len(); c.extend_from_slice(&[0x44, 0x89, 0x0D]);
+    c.extend_from_slice(&((data_raw as i64 - (at as i64 + 7)) as i32).to_le_bytes());
+    // lock inc dword [rip+d32]  (F0 FF 05 d32)
+    let at = cave + c.len(); c.extend_from_slice(&[0xF0, 0xFF, 0x05]);
+    c.extend_from_slice(&((data_cnt as i64 - (at as i64 + 7)) as i32).to_le_bytes());
+    // jmp site+8  (E9 rel32)
+    let at = cave + c.len(); c.push(0xE9);
+    c.extend_from_slice(&(((site + 8) as i64 - (at as i64 + 5)) as i32).to_le_bytes());
+    core::ptr::copy_nonoverlapping(c.as_ptr(), cave as *mut u8, c.len());
+    COAM_LAST_RAW.store(data_raw, Relaxed);
+    COAM_CALLS.store(data_cnt, Relaxed);
+    // site: jmp cave ; nop nop nop
+    let mut patch = [0x90u8; 8];
+    patch[0] = 0xE9;
+    patch[1..5].copy_from_slice(&((cave as i64 - (site as i64 + 5)) as i32).to_le_bytes());
+    if !write_code(site, &patch) { return Err("VirtualProtect failed on AddCoam".into()); }
+    Ok(cave)
+}
+
+/// Replace a 5-byte `call target` at `site_rva` with `call cave`, cave = `mov rax, f; jmp rax`.
+unsafe fn install_call_hook(base: usize, site_rva: usize, target_rva: usize, f: usize) -> Result<usize, String> {
+    let site = base + site_rva;
+    let expect_rel = (target_rva as i64 - (site_rva as i64 + 5)) as i32;
+    if mem::rd_u8(site) != 0xE8 || mem::rd_i32(site + 1) != expect_rel {
+        return Err(format!("unexpected bytes at exe+{:X}: {:02X} rel={:#X}", site_rva, mem::rd_u8(site), mem::rd_i32(site + 1)));
+    }
+    let cave = alloc_near_page(base).ok_or("no near page for the cave")?;
+    let mut code = [0u8; 12];
+    code[0] = 0x48; code[1] = 0xB8;
+    code[2..10].copy_from_slice(&(f as u64).to_le_bytes());
+    code[10] = 0xFF; code[11] = 0xE0;
+    core::ptr::copy_nonoverlapping(code.as_ptr(), cave as *mut u8, code.len());
+    let mut patch = [0u8; 5];
+    patch[0] = 0xE8;
+    patch[1..5].copy_from_slice(&((cave as i64 - (site as i64 + 5)) as i32).to_le_bytes());
+    if !write_code(site, &patch) { return Err("VirtualProtect failed".into()); }
+    Ok(cave)
+}
+
+unsafe fn install_shop_hook(base: usize) -> Result<usize, String> {
+    let site = base + o::SHOP_PRED_CALLSITE;
+    let expect_rel = (o::FN_SHOP_PRED as i64 - (o::SHOP_PRED_CALLSITE as i64 + 5)) as i32;
+    if mem::rd_u8(site) != 0xE8 || mem::rd_i32(site + 1) != expect_rel {
+        return Err(format!("unexpected bytes at call site: {:02X} rel={:#X}", mem::rd_u8(site), mem::rd_i32(site + 1)));
+    }
+    // find a free page below the image
+    let mut cave = 0usize;
+    let mut hint = base - 0x10000;
+    while hint > base.saturating_sub(0x7000_0000) {
+        let p = VirtualAlloc(hint as *mut c_void, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if !p.is_null() { cave = p as usize; break; }
+        hint -= 0x10000;
+    }
+    if cave == 0 { return Err("no near page for the cave".into()); }
+    let target = shop_pred as *const () as usize as u64;
+    let mut code = [0u8; 12];
+    code[0] = 0x48; code[1] = 0xB8; // mov rax, imm64
+    code[2..10].copy_from_slice(&target.to_le_bytes());
+    code[10] = 0xFF; code[11] = 0xE0; // jmp rax
+    core::ptr::copy_nonoverlapping(code.as_ptr(), cave as *mut u8, code.len());
+
+    let rel = (cave as i64 - (site as i64 + 5)) as i32;
+    let mut old: u32 = 0;
+    if VirtualProtect(site as *mut c_void, 5, PAGE_EXECUTE_READWRITE, &mut old) == 0 {
+        return Err("VirtualProtect failed on the call site".into());
+    }
+    let mut patch = [0u8; 5];
+    patch[0] = 0xE8;
+    patch[1..5].copy_from_slice(&rel.to_le_bytes());
+    core::ptr::copy_nonoverlapping(patch.as_ptr(), site as *mut u8, 5);
+    VirtualProtect(site as *mut c_void, 5, old, &mut old);
+    FlushInstructionCache(GetCurrentProcess(), site as *const c_void, 5);
+    Ok(cave)
+}
+
+// ---------------------------------------------------------------- run logic
+struct Run {
+    game: Game,
+    pool: Vec<Part>,
+    rng: Rng,
+    /// gaitem handles of the rewards we queued for the current mission
+    reward_handles: Vec<u32>,
+    /// the parts chosen for the current sortie: a retry re-queues THESE parts (no reroll by retrying)
+    reward_parts: Vec<Part>,
+    last_grant_tick: u64,
+    /// a mission actually ran (defer went 0->1) since the last reroll; guards against a stale
+    /// 5074 read on save load triggering a reroll
+    mission_ran: bool,
+}
+
+impl Run {
+    fn part_by_idx(&self, idx: u16) -> Option<&Part> { self.pool.iter().find(|p| p.idx == idx) }
+
+    /// config shop_weapons weapons + shop_parts other parts, none owned right now, distinct, by rarity.
+    unsafe fn pick_shop(&mut self, gd: usize) -> Vec<Part> {
+        let cfg = config::get();
+        let mut taken = self.game.owned_ids(gd);
+        for r in &self.reward_parts { taken.push(r.grant_id()); } // being awarded right now
+        let mut out = Vec::new();
+        for (count, weapon) in [(cfg.shop_weapons, true), (cfg.shop_parts, false)] {
+            for _ in 0..count {
+                let cands: Vec<Part> = self.pool.iter().copied().filter(|p| p.is_weapon() == weapon && !taken.contains(&p.grant_id())).collect();
+                let Some(p) = pick_weighted(&mut self.rng, &cands) else { break };
+                taken.push(p.grant_id());
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    /// An unowned part (any kind) for a mission reward, by rarity, not among `also_taken`.
+    unsafe fn pick_reward(&mut self, gd: usize, also_taken: &[u32]) -> Option<Part> {
+        let owned = self.game.owned_ids(gd);
+        let cands: Vec<Part> = self.pool.iter().copied().filter(|p| !owned.contains(&p.grant_id()) && !also_taken.contains(&p.grant_id())).collect();
+        pick_weighted(&mut self.rng, &cands)
+    }
+
+    unsafe fn apply_state(&self, idx: &[u16], why: &str) {
+        let ids: Vec<u32> = idx.iter().map(|i| self.part_by_idx(*i).map(|p| p.equip_id).unwrap_or(0)).collect();
+        set_chosen(&ids);
+        let tiers: Vec<u8> = idx.iter().map(|i| self.part_by_idx(*i).map(|p| p.tier).unwrap_or(0)).collect();
+        logf!("shop <- rows {:?} = equip {:?} tiers {:?} ({})", idx, ids, tiers, why);
+    }
+
+    /// Queue the mission reward. Called at mission start and again if the queue was cleared
+    /// (mission restart from the pause menu empties it while the mission stays active).
+    unsafe fn queue_reward(&mut self, gd: usize, why: &str) {
+        self.last_grant_tick = tick_count();
+        if self.reward_parts.is_empty() {
+            for _ in 0..config::get().parts_per_mission {
+                let taken: Vec<u32> = self.reward_parts.iter().map(|p| p.grant_id()).collect();
+                match self.pick_reward(gd, &taken) { Some(p) => self.reward_parts.push(p), None => { log("reward: no unowned part left"); break; } }
+            }
+        }
+        self.reward_handles.clear();
+        for p in self.reward_parts.clone() {
+            let before = self.game.pending(gd);
+            let (r, err) = self.game.give_deferred(gd, p.grant_id());
+            let after = self.game.pending(gd);
+            let new_handle = after.iter().copied().find(|h| !before.contains(h));
+            if let Some(h) = new_handle { self.reward_handles.push(h); }
+            logf!("{}: reward row {} equip {} tier {} grant_id {:#X} -> rax={} err={} handle={:?} pending={}",
+                why, p.idx, p.equip_id, p.tier, p.grant_id(), r, err, new_handle.map(|h| format!("{:#X}", h)), after.len());
+        }
+    }
+
+    /// While a mission is active: if our queued rewards disappeared (queue cleared), re-queue them.
+    unsafe fn check_reward(&mut self, gd: usize) {
+        if self.reward_handles.is_empty() { return; }
+        let pending = self.game.pending(gd);
+        if self.reward_handles.iter().any(|h| !pending.contains(h)) && tick_count().saturating_sub(self.last_grant_tick) > 2000 {
+            logf!("reward handles {:X?} vanished from the queue (mission restart?)", self.reward_handles);
+            self.queue_reward(gd, "re-queue");
+        }
+    }
+
+    /// The garage just opened (save loaded, or back from a mission). A set escrow flag means the last sortie
+    /// was not cleared: death, quit or the game killed mid-mission.
+    unsafe fn on_garage_open(&mut self, man: usize, why: &str) {
+        if self.game.get_flag(man, o::FLAG_ESCROW) == Some(true) {
+            logf!("garage opened ({}): escrow flag set -> PENALTY queued for the game thread", why);
+            penalty::PENALTY_REQUEST.store(true, Relaxed);
+        } else {
+            logf!("garage opened ({}): escrow clear, no penalty", why);
+        }
+    }
+
+    unsafe fn on_mission_end(&mut self, gd: usize, man: usize) {
+        let sel = self.pick_shop(gd);
+        if sel.is_empty() { log("mission end: nothing left to offer"); }
+        let idx: Vec<u16> = sel.iter().map(|p| p.idx).collect();
+        self.game.write_state(man, &idx);
+        self.apply_state(&idx, "reroll at mission end");
+    }
+}
+
+// ---------------------------------------------------------------- boot
+fn boot() {
+    let _ = std::fs::remove_file(log_path());
+    log("=== ac6_roguelike DLL boot ===");
+    let base = mem::module_base();
+    logf!("module base = {:#X}", base);
+    config::load();
+    msg::set_base(base);
+    let game = unsafe { Game::new(base) };
+
+    // wait for GameDataMan (title screen), up to ~60 s
+    let mut gd_seen = false;
+    for _ in 0..600 {
+        if unsafe { game.game_data() }.is_some() { gd_seen = true; break; }
+        sleep_ms(100);
+    }
+    if !gd_seen { log("GameDataMan never appeared (timeout) — aborting boot"); return; }
+
+    // pool from the live EquipmentLineupParam through the param repository (retry until it is built)
+    let mut pool = Vec::new();
+    for _ in 0..40 {
+        if let Some(f) = unsafe { param_file(base, o::PARAM_IDX_LINEUP) } {
+            let rows = unsafe { param_rows(f) };
+            if rows.len() == o::ROW_COUNT {
+                let lu = Lineup { data: rows[0].1 };
+                if unsafe { anchors_ok(lu.data) } {
+                    unsafe { release_rank_rewards(&lu); }
+                    pool = unsafe { build_pool(&lu) };
+                    unsafe { penalty::init(base, &lu); }
+                    logf!("lineup (repository) at {:#X}: pool = {} buyable rows ({} weapons)", lu.data, pool.len(), pool.iter().filter(|p| p.is_weapon()).count());
+                    if !pool.is_empty() { break; }
+                }
+            }
+        }
+        sleep_ms(500);
+    }
+    if pool.is_empty() { log("EquipmentLineupParam not found — aborting boot"); return; }
+
+    if !ENABLE_PATCHES { log("ENABLE_PATCHES=false: read-only, done"); return; }
+
+    match unsafe { install_shop_hook(base) } {
+        Ok(cave) => logf!("shop predicate hook installed: exe+{:X} -> cave {:#X} -> shop_pred {:#X}", o::SHOP_PRED_CALLSITE, cave, shop_pred as *const () as usize),
+        Err(e) => { logf!("shop hook FAILED: {} — aborting", e); return; }
+    }
+
+    match unsafe { penalty::install(base) } {
+        Ok(cave) => logf!("game-thread hook installed: exe+{:X} -> cave {:#X}", o::FRAME_HOOK_CALLSITE, cave),
+        Err(e) => logf!("game-thread hook FAILED: {} (penalty disabled)", e),
+    }
+    match unsafe { install_call_hook(base, o::PAUSE_REQ_CALLSITE, o::FN_REQUEST_PAUSE_MENU, pause_hook as *const () as usize) } {
+        Ok(cave) => logf!("pause hook installed: exe+{:X} -> cave {:#X}", o::PAUSE_REQ_CALLSITE, cave),
+        Err(e) => logf!("pause hook FAILED: {}", e),
+    }
+    match unsafe { install_call_hook(base, o::DEATH_MENU_CALLSITE, o::FN_OPEN_RETRY_MENU, penalty::death_menu_hook as *const () as usize) } {
+        Ok(cave) => logf!("death-menu hook installed: exe+{:X} -> cave {:#X}", o::DEATH_MENU_CALLSITE, cave),
+        Err(e) => logf!("death-menu hook FAILED: {}", e),
+    }
+    for site in o::SELL_PRICE_CALLSITES {
+        match unsafe { install_call_hook(base, site, o::FN_SELL_PRICE, penalty::sell_price_hook as *const () as usize) } {
+            Ok(cave) => logf!("sell price hook installed: exe+{:X} -> cave {:#X}", site, cave),
+            Err(e) => logf!("sell price hook exe+{:X} FAILED: {}", site, e),
+        }
+    }
+    match unsafe { install_call_hook(base, o::OPEN_SESSION_CALLSITE, o::FN_OPEN_SESSION, penalty::open_session_hook as *const () as usize) } {
+        Ok(cave) => logf!("open-session hook installed: exe+{:X} -> cave {:#X}", o::OPEN_SESSION_CALLSITE, cave),
+        Err(e) => logf!("open-session hook FAILED: {}", e),
+    }
+    match unsafe { msg::install(base) } {
+        Ok(()) => logf!("message lookup hook installed: exe+{:X}", o::FN_MSG_LOOKUP),
+        Err(e) => logf!("message lookup hook FAILED: {}", e),
+    }
+    match unsafe { install_coam_hook(base) } {
+        Ok(cave) => logf!("COAM hook installed: exe+{:X} -> cave {:#X}", o::FN_ADD_COAM, cave),
+        Err(e) => logf!("COAM hook FAILED: {} (game-over detection disabled)", e),
+    }
+    let n = unsafe { apply_economy(base) };
+    logf!("economy: {} reward fields scaled at boot", n);
+
+    let mut run = Run { game, pool, rng: Rng::seeded(), reward_handles: Vec::new(), reward_parts: Vec::new(), last_grant_tick: 0, mission_ran: false };
+    let mut prev_defer: Option<u8> = None;
+    let mut coam_seen: u32 = 0;
+    // death tax state for the current sortie
+    let mut alive = false;        // AP > 0 seen since the last death / sortie start
+    let mut alive_chr = 0usize;   // character object that was last seen alive (a zero must come from it)
+    let mut dead = false;         // died and not respawned yet
+    let mut cleared_seen = false; // 5074 rose during this sortie
+    let mut prev_loaded = false;
+    let mut title_at: u64 = 0;
+    let mut exit_phase = 0u8;   // game over exit: 1 close the session, 2 wait for its save, 3 leaving for the title
+    let mut escrow_save_pending = false;
+    let mut prev_talk = false;
+    let mut coam_last_raw: i32 = i32::MIN;
+    let mut coam_last_neg: i32 = 0;
+    let mut coam_last_bal: i32 = i32::MIN;
+    let mut prev_clear: Option<u8> = None; // flag 5074: mission cleared, results pending
+    let mut prev_state: Option<Option<Vec<u16>>> = None;
+    let mut prev_gd = 0usize;
+    let mut tick: u64 = 0;
+    loop {
+        tick += 1;
+        unsafe {
+            let gd = match run.game.game_data() { Some(g) => g, None => { prev_defer = None; sleep_ms(250); continue; } };
+            if gd != prev_gd { logf!("GameData = {:#X}", gd); prev_gd = gd; prev_defer = None; clear_page_cache(); }
+            if tick % 50 == 0 {
+                clear_page_cache();
+                let n = apply_economy(run.game.base);
+                if n > 0 { logf!("economy: re-applied {} fields (params were reloaded)", n); }
+            } // re-walk the map every 5 s (pages can be reallocated)
+
+            // (1) persisted shop state (flags) -> chosen ids. Handles Continue / New Game / our own writes.
+            if let Some(man) = run.game.flag_man() {
+                let st = run.game.read_state(man);
+                if prev_state.as_ref() != Some(&st) {
+                    match &st {
+                        Some(idx) => run.apply_state(idx, "state read from flags"),
+                        None => { set_chosen(&[]); log("no shop state in flags: shop empty until the first mission end"); }
+                    }
+                    prev_state = Some(st);
+                }
+
+                // COAM: observe every AddCoam through the detour
+                let cnt_at = COAM_CALLS.load(Relaxed);
+                if cnt_at != 0 {
+                    let cnt = mem::rd_u32(cnt_at);
+                    if cnt != coam_seen {
+                        // the HUD calls AddCoam(0) ~100x/s: only report real changes
+                        let raw = mem::rd_i32(COAM_LAST_RAW.load(Relaxed));
+                        let now = mem::rd_i32(gd + o::GD_COAM);
+                        if raw != coam_last_raw || now != coam_last_bal {
+                            logf!("COAM: {} -> {} (unclamped {})", coam_last_bal, now, raw);
+                            coam_last_raw = raw; coam_last_bal = now;
+                        }
+                        if raw < 0 && raw != coam_last_neg {
+                            logf!("balance would be {} (< 0): auto-sell queued", raw);
+                            penalty::AUTOSELL_DEFICIT.store(raw, Relaxed);
+                        }
+                        coam_last_neg = raw;
+                        coam_seen = cnt;
+                    }
+                }
+
+                if escrow_save_pending {
+                    let st = mem::rd_usize(run.game.base + o::SAVE_STATE_GLOBAL);
+                    if st != 0 && mem::rd_u32(st + o::SAVE_REQ_MASK) & 1 == 0 {
+                        logf!("escrow save written (mask bit cleared), in mission = {}", run.game.defer_byte(gd) == 1);
+                        escrow_save_pending = false;
+                    }
+                }
+                // escrow: set + saved when the deployment talk starts (flag 5003), the last moment the game saves
+                let talk = run.game.get_flag(man, o::FLAG_SORTIE_BRIEF) == Some(true);
+                // prev_loaded: ignore the talk flag coming back on with a save written during a talk
+                if talk && !prev_talk && prev_loaded && run.game.defer_byte(gd) == 0 {
+                    run.game.put_flag(man, o::FLAG_ESCROW, true);
+                    penalty::arm(gd, "deployment talk");
+                    let m = run.game.request_save();
+                    logf!("deployment talk: escrow flag SET + save requested (mask before {:?})", m);
+                    escrow_save_pending = true;
+                }
+                prev_talk = talk;
+
+                // garage opened by LOADING a save: flag 1000 (set at every new game) goes 0 -> 1 when the save's
+                // flags arrive (the title screen has none). One check per load.
+                let loaded = run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true);
+                if loaded && !prev_loaded {
+                    // dead save: flagged, or an unpaid failure (escrow) whose penalty leaves the player broke.
+                    // The second case is the same outcome every time it is loaded, so nothing needs saving:
+                    // leave for the title at once, before the garage shows.
+                    let broke = if run.game.get_flag(man, o::FLAG_ESCROW) == Some(true) { penalty::arm(gd, "save loaded with escrow") } else { None };
+                    if run.game.get_flag(man, o::FLAG_RUN_OVER) == Some(true) || broke.map_or(false, |v| v < 0) {
+                        logf!("save loaded: this run is OVER (flag {:?}, projected failure balance {:?}) -> back to the title",
+                              run.game.get_flag(man, o::FLAG_RUN_OVER), broke);
+                        exit_phase = 1;
+                    } else {
+                        penalty::CLEANUP_REQUEST.store(true, Relaxed); run.on_garage_open(man, "save loaded");
+                    }
+                }
+                prev_loaded = loaded;
+
+                if penalty::RETIRED.swap(0, Relaxed) > 0 { log("death: mission retired automatically (back to the garage)"); }
+                // Game over exit, the way the system menu's Return to Title ends a session: the title checks the save
+                // FILE for an open session (else it warns that Return to Title / Quit Game was not selected), and the
+                // game saves nothing at the title or during missions. So: (1) close the session and keep the game from
+                // re-opening it (it does at every map load, then saves), request the session-end save; (2) wait for
+                // that save to be written; (3) leave for the title. Timeouts keep a stuck save from blocking the exit.
+                match exit_phase {
+                    1 => {
+                        // Close the session (the game can no longer re-open it: open_session_hook), request the
+                        // session-end save and the exit together. The exit sequence fades to black, then waits in its
+                        // state 2 until no save is pending or running (exe+12721A0) before unloading: the save is
+                        // written behind the black screen, like the system menu's Save and Return to Title.
+                        penalty::SESSION_EXIT.store(true, Relaxed);
+                        penalty::clear_session_flag(run.game.base);
+                        penalty::queue_session_end_save(run.game.base);
+                        log("game over: session closed, session-end save + title requested");
+                        exit_phase = 3; title_at = tick;
+                    }
+                    3 => {
+                        penalty::clear_session_flag(run.game.base);
+                        if !loaded { exit_phase = 0; penalty::SESSION_EXIT.store(false, Relaxed); log("returned to the title screen"); }
+                    }
+                    _ => {}
+                }
+                // keep raising the leave-map request (once a second) until the save is unloaded: a request
+                // raised during the load may be dropped when the map step starts
+                if !loaded { title_at = 0; }
+                if title_at != 0 && tick >= title_at {
+                    title_at = tick + 10;
+                    if penalty::request_title(run.game.base) { log("title request issued (menu leave-map byte set)"); }
+                    else { log("title request FAILED (menu manager not available)"); }
+                }
+                if penalty::GAME_OVER_PENDING.load(Relaxed) {
+                    let st = mem::rd_usize(run.game.base + o::SAVE_STATE_GLOBAL);
+                    if st != 0 && mem::rd_u32(st + o::SAVE_REQ_MASK) & 1 == 0 {
+                        penalty::GAME_OVER_PENDING.store(false, Relaxed);
+                        log("game over saved -> back to the title");
+                        exit_phase = 1;
+                    }
+                }
+                // DEBUG: %USERPROFILE%/ac6_debug.txt with a command ("reroll" = new shop now), then deleted
+                let dbg_cmd = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_debug.txt");
+                if tick % 5 == 0 && dbg_cmd.exists() {
+                    let cmd = std::fs::read_to_string(&dbg_cmd).unwrap_or_default();
+                    let _ = std::fs::remove_file(&dbg_cmd);
+                    match cmd.trim() {
+                        "reroll" => { log("DEBUG: reroll"); run.on_mission_end(gd, man); prev_state = None; }
+                        c => logf!("DEBUG: unknown command {:?}", c),
+                    }
+                }
+                // DEBUG: a file %USERPROFILE%/ac6_dialog_test.txt is shown in the garage dialog, then deleted
+                let dbg = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_dialog_test.txt");
+                if tick % 5 == 0 && dbg.exists() {
+                    let txt = std::fs::read_to_string(&dbg).unwrap_or_default();
+                    let _ = std::fs::remove_file(&dbg);
+                    dialog::show(txt.trim_end());
+                    log("DEBUG: test dialog requested");
+                }
+                let pb = PAUSE_BLOCKED.swap(0, Relaxed);
+                if pb > 0 { logf!("pause menu blocked ({} request{})", pb, if pb > 1 { "s" } else { "" }); }
+
+                // Replay Mission stays locked (menu command gated by this flag)
+                if run.game.get_flag(man, o::FLAG_REPLAY_MISSION) == Some(true) {
+                    run.game.put_flag(man, o::FLAG_REPLAY_MISSION, false);
+                    log("replay mission flag 3134 cleared");
+                }
+
+                // (2) mission signal
+                let d = run.game.defer_byte(gd);
+                let cleared: u8 = match run.game.get_flag(man, o::FLAG_MISSION_CLEARED) { Some(true) => 1, Some(false) => 0, None => { prev_clear = None; 0 } };
+                if let Some(p) = prev_defer {
+                    if p == 0 && d == 1 {
+                        // mission start (sortie): the game is idle here, the give call returns at once.
+                        // The dialog content is built at the mission-clear instant, so the reward must
+                        // already be queued by then; check_reward re-queues if the game empties the list.
+                        log("defer 0->1 (mission active)"); run.reward_handles.clear(); run.reward_parts.clear(); run.mission_ran = true;
+                        alive = false; dead = false; cleared_seen = false;
+                        msg::GAME_OVER_TEXT.store(false, Relaxed);
+                        // escrow should already be in the save (armed during the pre-mission talk); the game
+                        // never saves during a mission, so this is only a fallback for the in-memory state
+                        if escrow_save_pending { log("WARNING: mission started before the escrow save was written"); }
+                        if run.game.get_flag(man, o::FLAG_ESCROW) != Some(true) { log("WARNING: mission started without the escrow flag"); }
+                        run.queue_reward(gd, "mission start");
+                    }
+                    if p == 1 && d == 0 {
+                        if run.reward_handles.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
+                        log("defer 1->0 (commit)"); run.reward_handles.clear();
+                        // ignore the flip caused by the game shutting down / exiting to title (save no longer loaded)
+                        if !cleared_seen && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {
+                            logf!("mission FAILED ({})", if dead { "death" } else { "quit" });
+                            match penalty::failure_balance(gd) {
+                                Some(v) if v < 0 => {
+                                    logf!("failure balance {} < 0: GAME OVER -> back to the title", v);
+                                    // the session-end save was queued at the death (begin_game_over_exit): wait for it
+                                    exit_phase = 1;
+                                }
+                                _ => run.on_garage_open(man, "returned from a failed mission"),
+                            }
+                        }
+                    }
+                    if p == 1 && d == 1 { run.check_reward(gd); }
+                }
+                // death: AP reaches 0 during a mission (charged once; re-armed on respawn after Retry)
+                if d == 1 && !cleared_seen {
+                    if let Some((ap, max, chr)) = run.game.player_ap() {
+                        if ap > 0 { if dead { logf!("respawned (AP {}/{})", ap, max); } alive = true; dead = false; alive_chr = chr; }
+                        else if alive && !dead && chr == alive_chr {
+                            dead = true; alive = false;
+                            match penalty::failure_balance(gd) {
+                                Some(v) if v < 0 => {
+                                    logf!("DEATH (AP 0): projected balance after the penalty {} < 0 -> GAME OVER", v);
+                                    msg::GAME_OVER_TEXT.store(true, Relaxed);
+                                }
+                                Some(v) => logf!("DEATH (AP 0): projected balance after the penalty {}", v),
+                                None => log("DEATH (AP 0)"),
+                            }
+                        }
+                    }
+                }
+                if prev_clear == Some(0) && cleared == 1 {
+                    cleared_seen = true;
+                    run.game.put_flag(man, o::FLAG_ESCROW, false);
+                    penalty::disarm();
+                    log("escrow flag CLEARED (mission cleared)");
+                    logf!("5074 rose (mission cleared); reward queued={}", format!("{:X?}", run.reward_handles));
+                    // Reroll NOW: the game autosaves at the commit (~10 s later), so the new shop state
+                    // (direct flag writes, no game call) is included in that save.
+                    if run.mission_ran {
+                        log("mission cleared -> reroll (before the commit autosave)");
+                        run.on_mission_end(gd, man); prev_state = None; run.mission_ran = false;
+                    } else { log("5074 rose without a mission having run (stale flag on load): ignored"); }
+                }
+
+                prev_clear = Some(cleared);
+                prev_defer = Some(d);
+            }
+        }
+        if VERBOSE && tick % 40 == 0 { logf!("tick {} pred_calls={} chosen={:?}", tick, PRED_CALLS.load(Relaxed), chosen()); }
+        sleep_ms(100);
+    }
+}
+
+// ---------------------------------------------------------------- win32 glue
+const MEM_COMMIT: u32 = 0x1000;
+const MEM_RESERVE: u32 = 0x2000;
+const PAGE_EXECUTE_READWRITE: u32 = 0x40;
+
+extern "system" {
+    fn Sleep(ms: u32);
+    fn DisableThreadLibraryCalls(module: *mut c_void) -> i32;
+    fn GetTickCount64() -> u64;
+    fn VirtualAlloc(addr: *mut c_void, size: usize, kind: u32, protect: u32) -> *mut c_void;
+    fn VirtualProtect(addr: *mut c_void, size: usize, protect: u32, old: *mut u32) -> i32;
+    fn FlushInstructionCache(process: *mut c_void, addr: *const c_void, size: usize) -> i32;
+    fn GetCurrentProcess() -> *mut c_void;
+}
+fn sleep_ms(ms: u32) { unsafe { Sleep(ms) } }
+fn tick_count() -> u64 { unsafe { GetTickCount64() } }
+
+const DLL_PROCESS_ATTACH: u32 = 1;
+
+#[no_mangle]
+pub extern "system" fn DllMain(module: *mut c_void, reason: u32, _reserved: *mut c_void) -> i32 {
+    if reason == DLL_PROCESS_ATTACH {
+        unsafe { DisableThreadLibraryCalls(module); }
+        std::thread::spawn(boot);
+    }
+    1
+}

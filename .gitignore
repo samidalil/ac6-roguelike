@@ -1,0 +1,6 @@
+dll/target/
+dll/target2/
+__pycache__/
+*.bak
+snaps/
+dist/

@@ -1,0 +1,31 @@
+// giveitem(rcx = gaitem id) -> calls the game's own grant routine (reward path):
+//   desc = exe+B86700([exe+4E14008], &desc_out, &id)      ; build descriptor from item id
+//   exe+46B1C0(GameData+0x230, desc, qty=1, r9b=1, a5=1, a6=1, a7=1)   ; grant (with "already have" check)
+[ENABLE]
+alloc(giveitem,$200,armoredcore6.exe+46B1C0)
+registersymbol(giveitem)
+giveitem:
+  push rbx
+  sub rsp,$A0                 // shadow(20) + 3 stack args(20..30) + locals: id @50, desc_out @60 (0x40 bytes)
+  mov [rsp+50],ecx
+  mov dword ptr [rsp+54],0
+  mov rcx,[armoredcore6.exe+4E14008]
+  lea rdx,[rsp+60]
+  lea r8,[rsp+50]
+  call armoredcore6.exe+B86700
+  mov rdx,rax
+  mov rcx,[armoredcore6.exe+4E03A08]
+  mov rcx,[rcx+8]
+  add rcx,230
+  mov r8d,1
+  mov r9b,1
+  mov byte ptr [rsp+20],1
+  mov byte ptr [rsp+28],1
+  mov byte ptr [rsp+30],1
+  call armoredcore6.exe+46B1C0
+  add rsp,$A0
+  pop rbx
+  ret
+[DISABLE]
+unregistersymbol(giveitem)
+dealloc(giveitem)

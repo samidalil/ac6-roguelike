@@ -1,0 +1,15 @@
+[package]
+name = "ac6_roguelike"
+version = "0.1.0"
+edition = "2021"
+description = "Armored Core VI roguelike — me3 native DLL (in-memory param mod, no shipped regulation.bin)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

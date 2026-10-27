@@ -1,0 +1,39 @@
+// Prototype of the shop predicate call-site hook (lever 2). Replaces the 5-byte "call exe+159ACB0" at exe+E89074 with a
+// call into a cave that returns al=1 only if the item's lineup row (+0 equip field) is in the CHOSEN table, else 0.
+// Copy-independent (reads the row the builder passes), scoped to the shop builder, no breakpoints.
+[ENABLE]
+alloc(shopcave,$200,armoredcore6.exe+E89074)
+label(chosen) label(lp) label(r1) label(r0)
+registersymbol(shopcave)
+shopcave:
+  mov rax,[rcx+08]      // itemCtx+8 = lineup row (live copy)
+  test rax,rax
+  je r0
+  mov eax,[rax]         // row +0 equip field
+  lea rdx,[chosen]
+lp:
+  mov r8d,[rdx]
+  test r8d,r8d
+  je r0
+  cmp eax,r8d
+  je r1
+  add rdx,4
+  jmp lp
+r1:
+  mov al,1
+  ret
+r0:
+  xor al,al
+  ret
+chosen:
+  dd 0098BD90   // 10010000 RANSETSU-AR (R) wave 6230
+  dd 03199C74   // 52010100 TIAN-LAO arms   wave 6230
+  dd 02FB3F04   // 50020100 KASUAR/44Z head wave 6230
+  dd 0
+armoredcore6.exe+E89074:
+  call shopcave
+[DISABLE]
+armoredcore6.exe+E89074:
+  call armoredcore6.exe+159ACB0
+unregistersymbol(shopcave)
+dealloc(shopcave)

@@ -1,0 +1,6 @@
+{
+ "_source": "Weapons missing from the Fextralife tables. HI-32: BU-TT/A from samurai-gamers.com (HI-32: BU-TT/A weapon stats and guide / pulse blades list).",
+ "Weapons": [
+  {"Name": "HI-32: BU-TT/A", "Type": "Pulse Blade", "ATK Power": "963", "Impact": "710", "Total Rounds": "-", "Weight": "1800", "EN Load": "213"}
+ ]
+}
