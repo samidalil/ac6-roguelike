@@ -1165,7 +1165,7 @@ fn boot() {
                         run.queue_reward(gd, man, "mission start");
                     }
                     if p == 1 && d == 0 {
-                        if run.reward_handles.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
+                        if run.reward_handles.is_empty() && run.reward_credits.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
                         log("defer 1->0 (commit)"); run.reward_handles.clear();
                         // ignore the flip caused by the game shutting down / exiting to title (save no longer loaded)
                         if !cleared_seen && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {
