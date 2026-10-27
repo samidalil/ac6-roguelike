@@ -21,10 +21,12 @@ HOW IT PLAYS
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
 - No pause menu during missions: no retry, no quitting.
 - Dying, or leaving a mission any other way (even closing the game), counts as a failed sortie:
-  * every equipped weapon is lost;
-  * every equipped frame part / internal that is not a starter part is lost and replaced by the starter part;
-  * a slot that already had its starter part costs that part's price.
-  A dialog lists what you lost.
+  * every equipped weapon is lost for good;
+  * every equipped frame part / internal is lost (for good, except the starter parts);
+  * each emptied slot gets your most recently obtained spare part for it; with no spare, the starter part is bought
+    (its shop price) and equipped. Tank legs have no booster: the booster slot stays empty.
+  A dialog lists what you lost. Equipped parts are never sold automatically.
+- The 7 starter frame parts / internals are always in the shop while you don't own them.
 - If your credits go below 0, your spare parts are sold automatically, most expensive first.
 - If even that is not enough, the run is over: GAME OVER, back to the title. The save is dead; start a New Game.
 

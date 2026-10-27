@@ -411,6 +411,32 @@ unsafe fn param_file(base: usize, idx: usize) -> Option<usize> {
     Some(file)
 }
 
+/// Repository index of a param by its name (wide string at res+0x18, MSVC wstring: inline below 8 chars).
+unsafe fn param_index(base: usize, name: &str) -> Option<usize> {
+    let repo = mem::rd_usize(base + o::PARAM_REPO_GLOBAL);
+    if repo == 0 || !mem::is_readable(repo + o::REPO_SLOT0, o::REPO_SLOTS * o::REPO_SLOT_STRIDE) { return None; }
+    let want: Vec<u16> = name.encode_utf16().collect();
+    (0..o::REPO_SLOTS).find(|&i| {
+        let slot = repo + o::REPO_SLOT0 + i * o::REPO_SLOT_STRIDE;
+        let res = mem::rd_usize(slot + 8);
+        if mem::rd_u32(slot) == 0 || res == 0 || !mem::is_readable(res, 0x38) { return false; }
+        let (len, cap) = (mem::rd_usize(res + o::RES_NAME + 0x10), mem::rd_usize(res + o::RES_NAME + 0x18));
+        if len != want.len() { return false; }
+        let s = if cap >= 8 { mem::rd_usize(res + o::RES_NAME) } else { res + o::RES_NAME };
+        mem::is_readable(s, len * 2) && (0..len).all(|k| mem::rd_u16(s + k * 2) == want[k])
+    })
+}
+
+/// equipIds of the tank legs: EquipParamProtector rows with legsType 300..302 (Paramdex LEGS_TYPE).
+unsafe fn tank_legs(base: usize) -> Vec<u32> {
+    let Some(f) = param_index(base, "EquipParamProtector").and_then(|i| param_file(base, i)) else {
+        log("EquipParamProtector not found: no tank legs known"); return Vec::new();
+    };
+    param_rows(f).into_iter()
+        .filter(|&(id, r)| id / 1_000_000 == 53 && (300..=302).contains(&mem::rd_u16(r + o::PROTECTOR_LEGS_TYPE)))
+        .map(|(id, _)| id).collect()
+}
+
 /// Every (row id, row address) of a param file.
 unsafe fn param_rows(file: usize) -> Vec<(u32, usize)> {
     let n = mem::rd_u16(file + o::PARAMFILE_ROWCOUNT) as usize;
@@ -502,7 +528,8 @@ unsafe extern "system" fn shop_pred(item_ctx: *const u8) -> u8 {
     for c in &CHOSEN {
         if c.load(Relaxed) == id { return 1; }
     }
-    buyback::offered(row) as u8
+    // buy-back rows, and the starter frame parts / internals: always for sale (the ownership filter hides owned ones)
+    (buyback::offered(row) || penalty::FRAME_SLOTS.iter().any(|s| s.2 == id)) as u8
 }
 
 fn set_chosen(ids: &[u32]) {
@@ -780,7 +807,7 @@ fn boot() {
                 if unsafe { anchors_ok(lu.data) } {
                     unsafe { release_rank_rewards(&lu); }
                     pool = unsafe { build_pool(&lu) };
-                    unsafe { penalty::init(base, &lu); buyback::init(base, &lu); }
+                    unsafe { penalty::init(base, &lu, tank_legs(base)); buyback::init(base, &lu); }
                     logf!("lineup (repository) at {:#X}: pool = {} buyable rows ({} weapons)", lu.data, pool.len(), pool.iter().filter(|p| p.is_weapon()).count());
                     if !pool.is_empty() { break; }
                 }
@@ -978,7 +1005,8 @@ fn boot() {
                     }
                 }
                 // DEBUG: %USERPROFILE%/ac6_debug.txt with a command ("reroll" = new shop now, "mission_end" = what a
-                // cleared mission does to the shop, "rows_test" = row bitset round trip), then deleted
+                // cleared mission does to the shop, "rows_test" = row bitset round trip, "lost" = lost-forever rows,
+                // "give <hex item id>" = grant an item in the garage), then deleted
                 let dbg_cmd = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_debug.txt");
                 if tick % 5 == 0 && dbg_cmd.exists() {
                     let cmd = std::fs::read_to_string(&dbg_cmd).unwrap_or_default();
@@ -995,6 +1023,11 @@ fn boot() {
                             g.clear_rows(man, o::ROWS_SOLD);
                             logf!("DEBUG: rows after clear {:?}", g.read_rows(man, o::ROWS_SOLD));
                         }
+                        "lost" => logf!("DEBUG: lost forever rows {:?}", run.game.read_rows(man, o::ROWS_LOST)),
+                        c if c.starts_with("give ") => match u32::from_str_radix(c[5..].trim().trim_start_matches("0x"), 16) {
+                            Ok(id) => { logf!("DEBUG: give {:#X} (game thread)", id); penalty::GIVE_REQUEST.store(id, Relaxed); }
+                            Err(_) => logf!("DEBUG: bad item id {:?}", c),
+                        },
                         c => logf!("DEBUG: unknown command {:?}", c),
                     }
                 }

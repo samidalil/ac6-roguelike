@@ -91,6 +91,9 @@ pub const REPO_SLOT0: usize = 0x80;          // slot i at repo + 0x80 + i*0x48: 
 pub const REPO_SLOT_STRIDE: usize = 0x48;
 pub const REPO_SLOTS: usize = 0x109;
 pub const RES_FILE_HOLDER: usize = 0x80;     // file = [[res+0x80]+0x80]; res+0x18 = wide name
+pub const RES_NAME: usize = 0x18;            // MSVC std::wstring {buf/ptr, , len @+0x10, cap @+0x18}
+/// EquipParamProtector row: legsType u16 (0 none, 1 biped, 100 tetrapod, 200 reverse joint, 300-302 tank)
+pub const PROTECTOR_LEGS_TYPE: usize = 0xDA;
 pub const PARAMFILE_ROWCOUNT: usize = 0x0A;  // u16
 pub const PARAMFILE_ROWS: usize = 0x40;      // row headers {id u32, pad, dataOffset u64, nameOffset u64}
 pub const PARAMFILE_ROW_STRIDE: usize = 0x18;

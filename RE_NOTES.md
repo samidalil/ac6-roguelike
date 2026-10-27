@@ -752,3 +752,45 @@ game drops it (reward not owned afterwards).
   (13 750) -> 7 750; only rows 219 and 148 entered the list ("sold (auto-sell)"), both back in Achat on their side;
   the lost parts did not. (Writing a negative COAM directly does not trigger the garage auto-sell: the HUD's
   AddCoam(0) reports the balance already clamped to 0.)
+## Starter parts always buyable + failure rework (2026-10-27, task 3)
+
+**Shop.** `shop_pred` also lists the 7 starter frame/internal rows (FRAME_SLOTS); the game's ownership filter hides
+the owned ones (verified: FINDER EYE sold -> listed at 42 000; CRAWLER/BST-G1/P10 listed after a failure removed
+them). They are not in the random pool (`build_pool` runs before `penalty::init` prices their rows). `init` now always
+writes a starter row's price (value x item_charge_percent), so a starter is never free even without a [prices] entry.
+
+**Failure plan** (`penalty::FailurePlan`, one deterministic pass, built at sortie / rebuilt from the save on load):
+weapons -> all four weapon slots cleared, equipped ones removed + `ROWS_LOST`; every frame slot -> its part removed
+(non-starter -> `ROWS_LOST`), filled by `Fill::Spare` (newest owned unequipped part of that slot), `Fill::Buy` (the
+starter at its shop price; when the lost part IS the starter it simply stays equipped: lost + bought back) or
+`Fill::Empty` (booster under tank legs); then cost; then sales from the stash minus the chosen spares.
+- **Acquisition ordinal** = inventory entry `+0xC`: a counter assigned when an item enters the inventory (fresh3:
+  New Game loadout 1-12, later parts 51+; a debug grant got 54, the next ones 55, 56...; independent of the entry
+  index, which gets reused). Spare = max ordinal, then max value. Not matched against a UI sort (the Assemblage list
+  only has "Par défaut" + a cycle key); the counter itself is the acquisition order.
+- **Tank legs** = `EquipParamProtector.legsType` (u16 @ row +0xDA) in 300..302 (Paramdex LEGS_TYPE: 0 none, 1 biped,
+  100 tetrapod, 200 reverse joint, 300-302 tank): BORNEMISSZA 53300000, VE-42B 53340000, FORTALEZA 53360000. The param
+  is found in the repository by name (`param_index`: res+0x18 is an MSVC std::wstring, len +0x10, cap +0x18, heap
+  pointer when cap >= 8). Vanilla, equipping tank legs sets the booster slot's index/handle/id to FFFFFFFF ("Booster
+  retiré. Les jambes de type tank ont des boosters internes."); leaving them installs a booster from the inventory.
+- **Vente** refuses equipped parts ("Vente des pièces équipées impossible.", listed greyed with an EQ badge), and the
+  garage auto-sell uses `stash()` (equipped handles excluded): equipped parts are never sold.
+- **Stale index.** A weapon slot can hold an inventory INDEX with an empty handle/id (seen in the CE-made gear_test
+  save): the Assemblage then shows whatever item later takes that index (a granted FINDER EYE showed in a back slot).
+  The penalty now clears index + handle + id of all four weapon slots.
+- **Dialog.** Starters lost and bought back only count in "Pièces de départ facturées" (a 7-slot list overflowed the
+  box onto the OK button).
+
+**Verified in game** (fresh3 .gear_test, failures by killing the game mid-mission, penalty on load):
+1. weapon + 2 non-starters + 5 starters, spare starter FCS, no spare head (sold in Vente): GU-A2/LAMMERGEIER/TALBOT ->
+   lost rows 207/84/105, FINDER EYE bought + granted + equipped, SCT spare equipped, 5 starters kept, cost 663 000,
+   BU-TT/A auto-sold, 650 000 -> 2 000.
+2. tank legs as newest spare: BORNEMISSZA equipped, booster slot FFFFFFFF, CRAWLER + BST removed (not lost forever),
+   TURNER auto-sold, 540 000 -> 4 750; the shop then offers CRAWLER and BST-G1/P10.
+3. tank legs equipped, no spares: BORNEMISSZA lost (row 18), CRAWLER + BST bought and equipped, 774 000.
+4. starter head with two spare heads (VE-44B then the cheaper TIAN-QIANG): TIAN-QIANG equipped for free, FINDER EYE
+   removed, VE-44B sold (the replacement never is), 700 000 -> 44 500.
+5. unaffordable failure (-729 500, nothing to sell): game over at load, back to the title.
+Auto-sold parts enter the buy-back list through task 2's `buyback::record` in `sell`; lost parts never do (removed with
+RemoveItemAt, not the Vente path). Not done: real in-mission deaths not replayed
+(same plan / apply code as the kill path). Debug commands: `give <hex item id>`, `lost`.

@@ -33,6 +33,9 @@ fn set_bit(row: u16, v: bool) {
     if v { SOLD[w].fetch_or(1 << b, Relaxed); } else { SOLD[w].fetch_and(!(1 << b), Relaxed); }
 }
 
+/// Lineup row index of an inventory item id (tag | equipId).
+pub fn row_of(item: u32) -> Option<u16> { ROW_OF.get()?.get(&item).copied() }
+
 /// Shop predicate: is this lineup row (pointer) in the buy-back list?
 pub unsafe fn offered(row: usize) -> bool {
     let data = LINEUP_DATA.load(Relaxed);
