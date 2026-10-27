@@ -32,6 +32,8 @@ pub const FLAG_REPLAY_MISSION: u32 = 3134; // keep OFF for the roguelike
 pub const FLAG_MARKET: u32 = 3127;
 /// rises when the mission is cleared (results pending), falls ~2 s after the obtained-parts commit
 pub const FLAG_MISSION_CLEARED: u32 = 5074;
+/// result screen up (rises after the commit, falls when the player closes it, back in the garage)
+pub const FLAG_RESULTS: u32 = 3139;
 
 // --- item manager / give path (RE 2026-09-24, see RE_NOTES "Pending obtained parts list") ---
 /// GameData + this = the item-manager object (`mgr`).

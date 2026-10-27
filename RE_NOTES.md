@@ -794,3 +794,27 @@ starter at its shop price; when the lost part IS the starter it simply stays equ
 Auto-sold parts enter the buy-back list through task 2's `buyback::record` in `sell`; lost parts never do (removed with
 RemoveItemAt, not the Vente path). Not done: real in-mission deaths not replayed
 (same plan / apply code as the kill path). Debug commands: `give <hex item id>`, `lost`.
+
+## Pool without repeats (2026-10-27, task 4)
+Two pools (weapons, other parts) over the buyable lineup rows; each row is its own part (left/right weapon versions
+included). Candidates = in the pool, not in `ROWS_ROLLED` (7100..7417), not owned, not in `ROWS_LOST`. Rarity unchanged
+(weighted tier among the tiers that have candidates, uniform within).
+- Shop (`pick_shop`, at the reroll): shop_weapons then shop_parts slots; every pick sets its rolled bit. A pool with
+  no candidate is refilled once (its rolled bits cleared except the rows picked in this roll and the sortie's
+  rewards) and completes from the refill; a slot still without a candidate stays empty.
+- Mission reward (`pick_reward`, at sortie): both pools, also excluding the current shop rows. Nothing left: refill
+  both (keeping the current shop rows). Still nothing (all owned / lost / on offer): a part rolled among every
+  sellable part is paid as its sell value (`penalty::sell_value`). Rewards set their rolled bit only when given, at
+  5074 (mission cleared), with the reroll: a failed sortie leaves the pool untouched.
+- Credits of converted rewards: `penalty::CREDIT_REQUEST`, added to COAM on the game thread at the mission clear
+  (the frame hook handles it before the garage-only early return), i.e. before the commit charges ammo/repair (task 1
+  lesson). A dialog ("PLUS AUCUNE PIÈCE DISPONIBLE ...") is requested when the result screen closes (flag 3139 1->0).
+- Config `[shop] pool_limit` (test knob): each pool keeps only its first N rows.
+Verified in the garage with pool_limit 3 (rows 124/125/126 weapons, 4/5/6 parts) through debug commands (`reroll`,
+`rolled`, `reward` = a sortie's reward roll + its mission clear without the grant, `save`): parts pool 2 per roll →
+2nd roll takes the last one, refills ("2 back in", keeping it), completes with a non-repeat; weapons refill on the 4th
+roll; reward picks an unrolled non-shop row and marks it; with the rest owned (`give`) the reward refills, finds
+nothing, converts DIZZY to +65 000 COAM (527 790 -> 592 790) and shows the dialog. Persistence: rolled [4, 5, 126] +
+shop survived save, kill, relaunch, Continue. Not replayed: a real mission clear (5074 marking, credits before the
+commit, dialog at 3139↓). Note: one debug `save` request right after a Continue was not written (cause unknown,
+file unchanged); the next one was.

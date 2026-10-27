@@ -22,6 +22,9 @@ item_charge_percent = 100        # every part (weapons included) costs this % of
 shop_weapons = 1                 # weapons offered after each cleared mission
 shop_parts = 2                   # other parts offered after each cleared mission (weapons + parts: 8 at most)
 reroll_interval = 1              # cleared missions between shop rerolls (1 = every mission; rewards still come every mission)
+# Every part offered or given leaves its pool (weapons, other parts) until that pool runs dry; then the pool refills
+# with every part you do not own and have not lost for good. A part you own is never offered or given.
+pool_limit = 0                   # testing: each pool keeps only its first N parts (0 = every part)
 
 [rarity]
 # Shop offers and mission rewards are drawn by rarity tier, then uniformly within the tier. Tiers come from
