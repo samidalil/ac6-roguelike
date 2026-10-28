@@ -1230,7 +1230,8 @@ fn boot() {
                             }
                         }
                     }
-                    if p == 1 && d == 1 { run.check_reward(gd, man); }
+                    // a dead player's sortie is failed (no retry): the game empties the pending list, nothing to re-queue
+                    if p == 1 && d == 1 && !dead { run.check_reward(gd, man); }
                 }
                 // death: AP reaches 0 during a mission (charged once; re-armed on respawn after Retry)
                 if d == 1 && !cleared_seen {
