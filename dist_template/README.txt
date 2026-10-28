@@ -16,15 +16,17 @@ HOW IT PLAYS
 - The parts shop (open from mission 2 on) only offers a few random parts (1 weapon + 2 parts by default), rerolled after every cleared
   mission (or every few missions: reroll_interval). Rarer parts come up less often.
 - Each cleared mission gives a reward: on the results screen you pick 1 part out of 3 random ones (pad, or arrows +
-  Enter). Several rewards per mission (parts_per_mission) are several pages. Parts offered and not picked do not come
-  back until every other part has been offered.
+  Enter). Several rewards per mission (parts_per_mission) are several pages.
+- Parts can come up again at any time. Weapons and frame parts (head, core, arms, legs) can be owned several times:
+  the shop also offers ones you already own, and each copy is its own part. Boosters, generators and FCS are owned
+  once: they are not offered while you have one, nor after losing one for good.
 - A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
   so you can buy it back.
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
 - No pause menu during missions: no retry, no quitting.
 - Dying, or leaving a mission any other way (even closing the game), counts as a failed sortie:
-  * every equipped weapon is lost for good;
-  * every equipped frame part / internal is lost (for good, except the starter parts);
+  * every equipped weapon and frame part / internal is lost; a lost booster, generator or FCS is lost for good
+    (never offered again, except the starter parts), lost weapons and frame parts can come up again;
   * each emptied slot gets your most recently obtained spare part for it; with no spare, the starter part is bought
     (its shop price) and equipped. Tank legs have no booster: the booster slot stays empty.
   A dialog lists what you lost. Equipped parts are never sold automatically.

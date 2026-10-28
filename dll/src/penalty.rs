@@ -5,9 +5,11 @@
 //! original step and then any work the DLL thread queued through the atomics below.
 //!
 //! Rules (RE_NOTES "Next features" item 3):
-//! * every equipped weapon is lost forever, its slot left empty;
-//! * every equipped frame part / internal is lost (non-starters forever; starters stay buyable) and its slot gets the
-//!   most recently obtained spare for it, else the starter, bought at its shop price; tank legs take no booster;
+//! * every equipped weapon is lost, its slot left empty;
+//! * every equipped frame part / internal is lost and its slot gets the most recently obtained spare for it, else the
+//!   starter, bought at its shop price; tank legs take no booster;
+//! * lost boosters / generators / FCS (starters excepted) are lost forever: never rolled again. Weapons and frame
+//!   parts can be owned several times, so a lost one may roll again;
 //! * a negative balance sells stash parts (never equipped ones), most expensive first; still negative with
 //!   nothing left = game over.
 
@@ -27,9 +29,6 @@ pub static RETIRE_REQUEST: AtomicBool = AtomicBool::new(false);
 pub static RETIRED: AtomicUsize = AtomicUsize::new(0);
 pub static GAME_OVER_PENDING: AtomicBool = AtomicBool::new(false);
 /// DEBUG: an item id (tag | equipId) to grant in the garage, 0 = none.
-/// Credits of mission rewards converted to money (no part left to give), 0 = none. Added on the game thread at the
-/// mission clear, before the commit charges the mission's costs (money must exist before them).
-pub static CREDIT_REQUEST: AtomicI32 = AtomicI32::new(0);
 pub static GIVE_REQUEST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 /// DEBUG: grant GIVE_REQUEST even when it is already owned (a second copy).
 pub static GIVE_FORCE: AtomicBool = AtomicBool::new(false);
@@ -187,13 +186,6 @@ unsafe extern "system" fn frame_hook(this: usize) {
         retire();
         RETIRED.fetch_add(1, Relaxed);
         return;
-    }
-    let credits = CREDIT_REQUEST.swap(0, Relaxed);
-    if credits > 0 {
-        let old = mem::rd_i32(gd + o::GD_COAM);
-        let new = (old as i64 + credits as i64).min(999_999_999) as i32;
-        mem::wr_i32(gd + o::GD_COAM, new);
-        logf!("converted reward: +{} COAM ({} -> {})", credits, old, new);
     }
     rewardmenu::open_pending(base); // movie name restore (also during the results)
     if game.defer_byte(gd) != 0 { return; } // the rest is garage-only work
@@ -407,8 +399,12 @@ unsafe fn unequip(gd: usize, off: usize) {
     for d in [INDEX_DELTA, HANDLE_DELTA, 0] { mem::wr_u32(gd + off - d, EMPTY); }
 }
 
-/// Add a part to the "lost forever" row set.
+/// Booster, generator, FCS: one copy at most (copies would share a handle), lost forever on a failure.
+pub fn unique_tag(item: u32) -> bool { matches!(item >> 28, 5 | 6 | 7) }
+
+/// Add a part to the "lost forever" row set (unique parts only: a lost weapon / frame part may roll again).
 unsafe fn mark_lost(game: &Game, item: u32) {
+    if !unique_tag(item) { return; }
     let (Some(man), Some(row)) = (game.flag_man(), buyback::row_of(item)) else { return };
     game.put_row(man, o::ROWS_LOST, row, true);
 }
@@ -425,7 +421,7 @@ unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {
     for &(_, name, handle, id) in &plan.weapons {
         let removed = remove_handle(game, gd, handle, id);
         mark_lost(game, id);
-        lines.push(format!("lost forever {} weapon {}{}", name, id, if removed { "" } else { " (was not in the inventory)" }));
+        lines.push(format!("lost {} weapon {}{}", name, id, if removed { "" } else { " (was not in the inventory)" }));
     }
     // equip the replacement first, then remove the lost part
     for &(k, lost, fill) in &plan.frames {
@@ -453,7 +449,7 @@ unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {
         if let (Some((h, id)), false) = (lost, keep) {
             remove_handle(game, gd, h, tag | id);
             if id != starter { mark_lost(game, tag | id); }
-            lines.push(format!("{}: lost {}{}", name, id, if id == starter { "" } else { " forever" }));
+            lines.push(format!("{}: lost {}{}", name, id, if id != starter && unique_tag(tag) { " forever" } else { "" }));
         }
     }
     let bal = mem::rd_i32(gd + o::GD_COAM) as i64 - plan.starter_cost;

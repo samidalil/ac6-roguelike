@@ -345,7 +345,7 @@ unsafe extern "system" fn repeat_hook(a: usize, input: usize, c: usize, d: usize
     r
 }
 /// Hook a function entry: its first `n` bytes (`expect`, no rip-relative code) move to a trampoline that jumps back.
-unsafe fn install_entry_hook(base: usize, rva: usize, expect: &[u8], f: usize) -> Result<usize, String> {
+pub unsafe fn install_entry_hook(base: usize, rva: usize, expect: &[u8], f: usize) -> Result<usize, String> {
     let at = base + rva;
     if (0..expect.len()).any(|i| mem::rd_u8(at + i) != expect[i]) { return Err(format!("unexpected bytes at exe+{:X}", rva)); }
     let page = alloc_near_page(base).ok_or("no near page for the cave")?;

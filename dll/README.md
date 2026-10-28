@@ -22,7 +22,7 @@ Log: `%USERPROFILE%\ac6_roguelike_dll.log` (rewritten at every launch).
 Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config.toml` when missing.
 
 ## Modules
-- `lib.rs` — boot (config, param lookup, hooks), the shop (pool, rarity pick, reroll every `reroll_interval` cleared
+- `lib.rs` — boot (config, param lookup, hooks), the shop (candidates, rarity pick, reroll every `reroll_interval` cleared
   missions, state kept in event flags), saved state helpers (flags, multi-bit values, row bitsets one flag per lineup
   row: `read_rows` / `write_rows` / `clear_rows` / `put_row` / `has_row` over `o::ROWS_*`), economy (mission pay, first mission = starting credits), mission rewards (queued at mission start through the game's give
   path), the game-thread loop and the game-over exit sequence.
@@ -30,8 +30,11 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   part values (shop price, stat model, `[prices]` overrides) and the sell-price hook.
 - `buyback.rs` — parts sold since the last reroll (Vente sale hook + auto-sales) offered again in the shop, kept in
   the `ROWS_SOLD` bitset, cleared at the reroll.
-- `choice.rs` — reward choice (pick 1 of `reward_choices` per reward): offers rolled at sortie from their own pool
-  and RNG (saved in event flags), queued like plain rewards; at the commit the parts not picked leave the pending list.
+- `choice.rs` — reward choice (pick 1 of `reward_choices` per reward): offers rolled at sortie with their own RNG
+  (saved in event flags), queued like plain rewards; at the commit the parts not picked leave the pending list.
+- `dupshop.rs` — duplicate parts in the shop: weapons / frame parts can roll while owned; the hook on the shop's
+  "obtainable" check (exe+D2F900) lists and sells a slot's part while the player owns no more copies than when it
+  was rolled (per-slot baselines in event flags). Also clears the old "already rolled" flag ranges once per save.
 - `rewardmenu.rs` — the choice grid: the results screen's "Pièces obtenues" call opens our movie instead (one page per
   reward, tiles filled by the game's own part view), navigation from the game's menu actions (pad + keyboard).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
@@ -40,7 +43,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
 ## Status
-Playable end to end: mission pay removed, random shop and rewards by rarity tier (pick 1 of 3 per reward), failed
-sorties take parts, auto-sell
+Playable end to end: mission pay removed, random shop and rewards by rarity tier (pick 1 of 3 per reward; weapons
+and frame parts can repeat and be owned several times, boosters / generators / FCS once), failed sorties take parts,
+auto-sell
 when broke, game over back to the title with the run's save closed. Vanilla rank / arena reward parts are not granted;
 they are shop parts like the others.

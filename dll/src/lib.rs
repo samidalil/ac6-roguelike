@@ -6,14 +6,15 @@
 //!   proof, flag-independent, scoped to the shop.
 //! * MISSION SIGNAL: the item manager's DEFER byte (GameData+0x600+0x99) is 1 while a mission is
 //!   active. 0->1 = mission start, 1->0 = the mission-end "obtained parts" commit.
-//! * POOL: every part offered or given leaves its pool (weapons / other parts; ROWS_ROLLED in the save) until the
-//!   pool runs dry, then it refills with every part not owned and not lost forever. Owned parts never roll.
-//! * REWARD: at mission start we grant one random unowned part through the game's give wrapper
+//! * POOL: shop offers and rewards are drawn by rarity among every buyable part; weapons and frame parts can repeat
+//!   and be owned several times (dupshop.rs lists an owned one in the shop). Boosters, generators and FCS are
+//!   unique: never rolled while owned or once lost forever.
+//! * REWARD: at mission start we grant one random part through the game's give wrapper
 //!   with bypass-defer = 0, so it is queued and the vanilla "Pièces obtenues" dialog shows it at
 //!   mission end and commits it on OK.
 //! * REROLL: at the commit (shop closed) we pick 1 weapon + 2 parts and persist the 3 lineup row
 //!   indices in event flags (saved in the .sl2), so quit + reload restores the same shop. Bought
-//!   parts are hidden by the vanilla ownership filter (slot stays empty until the next reroll).
+//!   parts are hidden by the ownership filter (slot stays empty until the next reroll).
 
 use std::ffi::c_void;
 use std::fmt::Write as _;
@@ -57,6 +58,7 @@ mod config;
 mod trace;
 mod rewardmenu;
 mod choice;
+mod dupshop;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
 struct Lineup {
@@ -99,6 +101,8 @@ unsafe fn release_rank_rewards(lu: &Lineup) {
 struct Part { idx: u16, equip_id: u32, kind: u8, tier: u8 }
 impl Part {
     fn is_weapon(&self) -> bool { self.kind == 0 }
+    /// one copy at most: booster, generator, FCS (copies would share a handle)
+    fn unique(&self) -> bool { matches!(self.kind, 4 | 5 | 6) }
     /// id accepted by the item-descriptor builder (grant path)
     fn grant_id(&self) -> u32 { o::id_tag(self.kind) | (self.equip_id & 0x0FFF_FFFF) }
 }
@@ -671,10 +675,6 @@ struct Run {
     reward_parts: Vec<Part>,
     /// reward choice: the current sortie's offers, by reward (reward_parts = all of them)
     reward_sets: Vec<Vec<Part>>,
-    /// rewards of the current sortie paid as credits (no part left to give): the part each one rolled
-    reward_credits: Vec<Part>,
-    /// what the converted rewards paid, shown in a dialog once the result screen closes
-    credit_text: Option<String>,
     last_grant_tick: u64,
     /// a mission actually ran (defer went 0->1) since the last reroll; guards against a stale
     /// 5074 read on save load triggering a reroll
@@ -685,91 +685,54 @@ struct Run {
 
 impl Run {
     fn part_by_idx(&self, idx: u16) -> Option<&Part> { self.pool.iter().find(|p| p.idx == idx) }
+    /// The shop slots' parts (None = empty slot, 0x1FF in the state).
+    fn slot_parts(&self, idx: &[u16]) -> Vec<Option<Part>> { idx.iter().map(|i| self.part_by_idx(*i).copied()).collect() }
 
-    /// Parts that can roll (weapons, other parts or both pools): not rolled yet, not owned, not lost forever, not in
-    /// `exclude`. Each lineup row is its own part (left and right weapon versions included).
+    /// Parts that can roll: the shop's weapons (`Some(true)`) or other parts (`Some(false)`), or both (`None`,
+    /// rewards), not in `exclude`. Weapons and frame parts roll even when owned (each copy is its own inventory
+    /// entry); unique parts neither while owned nor once lost forever. Each lineup row is its own part (left and
+    /// right weapon versions included).
     unsafe fn candidates(&self, man: usize, owned: &[u32], weapon: Option<bool>, exclude: &[u16]) -> Vec<Part> {
-        let rolled = self.game.read_rows(man, o::ROWS_ROLLED);
         let lost = self.game.read_rows(man, o::ROWS_LOST);
-        self.pool.iter().copied().filter(|p| weapon.map_or(true, |w| p.is_weapon() == w) && !rolled.contains(&p.idx)
-            && !lost.contains(&p.idx) && !exclude.contains(&p.idx) && !owned.contains(&p.grant_id())).collect()
+        self.pool.iter().copied().filter(|p| weapon.map_or(true, |w| p.is_weapon() == w)
+            && !exclude.contains(&p.idx) && !(p.unique() && (owned.contains(&p.grant_id()) || lost.contains(&p.idx)))).collect()
     }
 
-    /// Refill a pool (None = both): every part of it leaves the rolled set but `keep` (picked in this roll).
-    unsafe fn refill(&self, man: usize, weapon: Option<bool>, keep: &[u16]) {
-        let mut n = 0;
-        for p in self.pool.iter().filter(|p| weapon.map_or(true, |w| p.is_weapon() == w) && !keep.contains(&p.idx)) {
-            if self.game.has_row(man, o::ROWS_ROLLED, p.idx) { self.game.put_row(man, o::ROWS_ROLLED, p.idx, false); n += 1; }
-        }
-        logf!("pool refill ({}): {} part(s) back in", match weapon { Some(true) => "weapons", Some(false) => "parts", None => "both" }, n);
-    }
-
-    /// config shop_weapons weapons + shop_parts other parts from the two pools, by rarity. A pool that runs dry is
-    /// refilled once and completes from the refill; a slot still without a candidate stays empty. Every pick leaves
-    /// the pool (rolled set in the save).
+    /// config shop_weapons weapons + shop_parts other parts, by rarity, all different. The parts being awarded right
+    /// now are left out: the shop is rolled at the mission clear, before the commit inserts them, so their copies
+    /// would be missing from the slot's baseline (dupshop.rs).
     unsafe fn pick_shop(&mut self, gd: usize, man: usize) -> Vec<Part> {
         let cfg = config::get();
         let owned = self.game.owned_ids(gd);
-        let mut taken: Vec<u16> = self.reward_parts.iter().map(|p| p.idx).collect(); // being awarded right now
+        let mut taken: Vec<u16> = self.reward_parts.iter().map(|p| p.idx).collect();
         let mut out = Vec::new();
         for (count, weapon) in [(cfg.shop_weapons, true), (cfg.shop_parts, false)] {
-            let (mut n, mut refilled) = (0, false);
-            while n < count {
+            for n in 0..count {
                 let cands = self.candidates(man, &owned, Some(weapon), &taken);
                 let Some(p) = pick_weighted(&mut self.rng, &cands) else {
-                    if refilled { logf!("shop: no {} left, {} slot(s) empty", if weapon { "weapon" } else { "part" }, count - n); break; }
-                    self.refill(man, Some(weapon), &taken);
-                    refilled = true;
-                    continue;
+                    logf!("shop: no {} left, {} slot(s) empty", if weapon { "weapon" } else { "part" }, count - n);
+                    break;
                 };
-                self.game.put_row(man, o::ROWS_ROLLED, p.idx, true);
                 taken.push(p.idx);
                 out.push(p);
-                n += 1;
             }
         }
         out
     }
 
-    /// A mission reward from both pools, by rarity, not among `taken` nor in the current shop. Both pools dry: refill
-    /// them. Still nothing (everything owned or lost): a part rolled among every sellable part, paid as its sell
-    /// value (`true`). Rewards leave the pool only when given (mission cleared: `on_mission_cleared`).
-    unsafe fn pick_reward(&mut self, gd: usize, man: usize, taken: &[u16]) -> Option<(Part, bool)> {
+    /// Reward candidates, minus `taken` and the unique parts of the current shop (given, one would leave its slot
+    /// empty).
+    unsafe fn reward_candidates(&self, gd: usize, man: usize, taken: &[u16]) -> Vec<Part> {
         let owned = self.game.owned_ids(gd);
         let mut exclude = taken.to_vec();
-        exclude.extend(self.game.read_state(man).unwrap_or_default());
-        let mut cands = self.candidates(man, &owned, None, &exclude);
-        if cands.is_empty() {
-            self.refill(man, None, &exclude);
-            cands = self.candidates(man, &owned, None, &exclude);
-        }
-        if let Some(p) = pick_weighted(&mut self.rng, &cands) { return Some((p, false)); }
-        let sellable: Vec<Part> = self.pool.iter().copied().filter(|p| penalty::sell_value(p.grant_id()).unwrap_or(0) > 0).collect();
-        pick_weighted(&mut self.rng, &sellable).map(|p| (p, true))
+        exclude.extend(self.game.read_state(man).unwrap_or_default().into_iter().filter(|i| self.part_by_idx(*i).is_some_and(|p| p.unique())));
+        self.candidates(man, &owned, None, &exclude)
     }
 
-    /// Mission cleared: the rewards were given, so they leave the pool, and the converted ones are paid now (before
-    /// the commit charges the mission's costs).
-    unsafe fn on_mission_cleared(&mut self, man: usize) {
-        if self.reward_sets.is_empty() { for p in &self.reward_parts { self.game.put_row(man, o::ROWS_ROLLED, p.idx, true); } }
-        else { choice::mark_offered(&self.game, man, &self.reward_parts); }
-        if self.reward_credits.is_empty() { return; }
-        let mut total = 0i64;
-        let mut names = Vec::new();
-        for p in &self.reward_credits {
-            let v = penalty::sell_value(p.grant_id()).unwrap_or(0) as i64;
-            total += v;
-            names.push(format!("{} ({} COAM)", penalty::part_name(p.grant_id()), penalty::money(v)));
-        }
-        penalty::CREDIT_REQUEST.fetch_add(total as i32, Relaxed);
-        logf!("converted reward(s) {} -> +{} COAM queued for the game thread", names.join(", "), total);
-        self.credit_text = Some(format!("PLUS AUCUNE PIÈCE DISPONIBLE\n\nRécompense convertie en crédits : {}\nTotal : +{} COAM",
-            names.join(", "), penalty::money(total)));
-    }
-
-    unsafe fn apply_state(&self, idx: &[u16], why: &str) {
+    unsafe fn apply_state(&self, man: usize, idx: &[u16], why: &str) {
         let ids: Vec<u32> = idx.iter().map(|i| self.part_by_idx(*i).map(|p| p.equip_id).unwrap_or(0)).collect();
         set_chosen(&ids);
+        dupshop::load(&self.game, man, &self.slot_parts(idx));
         let tiers: Vec<u8> = idx.iter().map(|i| self.part_by_idx(*i).map(|p| p.tier).unwrap_or(0)).collect();
         logf!("shop <- rows {:?} = equip {:?} tiers {:?} ({})", idx, ids, tiers, why);
     }
@@ -778,7 +741,7 @@ impl Run {
     /// (mission restart from the pause menu empties it while the mission stays active).
     unsafe fn queue_reward(&mut self, gd: usize, man: usize, why: &str) {
         self.last_grant_tick = tick_count();
-        if self.reward_parts.is_empty() && self.reward_credits.is_empty() { self.roll_rewards(gd, man, why); self.force_reward(why); }
+        if self.reward_parts.is_empty() { self.roll_rewards(gd, man, why); self.force_reward(why); }
         self.reward_handles.clear();
         let mut handles = Vec::new();
         for p in self.reward_parts.clone() {
@@ -805,33 +768,25 @@ impl Run {
         let Some(p) = self.pool.iter().copied().find(|p| p.grant_id() == id) else { logf!("{}: forced reward {:#X} not in the pool", why, id); return };
         if let Some(s) = self.reward_sets.first_mut() { if !s.is_empty() { s[0] = p; } }
         if self.reward_parts.is_empty() { self.reward_parts.push(p); } else { self.reward_parts[0] = p; }
-        self.reward_credits.clear();
         logf!("{}: DEBUG forced reward row {} {} ({:#X})", why, p.idx, penalty::part_name(id), id);
     }
 
-    /// Roll this sortie's parts_per_mission rewards (parts, or credits when no part is left). Reward choice: each reward
-    /// is an offer of reward_choices parts from the reward pool (choice.rs).
+    /// Roll this sortie's parts_per_mission rewards. Reward choice: each reward is an offer of reward_choices parts
+    /// (choice.rs).
     unsafe fn roll_rewards(&mut self, gd: usize, man: usize, why: &str) {
         let cfg = config::get();
         if cfg.reward_choices > 1 {
-            self.reward_sets = choice::roll(&self.game, gd, man, &self.pool, cfg.parts_per_mission, cfg.reward_choices as usize);
+            let cands = self.reward_candidates(gd, man, &[]);
+            self.reward_sets = choice::roll(&self.game, man, &cands, cfg.parts_per_mission, cfg.reward_choices as usize);
             self.reward_parts = self.reward_sets.iter().flatten().copied().collect();
             logf!("{}: reward offers {:?}", why, self.reward_sets.iter().map(|s| s.iter().map(|p| p.idx).collect::<Vec<_>>()).collect::<Vec<_>>());
-            // nothing left to offer: each missing reward pays a random sellable part's value
-            let sellable: Vec<Part> = self.pool.iter().copied().filter(|p| penalty::sell_value(p.grant_id()).unwrap_or(0) > 0).collect();
-            for _ in self.reward_sets.len()..cfg.parts_per_mission as usize {
-                if let Some(p) = pick_weighted(&mut self.rng, &sellable) { logf!("{}: no part left to offer -> reward paid as credits", why); self.reward_credits.push(p); }
-            }
             return;
         }
-        for _ in 0..config::get().parts_per_mission {
+        for _ in 0..cfg.parts_per_mission {
             let taken: Vec<u16> = self.reward_parts.iter().map(|p| p.idx).collect();
-            match self.pick_reward(gd, man, &taken) {
-                Some((p, false)) => self.reward_parts.push(p),
-                Some((p, true)) => {
-                    logf!("{}: no part left to give -> reward row {} {} paid as credits", why, p.idx, penalty::part_name(p.grant_id()));
-                    self.reward_credits.push(p);
-                }
+            let cands = self.reward_candidates(gd, man, &taken);
+            match pick_weighted(&mut self.rng, &cands) {
+                Some(p) => self.reward_parts.push(p),
                 None => { log("reward: nothing to give"); break; }
             }
         }
@@ -885,8 +840,9 @@ impl Run {
         if sel.is_empty() { log("mission end: nothing left to offer"); }
         let idx: Vec<u16> = sel.iter().map(|p| p.idx).collect();
         self.game.write_state(man, &idx);
+        dupshop::write(&self.game, gd, man, &self.slot_parts(&idx));
         buyback::clear(&self.game, man);
-        self.apply_state(&idx, "reroll at mission end");
+        self.apply_state(man, &idx, "reroll at mission end");
     }
 }
 
@@ -921,12 +877,6 @@ fn boot() {
                 if unsafe { anchors_ok(lu.data) } {
                     unsafe { release_rank_rewards(&lu); }
                     pool = unsafe { build_pool(&lu) };
-                    let lim = config::get().pool_limit as usize;
-                    if lim > 0 {
-                        let (mut w, mut p) = (0, 0);
-                        pool.retain(|x| if x.is_weapon() { w += 1; w <= lim } else { p += 1; p <= lim });
-                        logf!("pool_limit {}: pools cut to {} weapons + {} parts", lim, w.min(lim), p.min(lim));
-                    }
                     unsafe { penalty::init(base, &lu, tank_legs(base)); buyback::init(base, &lu); }
                     logf!("lineup (repository) at {:#X}: pool = {} buyable rows ({} weapons)", lu.data, pool.len(), pool.iter().filter(|p| p.is_weapon()).count());
                     if !pool.is_empty() { break; }
@@ -973,6 +923,7 @@ fn boot() {
         Err(e) => logf!("open-session hook FAILED: {}", e),
     }
     unsafe { rewardmenu::install(base); }
+    unsafe { dupshop::install(base); }
     match unsafe { msg::install(base) } {
         Ok(()) => logf!("message lookup hook installed: exe+{:X}", o::FN_MSG_LOOKUP),
         Err(e) => logf!("message lookup hook FAILED: {}", e),
@@ -987,7 +938,7 @@ fn boot() {
     let watch = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_watch.txt");
     for l in std::fs::read_to_string(&watch).unwrap_or_default().lines().filter(|l| l.starts_with("watch ")) { unsafe { trace::command(l.trim()); } }
 
-    let mut run = Run { game, pool, rng: Rng::seeded(), reward_handles: Vec::new(), reward_parts: Vec::new(), reward_sets: Vec::new(), reward_credits: Vec::new(), credit_text: None, last_grant_tick: 0, mission_ran: false, market_wait: false };
+    let mut run = Run { game, pool, rng: Rng::seeded(), reward_handles: Vec::new(), reward_parts: Vec::new(), reward_sets: Vec::new(), last_grant_tick: 0, mission_ran: false, market_wait: false };
     let mut prev_defer: Option<u8> = None;
     let mut coam_seen: u32 = 0;
     // death tax state for the current sortie
@@ -1003,7 +954,6 @@ fn boot() {
     let mut coam_last_raw: i32 = i32::MIN;
     let mut coam_last_neg: i32 = 0;
     let mut coam_last_bal: i32 = i32::MIN;
-    let mut prev_results = false; // flag 3139: result screen up
     let mut prev_clear: Option<u8> = None; // flag 5074: mission cleared, results pending
     let mut prev_state: Option<Option<Vec<u16>>> = None;
     let mut prev_gd = 0usize;
@@ -1021,10 +971,11 @@ fn boot() {
 
             // (1) persisted shop state (flags) -> chosen ids. Handles Continue / New Game / our own writes.
             if let Some(man) = run.game.flag_man() {
+                dupshop::migrate(&run.game, man);
                 let st = run.game.read_state(man);
                 if prev_state.as_ref() != Some(&st) {
                     match &st {
-                        Some(idx) => run.apply_state(idx, "state read from flags"),
+                        Some(idx) => run.apply_state(man, idx, "state read from flags"),
                         None => { set_chosen(&[]); log("no shop state in flags: shop empty until the first mission end"); }
                     }
                     prev_state = Some(st);
@@ -1130,8 +1081,8 @@ fn boot() {
                     }
                 }
                 // DEBUG: %USERPROFILE%/ac6_debug.txt with a command ("reroll" = new shop now, "mission_end" = what a
-                // cleared mission does to the shop, "rows_test" = row bitset round trip, "lost" = lost-forever rows, "rolled" =
-                // rolled rows, "reward" = a sortie's reward roll + mission clear without the grant, "save" = request a save,
+                // cleared mission does to the shop, "rows_test" = row bitset round trip, "lost" = lost-forever rows,
+                // "reward" = a sortie's reward roll without the grant, "shop <hex ids>" = a shop of these parts, "save" = request a save,
                 // "give <hex item id>" = grant an item in the garage, "give2 <hex>" = same even if owned, "force_reward <hex>" = next
                 // sortie's reward, "dups" = log the inventory entries of every part owned twice), then deleted
                 let dbg_cmd = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_debug.txt");
@@ -1151,22 +1102,30 @@ fn boot() {
                             logf!("DEBUG: rows after clear {:?}", g.read_rows(man, o::ROWS_SOLD));
                         }
                         "lost" => logf!("DEBUG: lost forever rows {:?}", run.game.read_rows(man, o::ROWS_LOST)),
-                        "rolled" => logf!("DEBUG: rolled rows {:?}", run.game.read_rows(man, o::ROWS_ROLLED)),
                         "save" => logf!("DEBUG: save requested (mask before {:?})", run.game.request_save()),
                         "reward" => {
-                            // a sortie's reward roll + its mission clear, without granting (credits paid, dialog shown)
-                            run.reward_parts.clear(); run.reward_credits.clear();
+                            // a sortie's reward roll, without granting
+                            run.reward_parts.clear(); run.reward_sets.clear();
                             run.roll_rewards(gd, man, "DEBUG reward");
-                            logf!("DEBUG: rewards {:?} credits {:?}", run.reward_parts.iter().map(|p| p.idx).collect::<Vec<_>>(), run.reward_credits.iter().map(|p| p.idx).collect::<Vec<_>>());
-                            run.on_mission_cleared(man);
-                            if let Some(t) = run.credit_text.take() { dialog::show(&t); }
-                            run.reward_parts.clear(); run.reward_sets.clear(); run.reward_credits.clear();
+                            logf!("DEBUG: rewards {:?}", run.reward_parts.iter().map(|p| format!("{} {}", p.idx, penalty::part_name(p.grant_id()))).collect::<Vec<_>>());
+                            run.reward_parts.clear(); run.reward_sets.clear();
+                        }
+                        c if c.starts_with("shop ") => {
+                            // a shop of these parts (hex item ids), baselines from the inventory now, like a reroll
+                            let ids: Vec<u32> = c[5..].split_whitespace().filter_map(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()).collect();
+                            let idx: Vec<u16> = ids.iter().filter_map(|id| run.pool.iter().find(|p| p.grant_id() == *id).map(|p| p.idx)).take(config::MAX_SHOP_SLOTS as usize).collect();
+                            logf!("DEBUG: shop {:X?} -> rows {:?}", ids, idx);
+                            run.game.write_state(man, &idx);
+                            dupshop::write(&run.game, gd, man, &run.slot_parts(&idx));
+                            run.apply_state(man, &idx, "DEBUG shop"); prev_state = None;
+                            run.game.request_save();
                         }
                         c if c.starts_with("watch ") || c == "unwatch" => trace::command(c),
                         // "choice" = the grid of a sortie's reward offers, "parts <hex ids>" = a one-page grid (display only), "vanilla <hex ids>" = the vanilla dialog with them
                         "choice" => {
                             let cfg = config::get();
-                            let sets = choice::roll(&run.game, gd, man, &run.pool, cfg.parts_per_mission, cfg.reward_choices as usize);
+                            let cands = run.reward_candidates(gd, man, &[]);
+                            let sets = choice::roll(&run.game, man, &cands, cfg.parts_per_mission, cfg.reward_choices as usize);
                             let n = sets.len();
                             rewardmenu::set_pages(sets.iter().enumerate().map(|(i, s)| rewardmenu::Page { ids: s.iter().map(|p| p.grant_id()).collect(), title: format!("CHOISISSEZ UNE PIÈCE ({}/{})", i + 1, n) }).collect());
                             logf!("DEBUG: reward choice grid, {} page(s)", n);
@@ -1227,7 +1186,7 @@ fn boot() {
                         // mission start (sortie): the game is idle here, the give call returns at once.
                         // The dialog content is built at the mission-clear instant, so the reward must
                         // already be queued by then; check_reward re-queues if the game empties the list.
-                        log("defer 0->1 (mission active)"); run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_sets.clear(); run.reward_credits.clear(); run.mission_ran = true;
+                        log("defer 0->1 (mission active)"); run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_sets.clear(); run.mission_ran = true;
                         alive = false; dead = false; cleared_seen = false;
                         msg::GAME_OVER_TEXT.store(false, Relaxed);
                         // escrow should already be in the save (armed during the pre-mission talk); the game
@@ -1239,7 +1198,7 @@ fn boot() {
                         trace::reapply("mission start");
                     }
                     if p == 1 && d == 0 {
-                        if run.reward_handles.is_empty() && run.reward_credits.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
+                        if run.reward_handles.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
                         log("defer 1->0 (commit)"); run.reward_handles.clear(); choice::disarm();
                         // ignore the flip caused by the game shutting down / exiting to title (save no longer loaded)
                         if !cleared_seen && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {
@@ -1285,17 +1244,10 @@ fn boot() {
                     // (direct flag writes, no game call) is included in that save.
                     if run.mission_ran {
                         log("mission cleared -> reroll (before the commit autosave)");
-                        run.on_mission_cleared(man);
                         run.on_mission_end(gd, man); prev_state = None; run.mission_ran = false;
                     } else { log("5074 rose without a mission having run (stale flag on load): ignored"); }
                 }
 
-                // result screen closed (back in the garage): tell what the converted rewards paid
-                let results = run.game.get_flag(man, o::FLAG_RESULTS) == Some(true);
-                if prev_results && !results {
-                    if let Some(t) = run.credit_text.take() { dialog::show(&t); log("converted reward dialog requested"); }
-                }
-                prev_results = results;
                 prev_clear = Some(cleared);
                 prev_defer = Some(d);
             }
