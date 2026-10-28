@@ -37,12 +37,18 @@ pub unsafe fn roll(g: &Game, man: usize, cands: &[Part], n: u32, k: usize) -> Ve
     sets
 }
 
-/// The current sortie's offers, by reward: (grant id, pending-list handle, 0 = not found) of each part.
-static ARMED: std::sync::Mutex<Vec<Vec<(u32, u32)>>> = std::sync::Mutex::new(Vec::new());
+/// One offered part: the item queued in the pending list (`id`, its pending `handle`, 0 = not found), and for an OS
+/// Tuning offer its OsReinforce row, whether the item is kept when picked (a core expansion not owned yet; else a
+/// carrier, always taken out) and its tile texts (name, category + level).
+#[derive(Clone, Debug)]
+pub struct Offer { pub id: u32, pub handle: u32, pub os: u16, pub keep: bool, pub label: Option<(String, String)> }
+
+/// The current sortie's offers, by reward.
+static ARMED: std::sync::Mutex<Vec<Vec<Offer>>> = std::sync::Mutex::new(Vec::new());
 
 /// The offers are queued (sortie, or re-queued after a restart).
-pub fn arm(sets: Vec<Vec<(u32, u32)>>) {
-    logf!("reward choice armed: {:X?}", sets);
+pub fn arm(sets: Vec<Vec<Offer>>) {
+    logf!("reward choice armed: {:X?}", sets.iter().map(|s| s.iter().map(|x| (x.id, x.handle, x.os)).collect::<Vec<_>>()).collect::<Vec<_>>());
     if let Ok(mut a) = ARMED.lock() { *a = sets; }
 }
 pub fn disarm() { if let Ok(mut a) = ARMED.lock() { a.clear(); } }
@@ -52,27 +58,37 @@ pub fn disarm() { if let Ok(mut a) = ARMED.lock() { a.clear(); } }
 pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
     let sets = ARMED.lock().ok()?.clone();
     if sets.is_empty() { return None; }
-    let n = sets.len();
-    let mut pages: Vec<rewardmenu::Page> = sets.iter().enumerate().map(|(i, s)| rewardmenu::Page {
-        ids: s.iter().map(|x| x.0).collect(),
-        title: if n > 1 { format!("CHOISISSEZ UNE PIÈCE ({}/{})", i + 1, n) } else { "CHOISISSEZ UNE PIÈCE".to_string() },
+    let n = sets.iter().filter(|s| s.len() > 1).count();
+    let mut k = 0;
+    let mut pages: Vec<rewardmenu::Page> = sets.iter().map(|s| rewardmenu::Page {
+        ids: s.iter().map(|x| x.id).collect(),
+        labels: s.iter().map(|x| x.label.clone()).collect(),
+        hide_icon: s.iter().map(|x| x.os != 0 && os::tuning(x.os).map_or(true, |t| t.item == 0)).collect(),
+        title: if s.len() < 2 { "PIÈCE OBTENUE".to_string() } else { k += 1; if n > 1 { format!("CHOISISSEZ UNE PIÈCE ({}/{})", k, n) } else { "CHOISISSEZ UNE PIÈCE".to_string() } },
     }).collect();
+    let handles: Vec<u32> = sets.iter().flatten().map(|x| x.id).collect();
     for id in ids {
-        if !sets.iter().flatten().any(|x| x.0 == *id) { pages.push(rewardmenu::Page { ids: vec![*id], title: "PIÈCE OBTENUE".to_string() }); }
+        if !handles.contains(id) { pages.push(rewardmenu::Page::part(*id, "PIÈCE OBTENUE")); }
     }
     Some(pages)
 }
 
-/// The game is about to commit the pending list (mgr = its item manager): take the parts not picked out of it.
+/// The game is about to commit the pending list (mgr = its item manager): take the parts not picked out of it, and the
+/// carrier items of OS Tuning offers; a picked OS Tuning gains a level.
 pub unsafe fn prune(mgr: usize) {
     let sets = match ARMED.lock() { Ok(mut a) => core::mem::take(&mut *a), Err(_) => return };
     if sets.is_empty() { return; }
+    let gd = mgr - o::GD_ITEM_MGR;
     let mut drop = Vec::new();
     let mut kept = Vec::new();
     for (s, set) in sets.iter().enumerate() {
         let pick = rewardmenu::picked(s).min(set.len() - 1);
-        for (j, (id, h)) in set.iter().enumerate() {
-            if j == pick { kept.push(*id); } else if *h != 0 { drop.push(*h); } else { logf!("WARNING: reward choice: no handle for {:#X}, it stays granted", id); }
+        for (j, x) in set.iter().enumerate() {
+            let picked = j == pick;
+            if picked && x.os != 0 { os::level_up(gd, x.os); }
+            if picked && (x.os == 0 || x.keep) { kept.push(x.id); }
+            else if x.handle != 0 { drop.push(x.handle); }
+            else if x.os == 0 || x.keep { logf!("WARNING: reward choice: no handle for {:#X}, it stays granted", x.id); }
         }
     }
     let (b, e) = (mem::rd_usize(mgr + o::MGR_PENDING_BEGIN), mem::rd_usize(mgr + o::MGR_PENDING_END));

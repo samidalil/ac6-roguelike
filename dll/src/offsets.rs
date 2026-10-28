@@ -138,12 +138,37 @@ pub const ARENA_REPEAT_COAM: usize = 0x30;
 // --- COAM (RE 2026-10-26, TGA "AddCOAM" AOB `?? 8b ?? ?? ?? 8d 0c 10 ?? 89 4c ?? 10`) ---
 /// PlayerGameData + this = COAM balance (i32). +0x78 = lifetime earnings (don't touch).
 pub const GD_COAM: usize = 0x74;
-// --- OS Tuning (TGA table "OS Tuning"; RE 2026-10-28, RE_NOTES "Core expansions") ---
-/// PlayerGameData + this = pointer to the OS Tuning levels (one i32 per tuning, 0 = not installed).
+// --- OS Tuning (TGA table "OS Tuning"; RE 2026-10-28, RE_NOTES "OS Tuning rewards") ---
+/// PlayerGameData + this = pointer to the OS Tuning levels (one i32 per OsReinforce row, in row id order, 0 = not
+/// installed). Assemblage lists an owned core expansion only while its level is > 0.
 pub const GD_OS_TUNING: usize = 0x1368;
-/// core expansion equipId -> offset of its level: ASSAULT ARMOR, PULSE ARMOR, PULSE PROTECTION, TERMINAL ARMOR.
-/// Assemblage lists an owned expansion only while its level is > 0.
-pub const EXPANSION_LEVELS: [(u32, usize); 4] = [(75000000, 0x30), (75010000, 0x34), (75020000, 0x38), (75030000, 0x3C)];
+/// The OS Tunings: (OsReinforce row id, level offset, name id in MSG_CAT_OS_NAME, core expansion item equipId or 0).
+/// Rows 1011..1013 (offsets 0x18..0x20) have no text: hidden sub-rows, not rewards.
+pub const OS_TUNINGS: [(u16, usize, u32, u32); 17] = [
+    (10, 0x00, 71510, 0), (20, 0x04, 71511, 0), (30, 0x08, 71512, 0), (40, 0x0C, 71513, 0), (50, 0x10, 71514, 0),
+    (1010, 0x14, 71520, 0), (2020, 0x24, 71531, 0), (3010, 0x28, 71540, 0), (4010, 0x2C, 71545, 0),
+    (5010, 0x30, 71560, 75000000), (5020, 0x34, 71561, 75010000), (5030, 0x38, 71562, 75020000), (5040, 0x3C, 71563, 75030000),
+    (5050, 0x40, 71550, 0), (5060, 0x44, 71552, 0), (5070, 0x48, 71551, 0), (5080, 0x4C, 71553, 0),
+];
+/// OsReinforce row: 5 levels of {increase i32, OST chip cost i32, text id i32} from +0x14, 0x18 apart; a level
+/// exists while its cost is > 0.
+pub const OSR_LEVEL0_COST: usize = 0x18;
+pub const OSR_LEVEL_STRIDE: usize = 0x18;
+/// Item queued for an OS offer that grants no item (the results' parts dialog only opens on a non-empty pending
+/// list): PULSE ARMOR, always taken out of the list at the commit.
+pub const OS_CARRIER_ITEM: u32 = 75010000;
+pub const MSG_CAT_OS_NAME: u32 = 200;
+/// garage menu titles / unlock notification titles (73) and texts (74)
+pub const MSG_CAT_MENU_TITLE: u32 = 73;
+pub const MSG_CAT_MENU_TEXT: u32 = 74;
+pub const MSG_OS_MENU: u32 = 2009000;      // "AMÉLIORATION OS"
+pub const MSG_OS_UNLOCKED: u32 = 2101000;  // "Accès autorisé : AMÉLIORATION OS/ARÈNE" + its text (both menus listed)
+/// UnlockParam_MenuCommand: row of the OS Tuning menu ({type 2 = event flag, flag 3131}) and a flag nothing sets
+/// (the game's own row 99999999 uses it): pointing the row at it keeps the menu locked.
+pub const MENU_ROW_OS_TUNING: u32 = 10080;
+pub const UNLOCK_ROW_FLAG: usize = 0x4;
+pub const FLAG_OS_TUNING_MENU: u32 = 3131;
+pub const FLAG_NEVER: u32 = 8020;
 
 /// `AddCoam(PlayerGameData, delta)`: new = old + delta, clamped to [0, 999999999]
 pub const FN_ADD_COAM: usize = 0x48DD70;

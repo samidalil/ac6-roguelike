@@ -91,6 +91,17 @@ package _02_GotReward_fla
          var n:int = parts.length > 1 ? parseInt(parts[1]) : MAX;
          if (isNaN(sel)) sel = 0;
          if (isNaN(n) || n < 1 || n > MAX) n = MAX;
+         // third field: tiles without a part image (OS Tuning offers: the tile shows their texts only), every frame
+         var hide:int = parts.length > 2 ? parseInt(parts[2]) : 0;
+         if (isNaN(hide)) hide = 0;
+         for (var h:int = 0; h < MAX; h++)
+         {
+            if ((hide & (1 << h)) == 0) continue;
+            var ht:MovieClip = this.tile(c, h);
+            if (ht == null) continue;
+            if (ht.ItemIcon != null) ht.ItemIcon.visible = false;
+            if (ht.MakerLogo != null) ht.MakerLogo.visible = false;
+         }
          // each page is a new content clip in the same window: lay it out even when its state text is the same
          if (c != this.content) { this.content = c; this.shown = ""; this.hl = null; if (this.orig != null) this.rememberContent(c, this.orig); }
          // the window's own animation keyframes reset some of its pieces: size them again every frame

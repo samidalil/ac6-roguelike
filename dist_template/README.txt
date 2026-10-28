@@ -20,9 +20,10 @@ HOW IT PLAYS
 - Parts can come up again at any time. Weapons and frame parts (head, core, arms, legs) can be owned several times:
   the shop also offers ones you already own, and each copy is its own part. Boosters, generators and FCS are owned
   once: they are not offered while you have one, nor after losing one for good.
-- The core expansions (Assault Armor, Pulse Armor, Pulse Protection, Terminal Armor) are rare mission rewards, never
-  in the shop. Taking one installs it in OS Tuning (level 1) so it can be equipped in Assemblage; each comes once,
-  and one you already installed in OS Tuning is never offered. They are kept after a failed sortie.
+- OS Tunings are mission rewards, never bought: the OS Tuning menu stays locked. Each pick adds one level (the tile
+  shows the level it brings) and a tuning comes back until its max level. The core expansions (Assault Armor, Pulse
+  Armor, Pulse Protection, Terminal Armor) are rarer; the first pick also gives the part to equip in Assemblage.
+  They are kept after a failed sortie.
 - A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
   so you can buy it back.
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
@@ -40,7 +41,7 @@ HOW IT PLAYS
 SETTINGS
 ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restart the game:
 mission pay %, starting credits, ammo/repair cost %, sell and buy %, shop size, reroll interval, parts per mission,
-parts offered per reward, core expansions as rewards, part prices, rarity odds and tiers.
+parts offered per reward, OS Tunings as rewards, part prices, rarity odds and tiers.
 Each setting is explained in the file. Delete the file to get the defaults back.
 
 LOG
