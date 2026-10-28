@@ -58,8 +58,9 @@ pub unsafe fn reset(gd: usize, row: u16) {
     mem::wr_i32(lv + t.off, 0);
 }
 
-/// [unique_occurrences]: the tuning was offered once this run (save bit OS_GONE + its rank in OS_TUNINGS).
-fn rank(row: u16) -> Option<u32> { o::OS_TUNINGS.iter().position(|t| t.0 == row).map(|k| k as u32) }
+/// [max_occurrences]: the tuning was offered its max number of times this run (save bit OS_GONE + its rank in
+/// OS_TUNINGS; occur.rs keeps the counts below the max).
+pub fn rank(row: u16) -> Option<u32> { o::OS_TUNINGS.iter().position(|t| t.0 == row).map(|k| k as u32) }
 pub unsafe fn gone(g: &Game, man: usize, row: u16) -> bool { rank(row).is_some_and(|k| g.get_flag(man, o::OS_GONE + k) == Some(true)) }
 pub unsafe fn set_gone(g: &Game, man: usize, row: u16) { if let Some(k) = rank(row) { g.put_flag(man, o::OS_GONE + k, true); } }
 /// The core expansion tuning of an item id (tag bits ignored).

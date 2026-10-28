@@ -49,12 +49,14 @@ epic_weight = 10
 5030 = 1    # Pulse Protection
 5040 = 1    # Terminal Armor
 
-[unique_occurrences]
-# Items offered at most once per run: once shown in a reward choice or in the shop, picked or not, they never come
-# back. Same keys as [lost_on_failure], value 1. Among the OS Tunings only the core expansions can be listed.
-5010 = 1    # Assault Armor
-5020 = 1    # Pulse Armor
-5030 = 1    # Pulse Protection
+[max_occurrences]
+# How many times per run an item can be offered: every reward choice or shop that shows it counts, picked or not;
+# after that it never comes back. Keys: equipId, "part name" or OS Tuning row (any OS Tuning), value 1 to 15
+# (0 = no limit, like unlisted). Losing an item on a failed sortie does not change its count. Shipped: each core
+# expansion as many times as it has levels, so it can be raised to its max over several picks.
+5010 = 3    # Assault Armor
+5020 = 2    # Pulse Armor
+5030 = 3    # Pulse Protection
 5040 = 1    # Terminal Armor
 
 [part_rarity]
