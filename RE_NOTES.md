@@ -1072,8 +1072,25 @@ next, see "Core expansions: lost on failure, offered once" below.
   and with the economy re-apply. Verified: 3131 = 1, menu absent after a mission and after quit + Continue.
   Notification: the msg hook serves 2101000 without the menu (title: "<menu>/" cut; text: lines naming it dropped),
   built from the game's own texts per source string (they are reloaded in the game language after the title):
-  "Access Granted: ARENA" / "...• ARENA" checked by debug `osnote`. The real notification (mission 9 return) and any
-  ALLMIND mail about OS Tuning are NOT seen (no save near mission 9).
+  "Access Granted: ARENA" / "...• ARENA" checked by debug `osnote`. The real notification (mission 9 = Operation
+  Wallclimber, MissionParam 2030) is NOT seen yet (no save before Wallclimber).
+- **Texts naming OS Tuning / AOS chips** (full dump of the live MsgRepository; `fmg_search.py` cuts texts at 300 chars):
+  ALLMIND's garage message after Wallclimber (cat 1, 913001010..070: service record updated / **OS Tuning granted** /
+  "En outre..." / Arena invitation x4), the Arena tutorial (74/2004000: arena wins give AOS chips), the OS menu
+  tutorial (74/2009000, never shown while locked), the total load help (205/75230, weight control tuning). No mail.
+- **Voice is per line**: each TalkParam row (repo slot 32, 6013 rows) = one line {msgId +4, voiceId +8}; the message
+  is rows 913001010..016 (msgIds 913001010..070 by 10, voiceId = msgId). The player walks the rows BY POSITION for a
+  line count it does not take from the rows: removing headers (even at boot) or renaming ids made Walter's tester-AC
+  message (910450010..013) play the next rows in the array (another message's lines, and "Réception d'un message"
+  instead of "Trois nouveaux messages"). Blanking a row (msgId and voiceId -1) skips it cleanly: Walter went from line
+  1 straight to line 4, same notification count, no gap. `os::cut_allmind_talk` (boot + param re-apply) blanks rows
+  011/012 -> ALLMIND plays lines 1, 4-7. Verified on Walter's message (same code path), the ALLMIND one itself not
+  seen (needs a real Wallclimber return).
+- **Garage return after Wallclimber** = the garage talk script (EzState, found by scanning memory for 913001010): it
+  queues the ALLMIND message (speaker 91000010) and itself sets 3130/3131 + shows notification 2101000 (lists "3130 1
+  3131 1 2101000 7"; mission 2's block likewise sets 3127/6200 + 2100000). Setting 3130/3131/3451 during the tester AC
+  mission does not reach that block: no notification, no ALLMIND message; the garage then lists ARÈNE (3130, no
+  reload needed) and no AMÉLIORATION OS.
 - **Grant** (`os.rs`, `choice.rs`): OS Tunings join the reward pool (`[rewards] os_rewards = 1`; Part kind KIND_OS, idx
   1000+k, never a shop candidate) while level < max. "Pièces obtenues" only opens on a non-empty pending list, so every
   OS offer queues an item at sortie: its expansion item when not owned (`keep`: committed if picked), else a carrier

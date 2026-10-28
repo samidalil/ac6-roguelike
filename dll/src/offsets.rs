@@ -172,6 +172,13 @@ pub const MENU_ROW_OS_TUNING: u32 = 10080;
 pub const UNLOCK_ROW_FLAG: usize = 0x4;
 pub const FLAG_OS_TUNING_MENU: u32 = 3131;
 pub const FLAG_NEVER: u32 = 8020;
+/// ALLMIND's garage message after Operation Wallclimber: TalkParam rows 913001010..016, one voiced line each
+/// ({?, msgId @+4, voiceId @+8}). Rows 011 (OS Tuning granted) and 012 ("En outre...") are silenced.
+pub const TALK_ALLMIND_OS: u32 = 913001011;
+pub const TALK_ALLMIND_OS_MSG: u32 = 913001020;
+pub const TALK_ALLMIND_CUT: u32 = 2;
+pub const TALK_ROW_MSG: usize = 0x4;
+pub const TALK_ROW_VOICE: usize = 0x8;
 
 /// `AddCoam(PlayerGameData, delta)`: new = old + delta, clamped to [0, 999999999]
 pub const FN_ADD_COAM: usize = 0x48DD70;

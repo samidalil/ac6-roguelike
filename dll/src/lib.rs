@@ -1001,6 +1001,7 @@ fn boot() {
     let n = unsafe { apply_economy(base) };
     logf!("economy: {} reward fields scaled at boot", n);
     if config::get().os_rewards && unsafe { os::lock_menu(base) } { log("OS Tuning menu locked (OS Tunings are rewards)"); }
+    if config::get().os_rewards && unsafe { os::cut_allmind_talk(base) } { log("ALLMIND Wallclimber message: OS Tuning lines silenced"); }
     // RE: %USERPROFILE%/ac6_watch.txt = trace commands run at every boot (kept, unlike ac6_debug.txt)
     let watch = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_watch.txt");
     for l in std::fs::read_to_string(&watch).unwrap_or_default().lines().filter(|l| l.starts_with("watch ")) { unsafe { trace::command(l.trim()); } }
@@ -1035,6 +1036,7 @@ fn boot() {
                 let n = apply_economy(run.game.base);
                 if n > 0 { logf!("economy: re-applied {} fields (params were reloaded)", n); }
                 if config::get().os_rewards && os::lock_menu(run.game.base) { log("OS Tuning menu locked again (params were reloaded)"); }
+                if config::get().os_rewards && os::cut_allmind_talk(run.game.base) { log("ALLMIND OS Tuning lines silenced again (params were reloaded)"); }
             } // re-walk the map every 5 s (pages can be reallocated)
 
             // (1) persisted shop state (flags) -> chosen ids. Handles Continue / New Game / our own writes.
