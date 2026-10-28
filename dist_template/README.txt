@@ -23,14 +23,18 @@ HOW IT PLAYS
 - OS Tunings are mission rewards, never bought: the OS Tuning menu stays locked. Each pick adds one level (the tile
   shows the level it brings) and a tuning comes back until its max level. The core expansions (Assault Armor, Pulse
   Armor, Pulse Protection, Terminal Armor) are rarer; the first pick also gives the part to equip in Assemblage.
-  They are kept after a failed sortie.
+  Each one shows up only once per run: once offered on the results screen, picked or not, it never comes back
+  (one level at most). The equipped one is lost on a failed sortie (part and level).
+  [unique_occurrences] and [lost_on_failure] in the settings set this per item.
 - A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
   so you can buy it back.
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
 - No pause menu during missions: no retry, no quitting.
 - Dying, or leaving a mission any other way (even closing the game), counts as a failed sortie:
-  * every equipped weapon and frame part / internal is lost; a lost booster, generator or FCS is lost for good
-    (never offered again, except the starter parts), lost weapons and frame parts can come up again;
+  * every equipped weapon and frame part / internal is lost, and the equipped core expansion (its OS Tuning level
+    goes back to 0; the other OS Tunings are never lost); a lost booster, generator or FCS is lost for good (never
+    offered again, except the starter parts), lost weapons and frame parts can come up again;
+    [lost_on_failure] in the settings changes what is lost, per item;
   * each emptied slot gets your most recently obtained spare part for it; with no spare, the starter part is bought
     (its shop price) and equipped. Tank legs have no booster: the booster slot stays empty.
   A dialog lists what you lost. Equipped parts are never sold automatically.
@@ -41,7 +45,10 @@ HOW IT PLAYS
 SETTINGS
 ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restart the game:
 mission pay %, starting credits, ammo/repair cost %, sell and buy %, shop size, reroll interval, parts per mission,
-parts offered per reward, OS Tunings as rewards, part prices, rarity odds and tiers.
+parts offered per reward, OS Tunings as rewards, part prices, rarity odds and tiers, what a failed sortie takes
+([lost_on_failure]) and which items are offered only once per run ([unique_occurrences]).
+An older settings file has no [lost_on_failure] / [unique_occurrences] sections: core expansions are then kept after a
+failure and offered again; delete the file (or copy the sections from a new one) to get them.
 Each setting is explained in the file. Delete the file to get the defaults back.
 
 LOG

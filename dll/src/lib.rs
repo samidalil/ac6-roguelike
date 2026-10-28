@@ -101,7 +101,7 @@ unsafe fn release_rank_rewards(lu: &Lineup) {
 /// One buyable row, cached from the param (indices are stable for a given game version), or an OS Tuning reward
 /// (`os` = its OsReinforce row, `idx` = OS_IDX + its index: no lineup row, `equip_id` = its core expansion item or 0).
 #[derive(Clone, Copy)]
-struct Part { idx: u16, equip_id: u32, kind: u8, tier: u8, os: u16 }
+struct Part { idx: u16, equip_id: u32, kind: u8, tier: u8, os: u16, once: bool }
 const KIND_OS: u8 = 0xFF;
 const OS_IDX: u16 = 1000;
 impl Part {
@@ -117,7 +117,8 @@ impl Part {
 
 /// Every row a roguelike shop may offer: priced, not a mission reward, weapon / frame / internal, plus the OS Tunings
 /// (rewards only) unless [rewards] os_rewards = 0. Each gets a rarity tier (1 common, 2 rare, 3 epic) from
-/// [part_rarity] (OS Tunings by OsReinforce row id), else the configured unlisted tier.
+/// [part_rarity] (OS Tunings by OsReinforce row id), else the configured unlisted tier, and its [unique_occurrences]
+/// value (offered once per run; core expansions only among the OS Tunings).
 unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
     let cfg = config::get();
     let mut by_id: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
@@ -139,16 +140,23 @@ unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
                 if let Some(t) = by_name.get(&config::name_key(&penalty::part_name(item))) { tier = *t; }
             }
             counts[tier as usize] += 1;
-            v.push(Part { idx: i as u16, equip_id: id, kind, tier, os: 0 });
+            let item = o::id_tag(kind) | (id & 0x0FFF_FFFF);
+            let once = !cfg.unique_occurrences.is_empty() && config::lookup(&cfg.unique_occurrences, &[id], &[penalty::part_name(item)]) == Some(true);
+            v.push(Part { idx: i as u16, equip_id: id, kind, tier, os: 0, once });
         }
     }
     if cfg.os_rewards {
         for (k, t) in os::tunings().iter().enumerate() {
             let tier = by_id.get(&(t.row as u32)).copied().unwrap_or(cfg.unlisted_tier as u8);
             counts[tier as usize] += 1;
-            v.push(Part { idx: OS_IDX + k as u16, equip_id: t.item, kind: KIND_OS, tier, os: t.row });
+            let listed = config::lookup(&cfg.unique_occurrences, &[t.row as u32, t.item], &[os::name(t.row), penalty::part_name(t.item)]) == Some(true);
+            // the other tunings are never unique occurrences (user decision)
+            if listed && t.item == 0 { logf!("[unique_occurrences]: {} ({}) is not a core expansion, ignored", os::name(t.row), t.row); }
+            v.push(Part { idx: OS_IDX + k as u16, equip_id: t.item, kind: KIND_OS, tier, os: t.row, once: listed && t.item != 0 });
         }
     }
+    let once: Vec<String> = v.iter().filter(|p| p.once).map(|p| p.name()).collect();
+    if !once.is_empty() { logf!("unique occurrences (offered once per run): {}", once.join(", ")); }
     logf!("rarity: {} common, {} rare, {} epic", counts[1], counts[2], counts[3]);
     v
 }
@@ -708,13 +716,15 @@ impl Run {
 
     /// Parts that can roll: the shop's weapons (`Some(true)`) or other parts (`Some(false)`), or both (`None`,
     /// rewards), not in `exclude`. Weapons and frame parts roll even when owned (each copy is its own inventory
-    /// entry); unique parts neither while owned nor once lost forever. OS Tunings: rewards only (never in the shop),
-    /// while below their max level. Each lineup row is its own part (left and right weapon versions included).
+    /// entry); unique parts not while owned. Never again: a part in ROWS_LOST (lost forever, or a unique occurrence
+    /// already offered), an OS Tuning with its OS_GONE bit. OS Tunings: rewards only (never in the shop), while below
+    /// their max level. Each lineup row is its own part (left and right weapon versions included).
     unsafe fn candidates(&self, gd: usize, man: usize, owned: &[u32], weapon: Option<bool>, exclude: &[u16]) -> Vec<Part> {
         let lost = self.game.read_rows(man, o::ROWS_LOST);
         self.pool.iter().copied().filter(|p| weapon.map_or(true, |w| !p.is_os() && p.is_weapon() == w)
             && !exclude.contains(&p.idx)
-            && !(p.unique() && (owned.contains(&p.grant_id()) || lost.contains(&p.idx)))
+            && !(p.unique() && owned.contains(&p.grant_id()))
+            && !(if p.is_os() { os::gone(&self.game, man, p.os) } else { lost.contains(&p.idx) })
             && !(p.is_os() && !os::tuning(p.os).zip(os::level(gd, p.os)).is_some_and(|(t, l)| l < t.max))).collect()
     }
 
@@ -747,6 +757,13 @@ impl Run {
         let mut exclude = taken.to_vec();
         exclude.extend(self.game.read_state(man).unwrap_or_default().into_iter().filter(|i| self.part_by_idx(*i).is_some_and(|p| p.unique())));
         self.candidates(gd, man, &owned, None, &exclude)
+    }
+
+    /// [unique_occurrences]: these parts were offered (reward grid at the clear, shop at the reroll): never again.
+    unsafe fn mark_offered(&self, man: usize, parts: &[Part], why: &str) {
+        let once: Vec<&Part> = parts.iter().filter(|p| p.once).collect();
+        for p in &once { if p.is_os() { os::set_gone(&self.game, man, p.os) } else { self.game.put_row(man, o::ROWS_LOST, p.idx, true) } }
+        if !once.is_empty() { logf!("unique occurrence(s) offered ({}), never again: {}", why, once.iter().map(|p| p.name()).collect::<Vec<_>>().join(", ")); }
     }
 
     unsafe fn apply_state(&self, man: usize, idx: &[u16], why: &str) {
@@ -874,6 +891,7 @@ impl Run {
         let sel = self.pick_shop(gd, man);
         if sel.is_empty() { log("mission end: nothing left to offer"); }
         let idx: Vec<u16> = sel.iter().map(|p| p.idx).collect();
+        self.mark_offered(man, &sel, "shop");
         self.game.write_state(man, &idx);
         dupshop::write(&self.game, gd, man, &self.slot_parts(&idx));
         buyback::clear(&self.game, man);
@@ -913,7 +931,8 @@ fn boot() {
                     unsafe { release_rank_rewards(&lu); }
                     if !unsafe { os::init(base) } { sleep_ms(500); continue; }
                     pool = unsafe { build_pool(&lu) };
-                    unsafe { penalty::init(base, &lu, tank_legs(base)); buyback::init(base, &lu); }
+                    let once: Vec<u32> = pool.iter().filter(|p| p.once).map(|p| p.grant_id()).collect();
+                    unsafe { penalty::init(base, &lu, tank_legs(base), once); buyback::init(base, &lu); }
                     logf!("lineup (repository) at {:#X}: pool = {} rows ({} weapons, {} OS Tunings)", lu.data, pool.len(),
                         pool.iter().filter(|p| p.is_weapon()).count(), pool.iter().filter(|p| p.is_os()).count());
                     if !pool.is_empty() { break; }
@@ -1295,6 +1314,8 @@ fn boot() {
                     log("escrow flag CLEARED (mission cleared)");
                     trace::reapply("mission cleared");
                     logf!("5074 rose (mission cleared); reward queued={}", format!("{:X?}", run.reward_handles));
+                    // the results screen shows every offer of this sortie (before the commit autosave)
+                    if run.mission_ran { let parts = run.reward_parts.clone(); run.mark_offered(man, &parts, "mission rewards"); }
                     // Reroll NOW: the game autosaves at the commit (~10 s later), so the new shop state
                     // (direct flag writes, no game call) is included in that save.
                     if run.mission_ran {
