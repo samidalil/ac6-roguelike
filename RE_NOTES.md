@@ -900,9 +900,9 @@ the game's private RW memory (the main heap region is ~2.3 GB, read in 64 MB chu
 that block's AP to 0 and the game kills it at once (no hit needed); `--write` alone zeroes every non-player block.
 - "Destruction de l'AC d'essai" (chapter 1, the tester AC): blocks AP 12300 (the AC: zero only this one), 750 and
   99999 (scripted objects, leave them). Zeroing the AC -> mission cleared, results, rewards as usual.
-- Save right before it: `%APPDATA%\ArmoredCore6\backups\keep\KEEP_2026-10-28_ac-mission-available.sl2` (garage,
-  no sortie pending). Restore with the game closed, copy over `76561198128476385\AC6_roguelike_fresh3.sl2`.
-- Full cycle: restore that save -> `tools/relaunch.ps1` -> title OK + CONTINUER -> DÉPLOIEMENT -> MISSIONS ->
+- Save right before it, in the repo: `saves/ac-mission-available.sl2` (garage, no sortie pending).
+  `tools/restore_save.ps1` puts it in place of the dev save (game closed; the current save is kept first).
+- Full cycle: `tools/restore_save.ps1` -> `tools/relaunch.ps1` -> title OK + CONTINUER -> DÉPLOIEMENT -> MISSIONS ->
   "Destruction de l'AC d'essai" -> briefing -> Déploiement -> OUI -> wait for control -> `kill_enemies.py` (dry run,
   pick the 12300 block) -> `--write --only <it>`.
 - Keep `tools/save_backup.ps1` running while testing; never kill the game mid-sortie (escrow -> failure penalty on the
