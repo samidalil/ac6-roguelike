@@ -33,13 +33,13 @@ pub struct Config {
     pub reroll_interval: u32,
     /// pay of the first mission of a run (MissionParam 2010, Illegal Entry): the run's starting money
     pub starting_credits: u32,
-    /// rarity tier (1 common, 2 rare, 3 epic) of every part [part_rarity] does not list
+    /// rarity tier (1 common, 2 rare, 3 epic, 0 = out of the pools) of every part [part_rarity] does not list
     pub unlisted_tier: u32,
-    /// odds of each tier when the shop or a reward picks a part
+    /// odds of each tier when the shop or a reward picks a part (0 = the tier is out of the pools)
     pub common_weight: u32,
     pub rare_weight: u32,
     pub epic_weight: u32,
-    /// [part_rarity]: tier overrides, (part name or equipId as written, tier 1..3)
+    /// [part_rarity]: tier overrides, (part name or equipId as written, tier 0..3; 0 = out of the pools)
     pub part_rarity: Vec<(String, u32)>,
     /// [lost_on_failure]: (part name, equipId or OsReinforce row as written, 1 = the equipped item is lost on a failed
     /// sortie, 0 = it survives); unlisted: weapons and frame parts / internals lost, core expansions kept
@@ -132,11 +132,11 @@ pub fn load() {
             ("rewards", "os_rewards") => c.os_rewards = v != 0,
             ("shop", "reroll_interval") => c.reroll_interval = v.clamp(1, 255), // 8-bit counter in the save
             ("economy", "starting_credits") => c.starting_credits = v.min(999_999_999),
-            ("rarity", "unlisted_tier") => c.unlisted_tier = v.clamp(1, 3),
+            ("rarity", "unlisted_tier") => c.unlisted_tier = v.min(3),
             ("rarity", "common_weight") => c.common_weight = v,
             ("rarity", "rare_weight") => c.rare_weight = v,
             ("rarity", "epic_weight") => c.epic_weight = v,
-            ("part_rarity", _) => c.part_rarity.push((k.to_string(), v.clamp(1, 3))),
+            ("part_rarity", _) => c.part_rarity.push((k.to_string(), v.min(3))),
             ("lost_on_failure", _) => c.lost_on_failure.push((k.to_string(), v.min(1))),
             ("unique_occurrences", _) => c.unique_occurrences.push((k.to_string(), v.min(1))),
             _ => logf!("config line {}: unknown setting [{}] {}", n + 1, section, k),

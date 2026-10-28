@@ -47,6 +47,9 @@ ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restar
 mission pay %, starting credits, ammo/repair cost %, sell and buy %, shop size, reroll interval, parts per mission,
 parts offered per reward, OS Tunings as rewards, part prices, rarity odds and tiers, what a failed sortie takes
 ([lost_on_failure]) and which items are offered only once per run ([unique_occurrences]).
+A part at tier 0 (or every part [part_rarity] does not list, with unlisted_tier = 0), or in a tier whose odds are 0,
+is never offered in the shop nor as a reward; with few parts left, shop slots stay empty and rewards offer fewer
+parts or none.
 An older settings file has no [lost_on_failure] / [unique_occurrences] sections: core expansions are then kept after a
 failure and offered again; delete the file (or copy the sections from a new one) to get them.
 Each setting is explained in the file. Delete the file to get the defaults back.

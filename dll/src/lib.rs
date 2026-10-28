@@ -113,12 +113,22 @@ impl Part {
     /// id accepted by the item-descriptor builder (grant path)
     fn grant_id(&self) -> u32 { if self.is_os() { self.equip_id } else { o::id_tag(self.kind) | (self.equip_id & 0x0FFF_FFFF) } }
     fn name(&self) -> String { if self.is_os() { os::name(self.os) } else { penalty::part_name(self.grant_id()) } }
+    /// in the shop / reward pools: a tier from 1 to 3 whose weight is not 0 (tier 0 = left out on purpose)
+    fn in_pool(&self) -> bool { self.tier != 0 && tier_weight(self.tier) > 0 }
+}
+
+/// [rarity] odds of a tier (1 common, 2 rare, 3 epic; 0 for anything else).
+fn tier_weight(tier: u8) -> u32 {
+    let cfg = config::get();
+    match tier { 1 => cfg.common_weight, 2 => cfg.rare_weight, 3 => cfg.epic_weight, _ => 0 }
 }
 
 /// Every row a roguelike shop may offer: priced, not a mission reward, weapon / frame / internal, plus the OS Tunings
 /// (rewards only) unless [rewards] os_rewards = 0. Each gets a rarity tier (1 common, 2 rare, 3 epic) from
 /// [part_rarity] (OS Tunings by OsReinforce row id), else the configured unlisted tier, and its [unique_occurrences]
-/// value (offered once per run; core expansions only among the OS Tunings).
+/// value (offered once per run; core expansions only among the OS Tunings). Tier 0, or a tier whose weight is 0, keeps
+/// the part out of the shop and reward pools (`Part::in_pool`); it stays in the list for lookups (a shop slot rolled
+/// under another config, debug commands).
 unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
     let cfg = config::get();
     let mut by_id: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
@@ -157,26 +167,25 @@ unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
     }
     let once: Vec<String> = v.iter().filter(|p| p.once).map(|p| p.name()).collect();
     if !once.is_empty() { logf!("unique occurrences (offered once per run): {}", once.join(", ")); }
-    logf!("rarity: {} common, {} rare, {} epic", counts[1], counts[2], counts[3]);
+    let pool = |f: &dyn Fn(&Part) -> bool| v.iter().filter(|p| p.in_pool() && f(p)).count();
+    logf!("rarity: {} common, {} rare, {} epic, {} at tier 0; weights {}/{}/{}", counts[1], counts[2], counts[3], counts[0],
+        cfg.common_weight, cfg.rare_weight, cfg.epic_weight);
+    logf!("pools after exclusion: shop weapons {}, shop parts {}, rewards {} ({} OS Tunings); {} part(s) left out",
+        pool(&|p| !p.is_os() && p.is_weapon()), pool(&|p| !p.is_os() && !p.is_weapon()), pool(&|_| true),
+        pool(&|p| p.is_os()), v.iter().filter(|p| !p.in_pool()).count());
     v
 }
 
-/// Weighted rarity pick: a tier by the configured odds (tiers without candidates skipped), then uniform in it.
+/// Weighted rarity pick: a tier by the configured odds (tiers without candidates skipped), then uniform in it. Parts
+/// out of the pools (tier 0, weight 0) never come out; None when no candidate is left.
 fn pick_weighted(rng: &mut Rng, cands: &[Part]) -> Option<Part> {
-    let cfg = config::get();
-    let weights = [0, cfg.common_weight, cfg.rare_weight, cfg.epic_weight];
-    let present: Vec<u8> = (1..=3u8).filter(|t| weights[*t as usize] > 0 && cands.iter().any(|p| p.tier == *t)).collect();
-    let tier = if present.is_empty() {
-        cands.first()?.tier  // every present tier has weight 0: fall back to a uniform pick
-    } else {
-        let total: u64 = present.iter().map(|t| weights[*t as usize] as u64).sum();
-        let mut r = rng.next() % total;
-        let mut chosen = present[0];
-        for t in &present { let w = weights[*t as usize] as u64; if r < w { chosen = *t; break; } r -= w; }
-        chosen
-    };
-    let in_tier: Vec<Part> = cands.iter().copied().filter(|p| present.is_empty() || p.tier == tier).collect();
-    if in_tier.is_empty() { return None; }
+    let present: Vec<u8> = (1..=3u8).filter(|t| tier_weight(*t) > 0 && cands.iter().any(|p| p.tier == *t)).collect();
+    let total: u64 = present.iter().map(|t| tier_weight(*t) as u64).sum();
+    if total == 0 { return None; }
+    let mut r = rng.next() % total;
+    let mut tier = present[0];
+    for t in &present { let w = tier_weight(*t) as u64; if r < w { tier = *t; break; } r -= w; }
+    let in_tier: Vec<Part> = cands.iter().copied().filter(|p| p.tier == tier).collect();
     Some(in_tier[rng.below(in_tier.len())])
 }
 
@@ -718,10 +727,11 @@ impl Run {
     /// rewards), not in `exclude`. Weapons and frame parts roll even when owned (each copy is its own inventory
     /// entry); unique parts not while owned. Never again: a part in ROWS_LOST (lost forever, or a unique occurrence
     /// already offered), an OS Tuning with its OS_GONE bit. OS Tunings: rewards only (never in the shop), while below
-    /// their max level. Each lineup row is its own part (left and right weapon versions included).
+    /// their max level. Each lineup row is its own part (left and right weapon versions included). Parts out of
+    /// the pools (tier 0, weight 0) never roll.
     unsafe fn candidates(&self, gd: usize, man: usize, owned: &[u32], weapon: Option<bool>, exclude: &[u16]) -> Vec<Part> {
         let lost = self.game.read_rows(man, o::ROWS_LOST);
-        self.pool.iter().copied().filter(|p| weapon.map_or(true, |w| !p.is_os() && p.is_weapon() == w)
+        self.pool.iter().copied().filter(|p| p.in_pool() && weapon.map_or(true, |w| !p.is_os() && p.is_weapon() == w)
             && !exclude.contains(&p.idx)
             && !(p.unique() && owned.contains(&p.grant_id()))
             && !(if p.is_os() { os::gone(&self.game, man, p.os) } else { lost.contains(&p.idx) })
@@ -1169,7 +1179,7 @@ fn boot() {
                             let cands = run.reward_candidates(gd, man, &[]);
                             for t in os::tunings() {
                                 logf!("DEBUG: OS {} {}: level {:?}/{}, in pool {}, rollable {}{}", t.row, os::name(t.row), os::level(gd, t.row), t.max,
-                                    run.pool.iter().any(|p| p.os == t.row), cands.iter().any(|p| p.os == t.row),
+                                    run.pool.iter().any(|p| p.os == t.row && p.in_pool()), cands.iter().any(|p| p.os == t.row),
                                     if t.item != 0 { format!(", item owned {}", owned.contains(&t.item)) } else { String::new() });
                             }
                         }
@@ -1198,9 +1208,11 @@ fn boot() {
                             let cands = run.reward_candidates(gd, man, &[]);
                             let sets = choice::roll(&run.game, man, &cands, cfg.parts_per_mission, cfg.reward_choices as usize);
                             let n = sets.len();
-                            rewardmenu::set_pages(sets.iter().enumerate().map(|(i, s)| rewardmenu::Page::parts(s.iter().map(|p| p.grant_id()).collect(), format!("CHOISISSEZ UNE PIÈCE ({}/{})", i + 1, n))).collect());
-                            logf!("DEBUG: reward choice grid, {} page(s)", n);
-                            rewardmenu::OPEN_REQUEST.store(true, Relaxed);
+                            if n == 0 { log("DEBUG: reward choice: no part left in the pool, no grid"); } else {
+                                rewardmenu::set_pages(sets.iter().enumerate().map(|(i, s)| rewardmenu::Page::parts(s.iter().map(|p| p.grant_id()).collect(), format!("CHOISISSEZ UNE PIÈCE ({}/{})", i + 1, n))).collect());
+                                logf!("DEBUG: reward choice grid, {} page(s) of {:?} part(s)", n, sets.iter().map(|s| s.len()).collect::<Vec<_>>());
+                                rewardmenu::OPEN_REQUEST.store(true, Relaxed);
+                            }
                         }
                         c if c.starts_with("parts ") || c.starts_with("vanilla ") => {
                             rewardmenu::VANILLA.store(c.starts_with("vanilla "), Relaxed);
