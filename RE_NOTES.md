@@ -983,3 +983,18 @@ instead of handle, so internal copies are spares / stash / removed correctly; (2
 copy still owned should go to ROWS_LOST (simplest: only mark it lost when no copy is left); (3) prune pending offers
 by position, not handle value; (4) count copies in the cap. Safe today without changes: duplicate weapons and frame
 parts (unique handles); the risky case is internals.
+
+**Decision (user, 2026-10-28, for the next pool task):** the "don't roll what's already out" pool goes away, so weapons
+and frame parts (head/core/arms/legs) may roll again and be duplicated; boosters, generators and FCS keep being
+excluded from rolls once owned (their copies would share a handle). Handle evidence per slot: two copies tested for a
+head (VE-44A, serial handles 0x1800001E / 0x18000021) and an FCS (TALBOT, both 0x742C4620); the other slots read from
+the table: core/arms/legs starters 0x18000018/19/1A (serials), booster 0x63949A00 and generator 0x53DFD240 (= id).
+Consequences for that task:
+- Rewards (direct or deferred give, reward grid, commit prune) handle duplicate weapons/frames as tested.
+- **The SHOP cannot show an owned part as is:** the game's ownership filter (`filter->Accept` in the per-frame loop
+  exe+E928F0, see "Ownership filter") hides every owned row whatever `shop_pred` returns, so a rolled duplicate leaves
+  an empty slot (same for buy-back and the starters). Showing duplicates in Achat needs that filter found and
+  bypassed for the chosen rows (its predicate is not identified yet: exe+E88B10 jumps through [filterObj+8]).
+- penalty.rs stays correct for weapons/frames; with internals never duplicated, the shared-handle problems above do
+  not arise (the starters are only re-granted through `ensure_owned`, which skips owned ones).
+- Still to decide: a lost weapon/frame row goes to ROWS_LOST even when the player keeps another copy.
