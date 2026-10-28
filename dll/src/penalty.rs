@@ -8,8 +8,10 @@
 //! * every equipped weapon is lost, its slot left empty;
 //! * every equipped frame part / internal is lost and its slot gets the most recently obtained spare for it, else the
 //!   starter, bought at its shop price; tank legs take no booster;
-//! * lost boosters / generators / FCS (starters excepted) are lost forever: never rolled again. Weapons and frame
-//!   parts can be owned several times, so a lost one may roll again;
+//! * `[lost_on_failure]` changes that per item (0 = survives), and with a 1 the equipped core expansion is lost too:
+//!   item removed, its OS Tuning level back to 0;
+//! * lost boosters / generators / FCS (starters excepted) and lost `[unique_occurrences]` items are lost forever:
+//!   never rolled again. Weapons and frame parts can be owned several times, so a lost one may roll again;
 //! * a negative balance sells stash parts (never equipped ones), most expensive first; still negative with
 //!   nothing left = game over.
 
@@ -44,6 +46,17 @@ pub struct Ctx {
     pub starter_price: [i32; 7],
     /// equipIds of the tank legs (no booster slot)
     pub tank_legs: Vec<u32>,
+    /// [lost_on_failure] by inventory item id (tag | equipId; core expansions: their plain item id)
+    pub lost_rule: HashMap<u32, bool>,
+    /// [unique_occurrences] items (grant ids): marked never again when lost
+    pub once: Vec<u32>,
+}
+
+impl Ctx {
+    /// Is the equipped item `item` lost on a failed sortie? Unlisted: yes, except core expansions.
+    fn lost_on_failure(&self, item: u32) -> bool {
+        self.lost_rule.get(&item).copied().unwrap_or_else(|| os::of_item(item).is_none())
+    }
 }
 
 /// (offset in PlayerGameData, slot name, starter equipId, inventory id tag)
@@ -56,6 +69,8 @@ pub const FRAME_SLOTS: [(usize, &str, u32, u32); 7] = [
     (0x554, "generator", 65000000, 0x5000_0000),
     (0x558, "fcs", 70000000, 0x7000_0000),
 ];
+/// Equipped core expansion: assembly slot 11 (ID array, plain item id 75xxxxxx; index / handle at the same deltas).
+pub const EXPANSION_SLOT: usize = 0x520;
 /// left arm, right arm, left back, right back
 pub const WEAPON_SLOTS: [(usize, &str); 4] = [(0x4F4, "L-arm"), (0x4F8, "R-arm"), (0x4FC, "L-back"), (0x500, "R-back")];
 const EMPTY: u32 = 0xFFFF_FFFF;
@@ -94,7 +109,7 @@ fn price_class(kind: u8, id: u32) -> Option<usize> {
 /// parts (price 0) are worth the cheapest shop part of their class; a [prices] entry replaces the value. Parts sell
 /// for `part_sell_percent` / `weapon_sell_percent` of their value and cost `item_charge_percent` of it: the shop
 /// price is rewritten to that cost, and a failure charges it for each starter it buys.
-pub unsafe fn init(base: usize, lu: &Lineup, tank_legs: Vec<u32>) {
+pub unsafe fn init(base: usize, lu: &Lineup, tank_legs: Vec<u32>, once: Vec<u32>) {
     BASE.store(base, Relaxed);
     msg::set_base(base);
     let cfg = config::get();
@@ -147,7 +162,30 @@ pub unsafe fn init(base: usize, lu: &Lineup, tank_legs: Vec<u32>) {
         logf!("starter {} {}: value {}, failure charge {}, sells for {}", name, starter, value, starter_price[k], pct(value, cfg.part_sell_percent));
     }
     logf!("tank legs (no booster): {:?}", tank_legs);
-    let _ = CTX.set(Ctx { price_of, starter_price, tank_legs });
+    let _ = CTX.set(Ctx { price_of, starter_price, tank_legs, lost_rule: lost_rule(lu), once });
+}
+
+/// [lost_on_failure] entries resolved to item ids: every lineup weapon / frame part / internal (by equipId or name)
+/// and the core expansions (OsReinforce row, item id or either name). Other OS Tunings are never lost.
+unsafe fn lost_rule(lu: &Lineup) -> HashMap<u32, bool> {
+    let table = &config::get().lost_on_failure;
+    let mut m = HashMap::new();
+    if table.is_empty() { return m; }
+    for i in 0..o::ROW_COUNT {
+        let (id, kind) = (lu.equip_id(i), lu.equip_type(i));
+        if !matches!(kind, 0 | 1 | 4 | 5 | 6) || os::of_item(id).is_some() { continue; }
+        let item = o::id_tag(kind) | (id & 0x0FFF_FFFF);
+        if let Some(v) = config::lookup(table, &[id], &[part_name(item)]) { m.insert(item, v); }
+    }
+    for t in os::tunings() {
+        let Some(v) = config::lookup(table, &[t.row as u32, t.item], &[os::name(t.row), part_name(t.item)]) else { continue };
+        if t.item == 0 { logf!("[lost_on_failure]: {} ({}) is not a core expansion, never lost", os::name(t.row), t.row); continue; }
+        m.insert(t.item, v);
+    }
+    let mut v: Vec<String> = m.iter().map(|(k, v)| format!("{} = {}", part_name(*k), *v as u8)).collect();
+    v.sort();
+    logf!("[lost_on_failure]: {}", v.join(", "));
+    m
 }
 
 /// Sell value of an inventory item id (tag | equipId) from our price table (value x sell %), None if not priced.
@@ -298,6 +336,8 @@ enum Fill {
     Buy,
     /// nothing: booster slot under tank legs
     Empty,
+    /// the equipped part survives ([lost_on_failure] = 0)
+    Keep,
 }
 
 /// Most recently obtained owned, unequipped part for frame slot `k`: highest inventory ordinal (entry +0xC), then the
@@ -319,6 +359,8 @@ pub struct FailurePlan {
     weapons: Vec<(usize, &'static str, u32, u32)>,
     /// every frame slot: (FRAME_SLOTS index, lost (handle, id) if the slot held a part, what fills it)
     frames: Vec<(usize, Option<(u32, u32)>, Fill)>,
+    /// the equipped core expansion, when [lost_on_failure] says it is lost: (OsReinforce row, handle, item id)
+    expansion: Option<(u16, u32, u32)>,
     starter_cost: i64,
     /// stash parts sold to cover the cost, most expensive first (the spares about to be equipped excluded)
     sell: Vec<(i32, u32, u32)>,
@@ -329,27 +371,33 @@ impl FailurePlan {
         let mgr = gd + o::GD_ITEM_MGR;
         let equipped = equipped_handles(gd);
         let mut sell = stash(ctx, gd);
+        // weapon slot ids hold the plain equipId (tag 0)
         let weapons = WEAPON_SLOTS.iter().filter_map(|&(off, name)| {
             let id = mem::rd_u32(gd + off);
-            if id == EMPTY { None } else { Some((off, name, mem::rd_u32(gd + off - HANDLE_DELTA), id)) }
+            if id == EMPTY || !ctx.lost_on_failure(id) { None } else { Some((off, name, mem::rd_u32(gd + off - HANDLE_DELTA), id)) }
         }).collect();
         let (mut frames, mut starter_cost, mut tank) = (Vec::new(), 0i64, false);
-        for (k, (off, _, starter, _)) in FRAME_SLOTS.iter().enumerate() {
+        for (k, (off, _, starter, tag)) in FRAME_SLOTS.iter().enumerate() {
             let id = mem::rd_u32(gd + off);
-            let lost = if id == EMPTY { None } else { Some((mem::rd_u32(gd + off - HANDLE_DELTA), id)) };
-            let fill = if k == BOOSTER && tank { Fill::Empty } else {
+            let keep = id != EMPTY && !ctx.lost_on_failure(tag | id);
+            let lost = if id == EMPTY || keep { None } else { Some((mem::rd_u32(gd + off - HANDLE_DELTA), id)) };
+            let fill = if k == BOOSTER && tank { Fill::Empty } else if keep { Fill::Keep } else {
                 match newest_spare(ctx, mgr, &equipped, k) {
                     Some((h, item)) => { sell.retain(|s| s.1 != h); Fill::Spare(h, item) }
                     None => { starter_cost += ctx.starter_price[k] as i64; Fill::Buy }
                 }
             };
             if k == LEGS {
-                let legs = match fill { Fill::Spare(_, item) => item & 0x0FFF_FFFF, _ => *starter };
+                let legs = match fill { Fill::Spare(_, item) => item & 0x0FFF_FFFF, Fill::Keep => id, _ => *starter };
                 tank = ctx.tank_legs.contains(&legs);
             }
             frames.push((k, lost, fill));
         }
-        FailurePlan { weapons, frames, starter_cost, sell }
+        let x = mem::rd_u32(gd + EXPANSION_SLOT);
+        let expansion = if x == EMPTY { None } else {
+            os::of_item(x).filter(|t| ctx.lost_on_failure(t.item)).map(|t| (t.row, mem::rd_u32(gd + EXPANSION_SLOT - HANDLE_DELTA), t.item))
+        };
+        FailurePlan { weapons, frames, expansion, starter_cost, sell }
     }
 
     /// Balance left after the penalty and selling everything sellable; negative = game over.
@@ -359,8 +407,8 @@ impl FailurePlan {
 
     fn summary(&self) -> String {
         let n = |f: fn(&Fill) -> bool| self.frames.iter().filter(|x| f(&x.2)).count();
-        format!("{} weapon(s) lost, {} part(s) lost, {} spare(s) equipped, {} starter(s) to buy ({}), {} slot(s) left empty, {} sellable part(s) worth {}",
-            self.weapons.len(), self.frames.iter().filter(|f| f.1.is_some()).count(),
+        format!("{} weapon(s) lost, {} part(s) lost, {} kept, expansion lost {:?}, {} spare(s) equipped, {} starter(s) to buy ({}), {} slot(s) left empty, {} sellable part(s) worth {}",
+            self.weapons.len(), self.frames.iter().filter(|f| f.1.is_some()).count(), n(|f| matches!(f, Fill::Keep)), self.expansion.map(|e| e.0),
             n(|f| matches!(f, Fill::Spare(..))), n(|f| matches!(f, Fill::Buy)), self.starter_cost, n(|f| matches!(f, Fill::Empty)),
             self.sell.len(), self.sell.iter().map(|s| s.0 as i64).sum::<i64>())
     }
@@ -402,9 +450,10 @@ unsafe fn unequip(gd: usize, off: usize) {
 /// Booster, generator, FCS: one copy at most (copies would share a handle), lost forever on a failure.
 pub fn unique_tag(item: u32) -> bool { matches!(item >> 28, 5 | 6 | 7) }
 
-/// Add a part to the "lost forever" row set (unique parts only: a lost weapon / frame part may roll again).
-unsafe fn mark_lost(game: &Game, item: u32) {
-    if !unique_tag(item) { return; }
+/// Add a part to the "lost forever" row set (unique parts and [unique_occurrences] items only: a lost weapon / frame
+/// part may roll again).
+unsafe fn mark_lost(game: &Game, ctx: &Ctx, item: u32) {
+    if !unique_tag(item) && !ctx.once.contains(&item) { return; }
     let (Some(man), Some(row)) = (game.flag_man(), buyback::row_of(item)) else { return };
     game.put_row(man, o::ROWS_LOST, row, true);
 }
@@ -415,12 +464,14 @@ unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {
     let mgr = gd + o::GD_ITEM_MGR;
     let mut lines: Vec<String> = Vec::new();
     let mut sold: Vec<(u32, i32)> = Vec::new();
-    // every weapon slot ends empty: clear all four first (also drops a stale index left in an empty slot, which would
-    // show whatever part later takes that inventory index), then remove the lost weapons
-    for &(off, _) in &WEAPON_SLOTS { unequip(gd, off); }
+    // lost weapons leave their slot empty; empty slots are cleared too (drops a stale index, which would show
+    // whatever part later takes that inventory index); kept weapons stay ([lost_on_failure] = 0)
+    for &(off, _) in &WEAPON_SLOTS {
+        if mem::rd_u32(gd + off) == EMPTY || plan.weapons.iter().any(|w| w.0 == off) { unequip(gd, off); }
+    }
     for &(_, name, handle, id) in &plan.weapons {
         let removed = remove_handle(game, gd, handle, id);
-        mark_lost(game, id);
+        mark_lost(game, ctx, id);
         lines.push(format!("lost {} weapon {}{}", name, id, if removed { "" } else { " (was not in the inventory)" }));
     }
     // equip the replacement first, then remove the lost part
@@ -445,12 +496,21 @@ unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {
                 lines.push(format!("{}: starter {} bought ({})", name, starter, ctx.starter_price[k]));
             }
             Fill::Empty => { unequip(gd, off); lines.push(format!("{}: left empty (tank legs)", name)); }
+            Fill::Keep => { lines.push(format!("{}: kept ([lost_on_failure] = 0)", name)); }
         }
         if let (Some((h, id)), false) = (lost, keep) {
             remove_handle(game, gd, h, tag | id);
-            if id != starter { mark_lost(game, tag | id); }
+            if id != starter { mark_lost(game, ctx, tag | id); }
             lines.push(format!("{}: lost {}{}", name, id, if id != starter && unique_tag(tag) { " forever" } else { "" }));
         }
+    }
+    // the equipped core expansion ([lost_on_failure] = 1): slot emptied, item removed, OS Tuning level back to 0
+    if let Some((row, handle, item)) = plan.expansion {
+        unequip(gd, EXPANSION_SLOT);
+        let removed = remove_handle(game, gd, handle, item);
+        os::reset(gd, row);
+        if ctx.once.contains(&item) { if let Some(man) = game.flag_man() { os::set_gone(game, man, row); } }
+        lines.push(format!("core expansion {} ({}) lost{}", os::name(row), row, if removed { "" } else { " (was not in the inventory)" }));
     }
     let bal = mem::rd_i32(gd + o::GD_COAM) as i64 - plan.starter_cost;
     if plan.starter_cost > 0 { lines.push(format!("starter costs: {} (balance {} -> {})", plan.starter_cost, bal + plan.starter_cost, bal)); }
@@ -477,15 +537,16 @@ fn loss_report(plan: &FailurePlan, sold: &[(u32, i32)]) -> String {
         t += &format!("Armes perdues : {}\n", names.join(", "));
     }
     // a starter lost and bought back did not change: it only shows in the charge line (the box holds ~12 lines)
-    let changed: Vec<_> = plan.frames.iter().filter(|f| !(matches!(f.2, Fill::Buy) && f.1.map(|l| l.1) == Some(FRAME_SLOTS[f.0].2))).collect();
+    let changed: Vec<_> = plan.frames.iter().filter(|f| !matches!(f.2, Fill::Keep) && !(matches!(f.2, Fill::Buy) && f.1.map(|l| l.1) == Some(FRAME_SLOTS[f.0].2))).collect();
     let lost: Vec<String> = changed.iter().filter_map(|f| f.1.map(|l| part_name(FRAME_SLOTS[f.0].3 | l.1))).collect();
     if !lost.is_empty() { t += &format!("Pièces perdues : {}\n", lost.join(", ")); }
     let repl: Vec<String> = changed.iter().filter_map(|f| match f.2 {
         Fill::Spare(_, item) => Some(part_name(item)),
         Fill::Buy => Some(part_name(FRAME_SLOTS[f.0].3 | FRAME_SLOTS[f.0].2)),
-        Fill::Empty => None,
+        Fill::Empty | Fill::Keep => None,
     }).collect();
     if !repl.is_empty() { t += &format!("Remplacées par : {}\n", repl.join(", ")); }
+    if let Some((row, ..)) = plan.expansion { t += &format!("Extension perdue : {}\n", os::name(row)); }
     if plan.starter_cost > 0 {
         t += &format!("Pièces de départ facturées : {} COAM\n", money(plan.starter_cost));
     }

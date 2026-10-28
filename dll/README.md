@@ -27,7 +27,9 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   row: `read_rows` / `write_rows` / `clear_rows` / `put_row` / `has_row` over `o::ROWS_*`), economy (mission pay, first mission = starting credits), mission rewards (queued at mission start through the game's give
   path), the game-thread loop and the game-over exit sequence.
 - `penalty.rs` — failure plan built at sortie (escrow flag), penalty on the next garage load, auto-sell, game over,
-  part values (shop price, stat model, `[prices]` overrides) and the sell-price hook.
+  part values (shop price, stat model, `[prices]` overrides) and the sell-price hook. `[lost_on_failure]` decides per
+  item whether the equipped part is lost (unlisted: weapons / frame / internals yes, core expansion no); a lost core
+  expansion (assembly slot 11, `+0x520`) loses its item and its OS Tuning level.
 - `buyback.rs` — parts sold since the last reroll (Vente sale hook + auto-sales) offered again in the shop, kept in
   the `ROWS_SOLD` bitset, cleared at the reroll.
 - `choice.rs` — reward choice (pick 1 of `reward_choices` per reward): offers rolled at sortie with their own RNG
@@ -38,18 +40,22 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `os.rs` — OS Tunings as rewards (never in the shop, offered while below their max level): levels at
   `[GameData+0x1368]`, a pick adds one at the commit (choice.rs); a core expansion not owned also queues its item,
   other offers queue a carrier item taken out at the commit; the vanilla OS Tuning menu stays locked (its unlock row
-  points at a never-set flag, the unlock notification no longer names it).
+  points at a never-set flag, the unlock notification no longer names it). `[unique_occurrences]` items are offered
+  once per run: marked at the mission clear (rewards) or the reroll (shop) in `ROWS_LOST` (lineup parts) or `OS_GONE`
+  (flags 4418..4434, core expansions).
 - `rewardmenu.rs` — the choice grid: the results screen's "Pièces obtenues" call opens our movie instead (one page per
   reward, tiles filled by the game's own part view), navigation from the game's menu actions (pad + keyboard).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
-- `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, rarity, prices).
+- `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, rarity, prices,
+  per-item tables `[lost_on_failure]` / `[unique_occurrences]` read through `config::lookup`).
 - `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts).
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
 ## Status
 Playable end to end: mission pay removed, random shop and rewards by rarity tier (pick 1 of 3 per reward; weapons
 and frame parts can repeat and be owned several times, boosters / generators / FCS once; OS Tunings, core
-expansions included, are rewards only, one level per pick, the OS Tuning menu locked), failed sorties take parts,
+expansions included, are rewards only, one level per pick, the OS Tuning menu locked; core expansions offered once
+per run and lost on a failure), failed sorties take parts,
 auto-sell
 when broke, game over back to the title with the run's save closed. Vanilla rank / arena reward parts are not granted;
 they are shop parts like the others.

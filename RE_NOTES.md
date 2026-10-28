@@ -702,7 +702,7 @@ set. Then cleared again.
 **Layout** (offsets.rs): row bitsets = flag base + lineup row index (318 flags each), avoiding the old probes —
 `ROWS_SOLD` 4100..4417 (sold since the reroll), `ROWS_LOST` 4550..4867 (lost forever), `ROWS_ROLLED` 7100..7417
 (already rolled); `REROLL_COUNTER_BASE` 7830..7837 = missions cleared since the last reroll (8 bits, LSB first). Free
-for later: 4418..4549, 4868..4899, 4901..4999, 7418..7499, 7501..7799, 7838..7899, 7945..7999. Helpers on `Game`:
+for later: 4435..4549 (4418..4434 = OS_GONE), 4868..4899, 4901..4999, 7418..7499, 7501..7799, 7838..7899, 7945..7999. Helpers on `Game`:
 `read_rows` / `write_rows` / `clear_rows` / `put_row` / `has_row`, `get_bits` / `put_bits`.
 
 **Reroll cadence.** `[shop] reroll_interval` (1..255). `on_mission_end`: no shop state (first mission end of a run) or
@@ -1044,8 +1044,8 @@ No credits fallback, no `pool_limit`.
 ## OS Tuning rewards (2026-10-28, implemented; replaces "core expansions as rewards")
 User decisions (2026-10-28): every OS Tuning is a mission reward, offered again while below its max level (a pick of
 one already installed adds a level); core expansions epic, the other tunings rare; the grid tile shows the level it
-brings; the vanilla OS Tuning shop stays locked. Losing equipped OS on a failure + skipped OS never offered again =
-one config param, separate task (brief in the side-session notes folder, not done here).
+brings; the vanilla OS Tuning shop stays locked. Losing equipped OS on a failure + skipped OS never offered again: done
+next, see "Core expansions: lost on failure, offered once" below.
 - **Levels** (TGA table "OS Tuning", verified live): `[PlayerGameData+0x1368]` -> one i32 per OsReinforce row, in
   row id order (offset = 4 x rank): 10 kinetic +0x00, 20 energy +0x04, 30 explosive +0x08, 40 melee +0x0C, 50 direct
   hit +0x10, 1010 ACS +0x14 (1011..1013 = +0x18..+0x20: hidden sub-rows without text, not rewards), 2020 repair kits
@@ -1084,6 +1084,33 @@ one config param, separate task (brief in the side-session notes folder, not don
   propulsé  LV 1/1" (no image), "Bouclier à impulsions  LV 2/2" (chip image), "Bouclier d'assaut  LV 1/3" (chip image);
   picks -> levels 0->1, 1->2, 0->1, pending 9 handles -> only the assault armor item kept; Assemblage lists one assault
   armor + one pulse armor; boost kick and pulse armor no longer rollable; levels kept after quit + Continue.
-- Penalty unchanged (expansions keep no slot in FRAME_SLOTS / WEAPON_SLOTS, price 0): kept after a failed sortie.
+- Penalty unchanged here (expansions keep no slot in FRAME_SLOTS / WEAPON_SLOTS, price 0): kept after a failed sortie. Superseded by [lost_on_failure] (section below).
 - Debug: `os` (level / max / rollable / item owned per tuning), `osnote`, `force_os <rows>`, `force_reward <hex ids>`
   (now several: first offer of each reward).
+
+## Core expansions: lost on failure, offered once (2026-10-29, implemented)
+User decisions (2026-10-28): two per-item config tables instead of one switch, keys like [part_rarity] (equipId,
+part name, OsReinforce row for the expansions), value 1/0, unlisted = the old rules. Shipped with the four core
+expansions (5010..5040) = 1 in both.
+- **`[lost_on_failure]`**: 1 = the equipped item is lost on a failed sortie, 0 = it survives (stays equipped, no
+  replacement, no charge). Unlisted: weapons / frame parts / internals lost, core expansion kept. Non-expansion OS
+  Tunings are never lost (ignored with a log line). A lost expansion: slot emptied, item removed, level -> 0; the loss
+  dialog gets "Extension perdue : <name>".
+- **`[unique_occurrences]`** (the user merged "lost forever" and "skip is final" into this): 1 = offered at most once
+  per run, picked or not. Rewards are marked at 5074 (every offer of the sortie: the results screen shows them all,
+  before the commit autosave), shop parts at the reroll. A listed item lost on a failure is marked too. Among the OS
+  Tunings only core expansions can be listed. An expansion picked once stays at level 1.
+- **Equipped expansion = assembly slot 11**: ID `[PlayerGameData+0x520]` = plain item id (75000000 Assault Armor),
+  index `+0x278`, handle `+0x450` (same deltas as the other slots; verified live: index 0x56 -> inventory entry with
+  that handle and id). Slot 22 (`+0x54C`) is not it.
+- **Storage**: lineup parts reuse `ROWS_LOST` (4550 + row: "never offered again", read by `candidates` for every part
+  now, not only boosters / generators / FCS); OS Tunings: `OS_GONE` = 4418 + rank in OS_TUNINGS (17 flags,
+  4418..4434). Block 4 on the exp save several missions in: only 4901..4964 (reward RNG) set. New Game clears block 4.
+- **Verified** (profile ac6-roguelike-osloss.me3, fresh copy of saves/ac-mission-available.sl2, parts_per_mission 2):
+  `force_os 5010 5020` -> both shown in the grid, "never again" logged at 5074, both picked (levels 1/3, 1/2) and no
+  longer rollable (debug `os`), still not rollable after a relaunch. Assault Armor equipped (slot 11), COAM set to
+  2 000 000, escrow 7828 + save, relaunch + Continue: penalty "core expansion Bouclier d'assaut (5010) lost", level
+  1 -> 0, no 75xxxxxx item left, Assemblage EXTENSION (NÉANT), dialog line shown. Same save with `"HI-32: BU-TT/A" = 0`
+  and `"HC-2000 FINDER EYE" = 0`: L-arm weapon and head kept, the rest lost as before, expansion still lost.
+- Test note: the first attempt had 58 906 COAM for a 534 000 failure -> game over at load (unaffordable failure rule),
+  so give the test save money before the failure.

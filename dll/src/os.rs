@@ -51,6 +51,20 @@ pub unsafe fn level_up(gd: usize, row: u16) {
     logf!("OS Tuning {} ({}): level {} -> {}/{} at the commit", row, name(row), old, new, t.max);
 }
 
+/// Failure loss of a core expansion: level back to 0 (Assemblage stops listing it).
+pub unsafe fn reset(gd: usize, row: u16) {
+    let (Some(lv), Some(t)) = (levels(gd), tuning(row)) else { logf!("WARNING: OS Tuning {}: levels unreadable, not reset", row); return };
+    logf!("OS Tuning {} ({}): level {} -> 0 (lost)", row, name(row), mem::rd_i32(lv + t.off));
+    mem::wr_i32(lv + t.off, 0);
+}
+
+/// [unique_occurrences]: the tuning was offered once this run (save bit OS_GONE + its rank in OS_TUNINGS).
+fn rank(row: u16) -> Option<u32> { o::OS_TUNINGS.iter().position(|t| t.0 == row).map(|k| k as u32) }
+pub unsafe fn gone(g: &Game, man: usize, row: u16) -> bool { rank(row).is_some_and(|k| g.get_flag(man, o::OS_GONE + k) == Some(true)) }
+pub unsafe fn set_gone(g: &Game, man: usize, row: u16) { if let Some(k) = rank(row) { g.put_flag(man, o::OS_GONE + k, true); } }
+/// The core expansion tuning of an item id (tag bits ignored).
+pub fn of_item(item: u32) -> Option<Tuning> { tunings().iter().find(|t| t.item != 0 && t.item == item & 0x0FFF_FFFF).copied() }
+
 pub fn name(row: u16) -> String {
     tuning(row).and_then(|t| unsafe { msg::text(o::MSG_CAT_OS_NAME, t.name) }).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("OS {}", row))
 }
