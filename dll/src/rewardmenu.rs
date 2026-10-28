@@ -22,6 +22,8 @@ pub fn picked(page: usize) -> usize { PICKS.get(page).map_or(0, |p| p.load(Relax
 /// Garage debug: open a grid of these pages (display only, nothing granted).
 pub static OPEN_REQUEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 pub fn set_pages(pages: Vec<Page>) { if let Ok(mut p) = PAGES.lock() { *p = pages; } }
+/// Garage debug: the next open shows the vanilla "Pièces obtenues" instead of the grid.
+pub static VANILLA: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// MSVC std::function: 0x38 bytes of small-object storage + the pointer to the callable (here the storage itself).
 #[repr(C, align(16))]
@@ -57,6 +59,12 @@ unsafe fn build(base: usize, out: *mut usize, ctx: usize) -> *mut usize {
     let make: FnPartsMenu = core::mem::transmute(base + o::FN_GOT_REWARD_PARTS_MENU);
     let get_alloc: unsafe extern "system" fn() -> usize = core::mem::transmute(base + o::FN_DEFAULT_ALLOCATOR);
     let pages = PAGES.lock().map(|p| p.clone()).unwrap_or_default();
+    if VANILLA.swap(false, Relaxed) {
+        // debug: the vanilla "Pièces obtenues" with these parts (one per page), for comparison
+        let ids: &'static [u32] = Box::leak(pages.iter().flat_map(|p| p.ids.clone()).collect::<Vec<_>>().into_boxed_slice());
+        let v = GameVec { alloc: get_alloc(), begin: ids.as_ptr(), end: ids.as_ptr().add(ids.len()), cap: ids.as_ptr().add(ids.len()) };
+        return make(out, ctx, &v);
+    }
     let mut callables = Vec::new();
     for (p, page) in pages.iter().enumerate() {
         let mut row = Vec::new();

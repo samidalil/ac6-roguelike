@@ -1148,7 +1148,7 @@ fn boot() {
                             run.reward_parts.clear(); run.reward_sets.clear(); run.reward_credits.clear();
                         }
                         c if c.starts_with("watch ") || c == "unwatch" => trace::command(c),
-                        // "choice" = the grid of a sortie's reward offers, "parts <hex ids>" = a one-page grid (display only)
+                        // "choice" = the grid of a sortie's reward offers, "parts <hex ids>" = a one-page grid (display only), "vanilla <hex ids>" = the vanilla dialog with them
                         "choice" => {
                             let cfg = config::get();
                             let sets = choice::roll(&run.game, gd, man, &run.pool, cfg.parts_per_mission, cfg.reward_choices as usize);
@@ -1157,8 +1157,9 @@ fn boot() {
                             logf!("DEBUG: reward choice grid, {} page(s)", n);
                             rewardmenu::OPEN_REQUEST.store(true, Relaxed);
                         }
-                        c if c.starts_with("parts ") => {
-                            let ids: Vec<u32> = c[6..].split_whitespace().filter_map(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()).take(12).collect();
+                        c if c.starts_with("parts ") || c.starts_with("vanilla ") => {
+                            rewardmenu::VANILLA.store(c.starts_with("vanilla "), Relaxed);
+                            let ids: Vec<u32> = c[c.find(' ').unwrap_or(0) + 1..].split_whitespace().filter_map(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()).take(12).collect();
                             logf!("DEBUG: parts grid {:X?}", ids);
                             if !ids.is_empty() { rewardmenu::set_pages(vec![rewardmenu::Page { ids, title: "CHOISISSEZ UNE PIÈCE".to_string() }]); rewardmenu::OPEN_REQUEST.store(true, Relaxed); }
                         }

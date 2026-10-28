@@ -5,6 +5,7 @@ package _02_GotReward_fla
    import flash.display.Shape;
    import flash.events.Event;
    import flash.geom.Rectangle;
+   import flash.text.TextField;
 
    // menu/02_rwdchoice.gfx: the reward choice grid. The game's "Pièces obtenues" class drives Dialog/_Content_; the
    // DLL fills _Content_/TileNN (one part each) and writes "selected/count" into _Content_/SelIdx. This script only
@@ -17,12 +18,13 @@ package _02_GotReward_fla
 
       private static const COLS:int = 3;
       private static const MAX:int = 12;
-      // tiles near the vanilla part box size; 4 rows (10 to 12 parts) a bit smaller to fit the screen
+      // tiles at most this fraction of the vanilla part cell, smaller when the grid would not fit the screen
       private static const TILE_SCALE:Number = 0.9;
-      private static const TILE_SCALE_4_ROWS:Number = 0.62;
+      private static const GRID_MAX_W:Number = 1560;
+      // window side margin around the grid (the vanilla one, ~210, is too wide for 3 cells)
+      private static const PAD:Number = 110;
+      private static const GRID_MAX_H:Number = 660;
       private static const GAP:Number = 28;
-      // a tile's extent: the logo and the thumbnail box (the name fields are much wider than their text)
-      private static const SLOTS:Array = ["MakerLogo", "ItemIcon"];
 
       private var orig:Object = null;   // vanilla positions / sizes, read once
       private var shown:String = "";     // last state applied
@@ -60,13 +62,15 @@ package _02_GotReward_fla
       }
 
       // a tile's part slots, in the tile's own coordinates
+      // a tile's extent: the logo and the image box (background, frame); not the text fields (much wider than their
+      // text) nor the masked image (its bounds are the whole texture)
       private function slotBounds(t:MovieClip) : Rectangle
       {
          var r:Rectangle = null;
-         for each (var nm:String in SLOTS)
+         for (var k:int = 0; k < t.numChildren; k++)
          {
-            var d:DisplayObject = t[nm];
-            if (d == null) continue;
+            var d:DisplayObject = t.getChildAt(k);
+            if (d is TextField || d == t.ItemIcon) continue;
             var b:Rectangle = d.getBounds(t);
             r = r == null ? b : r.union(b);
          }
@@ -96,7 +100,7 @@ package _02_GotReward_fla
          var tb:Rectangle = this.orig.tb;
          var cols:int = Math.min(COLS, n);
          var rows:int = Math.ceil(n / COLS);
-         var sc:Number = rows > 3 ? TILE_SCALE_4_ROWS : TILE_SCALE;
+         var sc:Number = Math.min(TILE_SCALE, (GRID_MAX_W - (cols - 1) * GAP) / (cols * tb.width), (GRID_MAX_H - (rows - 1) * GAP) / (rows * tb.height));
          var pw:Number = tb.width * sc + GAP;
          var ph:Number = tb.height * sc + GAP;
          var gw:Number = cols * pw - GAP;
@@ -134,7 +138,7 @@ package _02_GotReward_fla
       // the window grows (or shrinks in height) by the grid's size over the vanilla content box, around its centre
       private function grow(w:Number, h:Number) : void
       {
-         var dw:Number = Math.max(0, w - this.orig.width);
+         var dw:Number = Math.max(0, w + 2 * PAD - this.orig.bgw);
          var dh:Number = h - this.orig.height;
          var nm:String;
          var o:Object;
@@ -207,6 +211,7 @@ package _02_GotReward_fla
          }
          var bg:Rectangle = this.Dialog.Bg0 != null ? this.Dialog.Bg0.getBounds(c) : box;
          o.mid = bg.x + bg.width / 2;
+         o.bgw = bg.width;
          this.orig = o;
       }
    }
