@@ -294,9 +294,10 @@ unsafe extern "system" fn results_parts_hook(out: *mut usize, ctx: usize, list: 
 }
 
 type FnCommit = unsafe extern "system" fn(mgr: usize, commit: u32, obj: usize) -> usize;
-/// The game commits the pending obtained items (OK of the results' parts dialog): take the parts not picked out first.
+/// The game commits the pending obtained items (OK of the results' parts dialog): take the parts not picked out first,
+/// then unlock the core expansions left in the list.
 unsafe extern "system" fn commit_hook(mgr: usize, commit: u32, obj: usize) -> usize {
-    if commit & 0xFF != 0 { choice::prune(mgr); }
+    if commit & 0xFF != 0 { choice::prune(mgr); expansion::commit(mgr); }
     GRID_OPEN.store(false, Relaxed);
     let base = mem::module_base();
     restore_movie_name(base);

@@ -8,7 +8,8 @@
 //!   active. 0->1 = mission start, 1->0 = the mission-end "obtained parts" commit.
 //! * POOL: shop offers and rewards are drawn by rarity among every buyable part; weapons and frame parts can repeat
 //!   and be owned several times (dupshop.rs lists an owned one in the shop). Boosters, generators and FCS are
-//!   unique: never rolled while owned or once lost forever.
+//!   unique: never rolled while owned or once lost forever. Core expansions are reward-only unique parts, unlocked
+//!   in OS Tuning when picked (expansion.rs).
 //! * REWARD: at mission start we grant one random part through the game's give wrapper
 //!   with bypass-defer = 0, so it is queued and the vanilla "Pièces obtenues" dialog shows it at
 //!   mission end and commits it on OK.
@@ -59,6 +60,7 @@ mod trace;
 mod rewardmenu;
 mod choice;
 mod dupshop;
+mod expansion;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
 struct Lineup {
@@ -101,14 +103,17 @@ unsafe fn release_rank_rewards(lu: &Lineup) {
 struct Part { idx: u16, equip_id: u32, kind: u8, tier: u8 }
 impl Part {
     fn is_weapon(&self) -> bool { self.kind == 0 }
-    /// one copy at most: booster, generator, FCS (copies would share a handle)
-    fn unique(&self) -> bool { matches!(self.kind, 4 | 5 | 6) }
+    /// core expansion: a reward only (no shop tab), unlocked through its OS Tuning level (expansion.rs)
+    fn expansion(&self) -> bool { self.kind == 0 && expansion::level_offset(self.equip_id).is_some() }
+    /// one copy at most: booster, generator, FCS (copies would share a handle), core expansion
+    fn unique(&self) -> bool { matches!(self.kind, 4 | 5 | 6) || self.expansion() }
     /// id accepted by the item-descriptor builder (grant path)
     fn grant_id(&self) -> u32 { o::id_tag(self.kind) | (self.equip_id & 0x0FFF_FFFF) }
 }
 
-/// Every row a roguelike shop may offer: priced, not a mission reward, weapon / frame / internal. Each gets a rarity
-/// tier (1 common, 2 rare, 3 epic) from [part_rarity], else the configured unlisted tier.
+/// Every row a roguelike shop may offer: priced, not a mission reward, weapon / frame / internal, plus the core
+/// expansions (price 0, rewards only) unless [rewards] core_expansions = 0. Each gets a rarity tier (1 common, 2 rare,
+/// 3 epic) from [part_rarity], else the configured unlisted tier.
 unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
     let cfg = config::get();
     let mut by_id: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
@@ -121,7 +126,8 @@ unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
     for i in 0..o::ROW_COUNT {
         let buyable = lu.price(i) > 0 && lu.reward_cond(i) == 0;
         let kind = lu.equip_type(i);
-        if buyable && matches!(kind, 0 | 1 | 4 | 5 | 6) {
+        let expansion = cfg.core_expansions && kind == 0 && expansion::level_offset(lu.equip_id(i)).is_some();
+        if (buyable || expansion) && matches!(kind, 0 | 1 | 4 | 5 | 6) {
             let id = lu.equip_id(i);
             let mut tier = cfg.unlisted_tier as u8;
             if let Some(t) = by_id.get(&id) { tier = *t; }
@@ -690,12 +696,15 @@ impl Run {
 
     /// Parts that can roll: the shop's weapons (`Some(true)`) or other parts (`Some(false)`), or both (`None`,
     /// rewards), not in `exclude`. Weapons and frame parts roll even when owned (each copy is its own inventory
-    /// entry); unique parts neither while owned nor once lost forever. Each lineup row is its own part (left and
-    /// right weapon versions included).
-    unsafe fn candidates(&self, man: usize, owned: &[u32], weapon: Option<bool>, exclude: &[u16]) -> Vec<Part> {
+    /// entry); unique parts neither while owned nor once lost forever, core expansions neither while owned nor once
+    /// unlocked in OS Tuning, and never in the shop. Each lineup row is its own part (left and right weapon versions
+    /// included).
+    unsafe fn candidates(&self, gd: usize, man: usize, owned: &[u32], weapon: Option<bool>, exclude: &[u16]) -> Vec<Part> {
         let lost = self.game.read_rows(man, o::ROWS_LOST);
-        self.pool.iter().copied().filter(|p| weapon.map_or(true, |w| p.is_weapon() == w)
-            && !exclude.contains(&p.idx) && !(p.unique() && (owned.contains(&p.grant_id()) || lost.contains(&p.idx)))).collect()
+        self.pool.iter().copied().filter(|p| weapon.map_or(true, |w| !p.expansion() && p.is_weapon() == w)
+            && !exclude.contains(&p.idx)
+            && !(p.unique() && (owned.contains(&p.grant_id()) || lost.contains(&p.idx)))
+            && !(p.expansion() && expansion::level(gd, p.equip_id).map_or(true, |l| l > 0))).collect()
     }
 
     /// config shop_weapons weapons + shop_parts other parts, by rarity, all different. The parts being awarded right
@@ -708,7 +717,7 @@ impl Run {
         let mut out = Vec::new();
         for (count, weapon) in [(cfg.shop_weapons, true), (cfg.shop_parts, false)] {
             for n in 0..count {
-                let cands = self.candidates(man, &owned, Some(weapon), &taken);
+                let cands = self.candidates(gd, man, &owned, Some(weapon), &taken);
                 let Some(p) = pick_weighted(&mut self.rng, &cands) else {
                     logf!("shop: no {} left, {} slot(s) empty", if weapon { "weapon" } else { "part" }, count - n);
                     break;
@@ -726,7 +735,7 @@ impl Run {
         let owned = self.game.owned_ids(gd);
         let mut exclude = taken.to_vec();
         exclude.extend(self.game.read_state(man).unwrap_or_default().into_iter().filter(|i| self.part_by_idx(*i).is_some_and(|p| p.unique())));
-        self.candidates(man, &owned, None, &exclude)
+        self.candidates(gd, man, &owned, None, &exclude)
     }
 
     unsafe fn apply_state(&self, man: usize, idx: &[u16], why: &str) {
@@ -754,6 +763,7 @@ impl Run {
             logf!("{}: reward row {} equip {} tier {} grant_id {:#X} -> rax={} err={} handle={:?} pending={}",
                 why, p.idx, p.equip_id, p.tier, p.grant_id(), r, err, new_handle.map(|h| format!("{:#X}", h)), after.len());
         }
+        expansion::arm(self.reward_parts.iter().zip(&handles).filter(|(p, _)| p.expansion()).map(|(p, h)| (p.equip_id, *h)).collect());
         if !self.reward_sets.is_empty() {
             let mut it = self.reward_parts.iter().zip(handles);
             choice::arm(self.reward_sets.iter().map(|s| s.iter().filter_map(|_| it.next().map(|(p, h)| (p.grant_id(), h))).collect()).collect());
@@ -878,7 +888,8 @@ fn boot() {
                     unsafe { release_rank_rewards(&lu); }
                     pool = unsafe { build_pool(&lu) };
                     unsafe { penalty::init(base, &lu, tank_legs(base)); buyback::init(base, &lu); }
-                    logf!("lineup (repository) at {:#X}: pool = {} buyable rows ({} weapons)", lu.data, pool.len(), pool.iter().filter(|p| p.is_weapon()).count());
+                    logf!("lineup (repository) at {:#X}: pool = {} rows ({} weapons, {} core expansions)", lu.data, pool.len(),
+                        pool.iter().filter(|p| p.is_weapon() && !p.expansion()).count(), pool.iter().filter(|p| p.expansion()).count());
                     if !pool.is_empty() { break; }
                 }
             }
@@ -1102,6 +1113,15 @@ fn boot() {
                             logf!("DEBUG: rows after clear {:?}", g.read_rows(man, o::ROWS_SOLD));
                         }
                         "lost" => logf!("DEBUG: lost forever rows {:?}", run.game.read_rows(man, o::ROWS_LOST)),
+                        "expansions" => {
+                            // each core expansion: owned, OS Tuning level, rollable as a reward
+                            let owned = run.game.owned_ids(gd);
+                            let cands = run.reward_candidates(gd, man, &[]);
+                            for &(id, _) in &o::EXPANSION_LEVELS {
+                                logf!("DEBUG: expansion {} {}: in pool {}, owned {}, level {:?}, rollable {}", id, penalty::part_name(id),
+                                    run.pool.iter().any(|p| p.equip_id == id), owned.contains(&id), expansion::level(gd, id), cands.iter().any(|p| p.equip_id == id));
+                            }
+                        }
                         "save" => logf!("DEBUG: save requested (mask before {:?})", run.game.request_save()),
                         "reward" => {
                             // a sortie's reward roll, without granting
@@ -1193,13 +1213,13 @@ fn boot() {
                         // never saves during a mission, so this is only a fallback for the in-memory state
                         if escrow_save_pending { log("WARNING: mission started before the escrow save was written"); }
                         if run.game.get_flag(man, o::FLAG_ESCROW) != Some(true) { log("WARNING: mission started without the escrow flag"); }
-                        choice::disarm();
+                        choice::disarm(); expansion::disarm();
                         run.queue_reward(gd, man, "mission start");
                         trace::reapply("mission start");
                     }
                     if p == 1 && d == 0 {
                         if run.reward_handles.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
-                        log("defer 1->0 (commit)"); run.reward_handles.clear(); choice::disarm();
+                        log("defer 1->0 (commit)"); run.reward_handles.clear(); choice::disarm(); expansion::disarm();
                         // ignore the flip caused by the game shutting down / exiting to title (save no longer loaded)
                         if !cleared_seen && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {
                             logf!("mission FAILED ({})", if dead { "death" } else { "quit" });

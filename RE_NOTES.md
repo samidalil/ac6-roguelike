@@ -1035,11 +1035,38 @@ No credits fallback, no `pool_limit`.
   by its spare copy), VE-46A and TALBOT lost; only TALBOT's row 105 entered `ROWS_LOST`. Real sortie ("Destruction
   de l'AC d'essai", kill_enemies.py): migration ran, offers rolled, reroll wrote baselines [0, 0, 0]; the forced owned
   VE-46A picked in the grid became a second copy.
-- **Core expansions (user asked to add them, unique): NOT DONE.** Rows 28..31 (75000000 ASSAULT ARMOR, 75010000 PULSE
-  ARMOR, 75020000 PULSE PROTECTION, 75030000 TERMINAL ARMOR; equipType 0, price 0, flag 0). `give 4788FD0` makes an
-  inventory entry (weapon handle 0x0800001D, "BOUCLIER À IMPULSIONS", unsellable) but Assemblage's EXTENSION slot
-  still lists only (NÉANT), and a read watch on that entry's id saw no read while the list opened: the slot list does
-  not come from the inventory. Vanilla unlocks expansions through OS Tuning (menu flag 3131); that unlock state has to
-  be found before expansions can be rewards.
+- **Core expansions (user asked to add them, unique):** done, see "Core expansions as rewards" below.
 - Not changed: buy-back of a sold copy stays hidden while another copy is owned (vanilla rule, `dupshop` only covers
   shop slots); the reward-choice prune drops unpicked offers by handle (safe: unique parts are never offered owned).
+
+## Core expansions as rewards (2026-10-28, implemented)
+Lineup row IDs 28..31 (DLL row indices 0..3; 75000000 ASSAULT ARMOR "BOUCLIER D'ASSAUT", 75010000 PULSE ARMOR "BOUCLIER À
+IMPULSIONS", 75020000 PULSE PROTECTION "PROTECTION À IMPULSIONS", 75030000 TERMINAL ARMOR "BOUCLIER TERMINAL"; equipType 0,
+price 0, release flag 0, rewardCondition 0; item id = bare equipId, e.g. 0x4788FD0 = Pulse Armor).
+- **OS Tuning state** (from the TGA table's "OS Tuning" entries, verified live): `[PlayerGameData+0x1368]` -> one i32 per
+  tuning, 0 = not installed, else the level. +0x00..+0x14 attack tunings (kinetic, energy, explosive, melee, direct hit,
+  ACS), +0x24 repair kits, +0x28 access speed, +0x2C weight control, **+0x30 ASSAULT ARMOR (max 3), +0x34 PULSE ARMOR (2),
+  +0x38 PULSE PROTECTION (3), +0x3C TERMINAL ARMOR (1)**, +0x40 boost kick, +0x44 manual aiming, +0x48 weapon bay,
+  +0x4C quick turn. Saved in the .sl2 (level 1 survived save + quit + Continue).
+  The OsReinforce param (repo index 202: rows 5010/5020/5030/5040 = the expansions, osInstallCategory/osInstallIndex at
+  +4/+5, chip costs per level) is NOT read when the EXTENSION list opens (read watch on row 5010 +4: no hit).
+- **Assemblage EXTENSION list = owned item AND level > 0** (tested on a save without OS Tuning, flag 3131 off): level 1
+  without the item -> only (NÉANT); item without the level -> (NÉANT) (the PR #8 finding); both -> the tile appears (NEW
+  badge) and installs. Setting the level back to 0 hides the item again even while it is equipped (the slot keeps it).
+  The four offsets map as above: Pulse Armor listed with +0x34 = 1, gone with +0x34 = 0 and +0x38 = 1.
+- **Grant** (`expansion.rs`): expansions join the pool as reward-only parts (`[rewards] core_expansions = 1`, default;
+  `Part::expansion()`, unique, never a shop candidate: no shop tab). The reward queues the item at sortie like any part
+  (pending handle recorded, `expansion::arm`); in the commit hook (game thread, right after the reward-choice prune)
+  every queued expansion whose handle is still in the pending list gets its level raised to 1 (direct write, no game
+  call). An offer not picked, or a failed sortie (empty list), unlocks nothing. Higher levels stay OS Tuning's (chips).
+- **Unique**: not rolled while the item is owned OR its level is > 0 (bought in OS Tuning without the item counts too);
+  unreadable tuning data = not rolled. Rarity from `[part_rarity]` by equipId (default 3 = epic; names are translated).
+  The penalty ignores them (no slot in FRAME_SLOTS / WEAPON_SLOTS, no price): kept after a failed sortie, never sold.
+- **Verified** (profile ac6-roguelike-exp.me3 -> AC6_roguelike_exp.sl2, copy of saves/ac-mission-available.sl2):
+  `force_reward 4788FD0` -> "Destruction de l'AC d'essai" + kill_enemies.py -> the grid showed EXTENSION "BOUCLIER À
+  IMPULSIONS" with its icon -> picked -> "expansion 75010000: OS Tuning level 0 -> 1 at the commit" -> Assemblage listed
+  and installed it; after quit + Continue it is still equipped, debug `expansions` = owned, level 1, not rollable (the
+  other three rollable); Assault Armor level set to 1 by hand without the item -> not rollable.
+- Not checked: the vanilla OS Tuning menu with a rewarded level 1 (this save has OS Tuning locked). If its reset refunds
+  chips per installed level, a rewarded expansion would refund chips never spent.
+- Debug: `expansions` (each one: in pool, owned, level, rollable).

@@ -35,6 +35,9 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `dupshop.rs` — duplicate parts in the shop: weapons / frame parts can roll while owned; the hook on the shop's
   "obtainable" check (exe+D2F900) lists and sells a slot's part while the player owns no more copies than when it
   was rolled (per-slot baselines in event flags). Also clears the old "already rolled" flag ranges once per save.
+- `expansion.rs` — core expansions as rewards (unique, never in the shop): the item is queued like any part, and its
+  OS Tuning level (`[GameData+0x1368]`) is set to 1 at the commit if it is still in the pending list (Assemblage
+  lists an expansion only with both).
 - `rewardmenu.rs` — the choice grid: the results screen's "Pièces obtenues" call opens our movie instead (one page per
   reward, tiles filled by the game's own part view), navigation from the game's menu actions (pad + keyboard).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
@@ -44,7 +47,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 
 ## Status
 Playable end to end: mission pay removed, random shop and rewards by rarity tier (pick 1 of 3 per reward; weapons
-and frame parts can repeat and be owned several times, boosters / generators / FCS once), failed sorties take parts,
+and frame parts can repeat and be owned several times, boosters / generators / FCS once, core expansions once as
+rewards only, installed in OS Tuning when taken), failed sorties take parts,
 auto-sell
 when broke, game over back to the title with the run's save closed. Vanilla rank / arena reward parts are not granted;
 they are shop parts like the others.

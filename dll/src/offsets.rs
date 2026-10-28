@@ -138,6 +138,13 @@ pub const ARENA_REPEAT_COAM: usize = 0x30;
 // --- COAM (RE 2026-10-26, TGA "AddCOAM" AOB `?? 8b ?? ?? ?? 8d 0c 10 ?? 89 4c ?? 10`) ---
 /// PlayerGameData + this = COAM balance (i32). +0x78 = lifetime earnings (don't touch).
 pub const GD_COAM: usize = 0x74;
+// --- OS Tuning (TGA table "OS Tuning"; RE 2026-10-28, RE_NOTES "Core expansions") ---
+/// PlayerGameData + this = pointer to the OS Tuning levels (one i32 per tuning, 0 = not installed).
+pub const GD_OS_TUNING: usize = 0x1368;
+/// core expansion equipId -> offset of its level: ASSAULT ARMOR, PULSE ARMOR, PULSE PROTECTION, TERMINAL ARMOR.
+/// Assemblage lists an owned expansion only while its level is > 0.
+pub const EXPANSION_LEVELS: [(u32, usize); 4] = [(75000000, 0x30), (75010000, 0x34), (75020000, 0x38), (75030000, 0x3C)];
+
 /// `AddCoam(PlayerGameData, delta)`: new = old + delta, clamped to [0, 999999999]
 pub const FN_ADD_COAM: usize = 0x48DD70;
 
