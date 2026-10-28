@@ -1121,6 +1121,7 @@ expansions (5010..5040) = 1 in both.
   per run, picked or not. Rewards are marked at 5074 (every offer of the sortie: the results screen shows them all,
   before the commit autosave), shop parts at the reroll. A listed item lost on a failure is marked too. Among the OS
   Tunings only core expansions can be listed. An expansion picked once stays at level 1.
+  Superseded by [max_occurrences] (section below).
 - **Equipped expansion = assembly slot 11**: ID `[PlayerGameData+0x520]` = plain item id (75000000 Assault Armor),
   index `+0x278`, handle `+0x450` (same deltas as the other slots; verified live: index 0x56 -> inventory entry with
   that handle and id). Slot 22 (`+0x54C`) is not it.
@@ -1153,3 +1154,32 @@ the parts left, an offer with none is dropped); OS Tunings follow the same rule.
   kept the picks. Everything out (`"SG-027 ZIMMERMAN" = 0`, nothing else listed): pools 0, reroll empty, debug `reward`
   -> [], `choice` -> no grid, real clear: `reward offers []`, no grid, commit (log "WARNING: mission-end commit with no
   reward queued", expected).
+
+## Max occurrences per run (2026-10-29, implemented; replaces [unique_occurrences])
+User decisions (2026-10-29): `[max_occurrences] item = N` = offered at most N times per run, counting OFFERS (reward
+grid or shop, picked or not), so a core expansion can be raised over several picks. Any part or OS Tuning can be
+listed (equipId, part name, OsReinforce row). 0 = no limit (like unlisted); values above 15 are read as 15. A loss on a
+failed sortie changes no count (an expansion lost at level 2 with offers left can come back from level 1). A weapon
+listed by name covers both its left and right versions, each with its own count (user choice). No alias for the old
+[unique_occurrences] section (ignored as an unknown section). Shipped: 5010 = 3, 5020 = 2, 5030 = 3, 5040 = 1 (each
+expansion's max level).
+- **Storage** (`occur.rs`): an item at its max gets the old "never again" bit (`ROWS_LOST` 4550 + row for lineup
+  parts, `OS_GONE` 4418 + rank for OS Tunings), so `candidates` is unchanged for used-up items. Items offered and not
+  used up keep their count in a slot table: flags 8030..8991, 74 slots of {9-bit key: lineup row + 1, or 319 + rank
+  in OS_TUNINGS; 0 = free; 4-bit count}, LSB first. A slot is freed when its item reaches its max. Table full: the new
+  item counts as used up (log warning). `candidates` also skips an item whose stored count already reaches its max (a
+  max lowered mid-run).
+- **Block 8** (8000..8999): allocated in the shared page array like blocks 4 and 7 (`tools/flag_blocks.py`), 0 flags
+  set on a save several missions in (mission 9 area, other session's save) and on saves/ac-mission-available.sl2; no
+  8xxx flag in the exported params. 8020 (FLAG_NEVER, the OS Tuning menu lock) is kept out of the range. Not yet
+  checked: survives a save + relaunch (the game's autosave), cleared by New Game.
+- Marking: unchanged places (5074 for every offer of the sortie, the reroll for shop slots); log
+  `max occurrences, offered (<why>): <name> n/max[ (never again)]`; boot log `max occurrences (offers per run): ...`.
+  Debug `occur`: count / max / used up per listed item, slots in use.
+- **Verified** (profile ac6-roguelike-maxocc.me3, copy of saves/ac-mission-available.sl2, build before #12 was merged;
+  config: unlisted_tier 0, ZIMMERMAN + VE-60SNA + 5010 + 5020 at tier 1, ZIMMERMAN = 2, 1 shop weapon): debug
+  `reroll` x5 -> ZIMMERMAN row 138 counted 1/2 then 2/2 (never again, slot freed), row 139 1/2 in slot 1 (flags
+  8045/8046/8050/8052 = key 140, count 1); `occur` matched. Real clear with `force_os 5010 5020` (1 reward x 3
+  choices): offers [Assault Armor, VE-60SNA, ZIMMERMAN 139] -> at 5074 "Bouclier d'assaut 1/3, SG-027 ZIMMERMAN 2/2
+  (never again)", then the shop reroll, grid shown. Not verified (user asked to merge without more tests): the pick,
+  persistence after a relaunch, New Game clearing block 8, a second offer of an expansion raising it to level 2.

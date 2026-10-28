@@ -41,22 +41,23 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `os.rs` — OS Tunings as rewards (never in the shop, offered while below their max level): levels at
   `[GameData+0x1368]`, a pick adds one at the commit (choice.rs); a core expansion not owned also queues its item,
   other offers queue a carrier item taken out at the commit; the vanilla OS Tuning menu stays locked (its unlock row
-  points at a never-set flag, the unlock notification no longer names it). `[unique_occurrences]` items are offered
-  once per run: marked at the mission clear (rewards) or the reroll (shop) in `ROWS_LOST` (lineup parts) or `OS_GONE`
-  (flags 4418..4434, core expansions).
+  points at a never-set flag, the unlock notification no longer names it).
+- `occur.rs` — `[max_occurrences]`: offers per run of the listed items (any part or OS Tuning), counted at the mission
+  clear (rewards) or the reroll (shop) in a slot table (flags 8030..8991, 74 slots of {item, count}); at its max an
+  item gets its "never again" bit in `ROWS_LOST` (lineup parts) or `OS_GONE` (flags 4418..4434, OS Tunings).
 - `rewardmenu.rs` — the choice grid: the results screen's "Pièces obtenues" call opens our movie instead (one page per
   reward, tiles filled by the game's own part view), navigation from the game's menu actions (pad + keyboard).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, rarity, prices,
-  per-item tables `[lost_on_failure]` / `[unique_occurrences]` read through `config::lookup`).
+  per-item tables `[lost_on_failure]` / `[max_occurrences]` read through `config::lookup` / `config::value`).
 - `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts).
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
 ## Status
 Playable end to end: mission pay removed, random shop and rewards by rarity tier (pick 1 of 3 per reward; weapons
 and frame parts can repeat and be owned several times, boosters / generators / FCS once; OS Tunings, core
-expansions included, are rewards only, one level per pick, the OS Tuning menu locked; core expansions offered once
-per run and lost on a failure), failed sorties take parts,
+expansions included, are rewards only, one level per pick, the OS Tuning menu locked; core expansions offered as
+many times per run as their levels and lost on a failure), failed sorties take parts,
 auto-sell
 when broke, game over back to the title with the run's save closed. Vanilla rank / arena reward parts are not granted;
 they are shop parts like the others.

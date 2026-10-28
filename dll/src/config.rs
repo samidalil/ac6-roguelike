@@ -44,11 +44,14 @@ pub struct Config {
     /// [lost_on_failure]: (part name, equipId or OsReinforce row as written, 1 = the equipped item is lost on a failed
     /// sortie, 0 = it survives); unlisted: weapons and frame parts / internals lost, core expansions kept
     pub lost_on_failure: Vec<(String, u32)>,
-    /// [unique_occurrences]: same keys, 1 = offered once per run (reward grid or shop), then never again
-    pub unique_occurrences: Vec<(String, u32)>,
+    /// [max_occurrences]: same keys (any part or OS Tuning), N = offered at most N times per run (reward grid or shop,
+    /// picked or not; 1..MAX_OCCURRENCES), 0 = no limit like unlisted
+    pub max_occurrences: Vec<(String, u32)>,
 }
 
 pub const MAX_SHOP_SLOTS: u32 = 8;
+/// [max_occurrences] values above this are read as this (4-bit count in the save, offsets OCCUR_*)
+pub const MAX_OCCURRENCES: u32 = 15;
 
 fn defaults() -> Config {
     Config {
@@ -56,7 +59,7 @@ fn defaults() -> Config {
         item_charge_percent: 100, prices: Vec::new(), ammo_cost_percent: 100, repair_cost_percent: 100,
         shop_weapons: 1, shop_parts: 2, parts_per_mission: 1, reward_choices: 3, os_rewards: true, reroll_interval: 1, starting_credits: 100_000, unlisted_tier: 1,
         common_weight: 60, rare_weight: 30, epic_weight: 10, part_rarity: Vec::new(),
-        lost_on_failure: Vec::new(), unique_occurrences: Vec::new(),
+        lost_on_failure: Vec::new(), max_occurrences: Vec::new(),
     }
 }
 
@@ -70,13 +73,15 @@ pub fn get() -> &'static Config { CONFIG.get_or_init(defaults) }
 /// Name key used to match [prices] entries with part names: upper case, no spaces.
 pub fn name_key(s: &str) -> String { s.chars().filter(|c| !c.is_whitespace()).flat_map(char::to_uppercase).collect() }
 
-/// Value of a per-item table ([lost_on_failure], [unique_occurrences]) for an item known by its numeric keys
+/// Value of a per-item table ([lost_on_failure], [max_occurrences]) for an item known by its numeric keys
 /// (equipId, OsReinforce row) and names; None = not listed. Keys are matched like [part_rarity] (numbers as written,
 /// names through `name_key`); the first matching entry wins.
-pub fn lookup(table: &[(String, u32)], ids: &[u32], names: &[String]) -> Option<bool> {
+pub fn value(table: &[(String, u32)], ids: &[u32], names: &[String]) -> Option<u32> {
     let names: Vec<String> = names.iter().map(|n| name_key(n)).collect();
-    table.iter().find(|(k, _)| match k.parse::<u32>() { Ok(id) => ids.contains(&id), Err(_) => names.contains(&name_key(k)) }).map(|e| e.1 != 0)
+    table.iter().find(|(k, _)| match k.parse::<u32>() { Ok(id) => ids.contains(&id), Err(_) => names.contains(&name_key(k)) }).map(|e| e.1)
 }
+/// `value` of a 1/0 table.
+pub fn lookup(table: &[(String, u32)], ids: &[u32], names: &[String]) -> Option<bool> { value(table, ids, names).map(|v| v != 0) }
 
 /// Path of the settings file: the DLL's own folder.
 fn path() -> std::path::PathBuf {
@@ -138,7 +143,10 @@ pub fn load() {
             ("rarity", "epic_weight") => c.epic_weight = v,
             ("part_rarity", _) => c.part_rarity.push((k.to_string(), v.min(3))),
             ("lost_on_failure", _) => c.lost_on_failure.push((k.to_string(), v.min(1))),
-            ("unique_occurrences", _) => c.unique_occurrences.push((k.to_string(), v.min(1))),
+            ("max_occurrences", _) => {
+                if v > MAX_OCCURRENCES { logf!("config line {}: [max_occurrences] {} = {} read as {}", n + 1, k, v, MAX_OCCURRENCES); }
+                c.max_occurrences.push((k.to_string(), v.min(MAX_OCCURRENCES)))
+            }
             _ => logf!("config line {}: unknown setting [{}] {}", n + 1, section, k),
         }
     }
@@ -147,9 +155,9 @@ pub fn load() {
         c.shop_weapons = c.shop_weapons.min(MAX_SHOP_SLOTS);
         c.shop_parts = MAX_SHOP_SLOTS - c.shop_weapons;
     }
-    logf!("config: ammo cost {}%, repair cost {}%, starting credits {}, shop {} weapon(s) + {} part(s) rerolled every {} mission(s), {} reward(s) per mission, unlisted tier {} weights {}/{}/{}, {} rarity override(s), {} lost-on-failure / {} unique-occurrence entr(ies)",
+    logf!("config: ammo cost {}%, repair cost {}%, starting credits {}, shop {} weapon(s) + {} part(s) rerolled every {} mission(s), {} reward(s) per mission, unlisted tier {} weights {}/{}/{}, {} rarity override(s), {} lost-on-failure / {} max-occurrence entr(ies)",
         c.ammo_cost_percent, c.repair_cost_percent, c.starting_credits, c.shop_weapons, c.shop_parts, c.reroll_interval, c.parts_per_mission,
-        c.unlisted_tier, c.common_weight, c.rare_weight, c.epic_weight, c.part_rarity.len(), c.lost_on_failure.len(), c.unique_occurrences.len());
+        c.unlisted_tier, c.common_weight, c.rare_weight, c.epic_weight, c.part_rarity.len(), c.lost_on_failure.len(), c.max_occurrences.len());
     logf!("config {}: mission pay {}%, arena repeat pay {}%, parts sell {}%, weapons sell {}%, charge {}%, {} price override(s)",
         p.display(), c.mission_pay_percent, c.arena_repeat_pay_percent, c.part_sell_percent,
         c.weapon_sell_percent, c.item_charge_percent, c.prices.len());

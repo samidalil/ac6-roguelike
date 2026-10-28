@@ -10,8 +10,8 @@
 //!   starter, bought at its shop price; tank legs take no booster;
 //! * `[lost_on_failure]` changes that per item (0 = survives), and with a 1 the equipped core expansion is lost too:
 //!   item removed, its OS Tuning level back to 0;
-//! * lost boosters / generators / FCS (starters excepted) and lost `[unique_occurrences]` items are lost forever:
-//!   never rolled again. Weapons and frame parts can be owned several times, so a lost one may roll again;
+//! * lost boosters / generators / FCS (starters excepted) are lost forever: never rolled again. Weapons and frame
+//!   parts can be owned several times, so a lost one may roll again. A loss does not change `[max_occurrences]` counts;
 //! * a negative balance sells stash parts (never equipped ones), most expensive first; still negative with
 //!   nothing left = game over.
 
@@ -48,8 +48,6 @@ pub struct Ctx {
     pub tank_legs: Vec<u32>,
     /// [lost_on_failure] by inventory item id (tag | equipId; core expansions: their plain item id)
     pub lost_rule: HashMap<u32, bool>,
-    /// [unique_occurrences] items (grant ids): marked never again when lost
-    pub once: Vec<u32>,
 }
 
 impl Ctx {
@@ -109,7 +107,7 @@ fn price_class(kind: u8, id: u32) -> Option<usize> {
 /// parts (price 0) are worth the cheapest shop part of their class; a [prices] entry replaces the value. Parts sell
 /// for `part_sell_percent` / `weapon_sell_percent` of their value and cost `item_charge_percent` of it: the shop
 /// price is rewritten to that cost, and a failure charges it for each starter it buys.
-pub unsafe fn init(base: usize, lu: &Lineup, tank_legs: Vec<u32>, once: Vec<u32>) {
+pub unsafe fn init(base: usize, lu: &Lineup, tank_legs: Vec<u32>) {
     BASE.store(base, Relaxed);
     msg::set_base(base);
     let cfg = config::get();
@@ -162,7 +160,7 @@ pub unsafe fn init(base: usize, lu: &Lineup, tank_legs: Vec<u32>, once: Vec<u32>
         logf!("starter {} {}: value {}, failure charge {}, sells for {}", name, starter, value, starter_price[k], pct(value, cfg.part_sell_percent));
     }
     logf!("tank legs (no booster): {:?}", tank_legs);
-    let _ = CTX.set(Ctx { price_of, starter_price, tank_legs, lost_rule: lost_rule(lu), once });
+    let _ = CTX.set(Ctx { price_of, starter_price, tank_legs, lost_rule: lost_rule(lu) });
 }
 
 /// [lost_on_failure] entries resolved to item ids: every lineup weapon / frame part / internal (by equipId or name)
@@ -450,10 +448,9 @@ unsafe fn unequip(gd: usize, off: usize) {
 /// Booster, generator, FCS: one copy at most (copies would share a handle), lost forever on a failure.
 pub fn unique_tag(item: u32) -> bool { matches!(item >> 28, 5 | 6 | 7) }
 
-/// Add a part to the "lost forever" row set (unique parts and [unique_occurrences] items only: a lost weapon / frame
-/// part may roll again).
-unsafe fn mark_lost(game: &Game, ctx: &Ctx, item: u32) {
-    if !unique_tag(item) && !ctx.once.contains(&item) { return; }
+/// Add a part to the "lost forever" row set (unique parts only: a lost weapon / frame part may roll again).
+unsafe fn mark_lost(game: &Game, item: u32) {
+    if !unique_tag(item) { return; }
     let (Some(man), Some(row)) = (game.flag_man(), buyback::row_of(item)) else { return };
     game.put_row(man, o::ROWS_LOST, row, true);
 }
@@ -471,7 +468,7 @@ unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {
     }
     for &(_, name, handle, id) in &plan.weapons {
         let removed = remove_handle(game, gd, handle, id);
-        mark_lost(game, ctx, id);
+        mark_lost(game, id);
         lines.push(format!("lost {} weapon {}{}", name, id, if removed { "" } else { " (was not in the inventory)" }));
     }
     // equip the replacement first, then remove the lost part
@@ -500,7 +497,7 @@ unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {
         }
         if let (Some((h, id)), false) = (lost, keep) {
             remove_handle(game, gd, h, tag | id);
-            if id != starter { mark_lost(game, ctx, tag | id); }
+            if id != starter { mark_lost(game, tag | id); }
             lines.push(format!("{}: lost {}{}", name, id, if id != starter && unique_tag(tag) { " forever" } else { "" }));
         }
     }
@@ -509,7 +506,6 @@ unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {
         unequip(gd, EXPANSION_SLOT);
         let removed = remove_handle(game, gd, handle, item);
         os::reset(gd, row);
-        if ctx.once.contains(&item) { if let Some(man) = game.flag_man() { os::set_gone(game, man, row); } }
         lines.push(format!("core expansion {} ({}) lost{}", os::name(row), row, if removed { "" } else { " (was not in the inventory)" }));
     }
     let bal = mem::rd_i32(gd + o::GD_COAM) as i64 - plan.starter_cost;
