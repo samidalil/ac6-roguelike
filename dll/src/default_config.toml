@@ -40,14 +40,27 @@ rare_weight = 30
 epic_weight = 10
 
 [lost_on_failure]
-# What a failed sortie takes from the equipped AC, per item: equipId, "part name", or an OS Tuning row for the core
-# expansions (5010 Assault Armor, 5020 Pulse Armor, 5030 Pulse Protection, 5040 Terminal Armor) = 1 (lost) or 0
-# (kept). Unlisted: every weapon and frame part / internal is lost, the core expansion is kept. A lost core expansion
-# loses its item and its OS Tuning level (back to 0). The other OS Tunings are never lost.
+# What a failed sortie takes from the equipped AC, per item: equipId, "part name", or an OS Tuning row = 1 (lost) or
+# 0 (kept). Unlisted: every weapon and frame part / internal is lost, the OS Tunings are kept.
+# Core expansions (5010 Assault Armor, 5020 Pulse Armor, 5030 Pulse Protection, 5040 Terminal Armor): the equipped one
+# loses its item and its OS Tuning level (back to 0). The other OS Tunings: each installed one loses ONE level.
 5010 = 1    # Assault Armor
 5020 = 1    # Pulse Armor
 5030 = 1    # Pulse Protection
 5040 = 1    # Terminal Armor
+10 = 1      # Kinetic Weapons - Fire Control Tuning
+20 = 1      # Energy Weapons - Output Control Tuning
+30 = 1      # Explosive Weapons - Fuse Control Tuning
+40 = 1      # Melee Weapons - Drive Control Tuning
+50 = 1      # Direct Hit Modifier - Damage Tuning
+1010 = 1    # ACS - Dynamic Deflection Control Tuning
+2020 = 1    # Repair Kits - Optimization
+3010 = 1    # Access Speed - Optimization
+4010 = 1    # Weight Control
+5050 = 1    # Boost Kick
+5060 = 1    # Manual Aiming
+5070 = 1    # Weapon Bay
+5080 = 1    # Quick Turn
 
 [unique_occurrences]
 # Items offered at most once per run: once shown in a reward choice or in the shop, picked or not, they never come
@@ -154,24 +167,25 @@ epic_weight = 10
 "VP-61PS" = 1    # 1.00 (MetaTierList D, GameRant D)
 "WR-0777 SWEET SIXTEEN" = 1    # 1.00 (MetaTierList D)
 "WUERGER/66E" = 1    # 1.00 (MetaTierList D, Games D, GameRant D)
-# OS Tunings (rewards only), by OsReinforce row id (their names are translated): core expansions epic, the rest rare
+# OS Tunings (rewards only), by OsReinforce row id (their names are translated): core expansions epic; tunings that
+# help any build rare; one weapon type's damage and small utilities common (a failed sortie takes levels back)
 5010 = 3    # ASSAULT ARMOR
 5020 = 3    # PULSE ARMOR
 5030 = 3    # PULSE PROTECTION
 5040 = 3    # TERMINAL ARMOR
-10 = 2      # Kinetic Weapons - Fire Control Tuning
-20 = 2      # Energy Weapons - Output Control Tuning
-30 = 2      # Explosive Weapons - Fuse Control Tuning
-40 = 2      # Melee Weapons - Drive Control Tuning
 50 = 2      # Direct Hit Modifier - Damage Tuning
 1010 = 2    # ACS - Dynamic Deflection Control Tuning
 2020 = 2    # Repair Kits - Optimization
-3010 = 2    # Access Speed - Optimization
-4010 = 2    # Weight Control
-5050 = 2    # Boost Kick
-5060 = 2    # Manual Aiming
 5070 = 2    # Weapon Bay
-5080 = 2    # Quick Turn
+10 = 1      # Kinetic Weapons - Fire Control Tuning
+20 = 1      # Energy Weapons - Output Control Tuning
+30 = 1      # Explosive Weapons - Fuse Control Tuning
+40 = 1      # Melee Weapons - Drive Control Tuning
+3010 = 1    # Access Speed - Optimization
+4010 = 1    # Weight Control
+5050 = 1    # Boost Kick
+5060 = 1    # Manual Aiming
+5080 = 1    # Quick Turn
 # frames and internals: recommended by 3+ guides = epic, 1-2 = rare
 "07-061 MIND ALPHA" = 3    # 4 guide(s): GGRecon/GoSuNoob; Push; PCGamesN; GameRant
 "DF-BD-08 TIAN-QIANG" = 3    # 4 guide(s): GGRecon/GoSuNoob; Digital; Push; GameRant

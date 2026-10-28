@@ -24,7 +24,8 @@ HOW IT PLAYS
   shows the level it brings) and a tuning comes back until its max level. The core expansions (Assault Armor, Pulse
   Armor, Pulse Protection, Terminal Armor) are rarer; the first pick also gives the part to equip in Assemblage.
   Each one shows up only once per run: once offered on the results screen, picked or not, it never comes back
-  (one level at most). The equipped one is lost on a failed sortie (part and level).
+  (one level at most). The equipped one is lost on a failed sortie (part and level); every other installed OS
+  Tuning loses one level.
   [unique_occurrences] and [lost_on_failure] in the settings set this per item.
 - A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
   so you can buy it back.
@@ -32,8 +33,8 @@ HOW IT PLAYS
 - No pause menu during missions: no retry, no quitting.
 - Dying, or leaving a mission any other way (even closing the game), counts as a failed sortie:
   * every equipped weapon and frame part / internal is lost, and the equipped core expansion (its OS Tuning level
-    goes back to 0; the other OS Tunings are never lost); a lost booster, generator or FCS is lost for good (never
-    offered again, except the starter parts), lost weapons and frame parts can come up again;
+    goes back to 0); every other installed OS Tuning loses one level; a lost booster, generator or FCS is lost for
+    good (never offered again, except the starter parts), lost weapons and frame parts can come up again;
     [lost_on_failure] in the settings changes what is lost, per item;
   * each emptied slot gets your most recently obtained spare part for it; with no spare, the starter part is bought
     (its shop price) and equipped. Tank legs have no booster: the booster slot stays empty.
@@ -51,7 +52,8 @@ A part at tier 0 (or every part [part_rarity] does not list, with unlisted_tier 
 is never offered in the shop nor as a reward; with few parts left, shop slots stay empty and rewards offer fewer
 parts or none.
 An older settings file has no [lost_on_failure] / [unique_occurrences] sections: core expansions are then kept after a
-failure and offered again; delete the file (or copy the sections from a new one) to get them.
+failure and offered again; an older [lost_on_failure] does not list the other OS Tunings: they then keep their levels.
+Delete the file (or copy the sections from a new one) to get the new defaults.
 Each setting is explained in the file. Delete the file to get the defaults back.
 
 LOG
