@@ -920,7 +920,9 @@ scan (~45 s; `tools/chr_paths.py` re-finds the lists if an update moves them).
   99999 (scripted objects, leave them). Zeroing the AC -> mission cleared, results, rewards as usual.
 - Save right before it, in the repo: `saves/ac-mission-available.sl2` (garage, no sortie pending).
   `tools/restore_save.ps1` puts it in place of the dev save (game closed; the current save is kept first).
-- Full cycle: `tools/restore_save.ps1` -> `tools/relaunch.ps1` -> title OK + CONTINUER -> DÉPLOIEMENT -> MISSIONS ->
+- Scripted: `tools/restore_save.ps1 -Save <save>` -> `tools/relaunch.ps1 -Profile <profile>` -> `python tools/to_mission.py
+  --row 1 --kill --results` (title -> mission -> kill -> reward grid; it focuses the game itself).
+- Full cycle by hand: `tools/restore_save.ps1` -> `tools/relaunch.ps1` -> title OK + CONTINUER -> DÉPLOIEMENT -> MISSIONS ->
   "Destruction de l'AC d'essai" -> briefing -> Déploiement -> OUI -> wait for control -> `kill_enemies.py --max-ap 12300`.
 - Keep `tools/save_backup.ps1` running while testing; never kill the game mid-sortie (escrow -> failure penalty on the
   next load), restore the pre-sortie backup instead.
@@ -1035,11 +1037,53 @@ No credits fallback, no `pool_limit`.
   by its spare copy), VE-46A and TALBOT lost; only TALBOT's row 105 entered `ROWS_LOST`. Real sortie ("Destruction
   de l'AC d'essai", kill_enemies.py): migration ran, offers rolled, reroll wrote baselines [0, 0, 0]; the forced owned
   VE-46A picked in the grid became a second copy.
-- **Core expansions (user asked to add them, unique): NOT DONE.** Rows 28..31 (75000000 ASSAULT ARMOR, 75010000 PULSE
-  ARMOR, 75020000 PULSE PROTECTION, 75030000 TERMINAL ARMOR; equipType 0, price 0, flag 0). `give 4788FD0` makes an
-  inventory entry (weapon handle 0x0800001D, "BOUCLIER À IMPULSIONS", unsellable) but Assemblage's EXTENSION slot
-  still lists only (NÉANT), and a read watch on that entry's id saw no read while the list opened: the slot list does
-  not come from the inventory. Vanilla unlocks expansions through OS Tuning (menu flag 3131); that unlock state has to
-  be found before expansions can be rewards.
+- **Core expansions (user asked to add them):** done, see "OS Tuning rewards" below.
 - Not changed: buy-back of a sold copy stays hidden while another copy is owned (vanilla rule, `dupshop` only covers
   shop slots); the reward-choice prune drops unpicked offers by handle (safe: unique parts are never offered owned).
+
+## OS Tuning rewards (2026-10-28, implemented; replaces "core expansions as rewards")
+User decisions (2026-10-28): every OS Tuning is a mission reward, offered again while below its max level (a pick of
+one already installed adds a level); core expansions epic, the other tunings rare; the grid tile shows the level it
+brings; the vanilla OS Tuning shop stays locked. Losing equipped OS on a failure + skipped OS never offered again =
+one config param, separate task (brief in the side-session notes folder, not done here).
+- **Levels** (TGA table "OS Tuning", verified live): `[PlayerGameData+0x1368]` -> one i32 per OsReinforce row, in
+  row id order (offset = 4 x rank): 10 kinetic +0x00, 20 energy +0x04, 30 explosive +0x08, 40 melee +0x0C, 50 direct
+  hit +0x10, 1010 ACS +0x14 (1011..1013 = +0x18..+0x20: hidden sub-rows without text, not rewards), 2020 repair kits
+  +0x24, 3010 access speed +0x28, 4010 weight control +0x2C, 5010 ASSAULT ARMOR +0x30, 5020 PULSE ARMOR +0x34, 5030
+  PULSE PROTECTION +0x38, 5040 TERMINAL ARMOR +0x3C, 5050 boost kick +0x40, 5060 manual aiming +0x44, 5070 weapon bay
+  +0x48, 5080 quick turn +0x4C. 0 = not installed. Saved in the .sl2.
+- **Max level** = OsReinforce levels with an OST chip cost > 0 (5 entries {increase, cost, text id} from +0x14, 0x18
+  apart): 10/20/30/1010 = 5, 2020 = 4, 40/50/5010/5030 = 3, 3010/5020 = 2, the rest 1 (same as TGA's "Max all").
+  OsReinforce is repo index 202; it is not read when Assemblage's EXTENSION list opens.
+- **Names**: MsgRepository category 200, ids 71510 (kinetic) 71511 (energy) 71512 (explosive) 71513 (melee) 71514
+  (direct hit) 71520 (ACS) 71531 (repair) 71540 (access) 71545 (weight) 71550 (boost kick) 71551 (weapon bay) 71552
+  (manual aiming) 71553 (quick turn) 71560..71563 (assault armor, pulse armor, pulse protection, terminal armor).
+  Category 73 = garage menu titles (2009000 "AMÉLIORATION OS"), 73/74 id 2101000 = the unlock notification title/text
+  ("Accès autorisé : AMÉLIORATION OS/ARÈNE", "...disponibles : • AMÉLIORATION OS • ARÈNE").
+- **Assemblage EXTENSION list = expansion item owned AND level > 0** (item alone: (NÉANT); level alone: (NÉANT); level
+  set back to 0 hides it even equipped). The vanilla OS Tuning menu shows a rewarded level as installed (cyan segment).
+- **Menu unlock**: flag 3131 (set by mission 9's end script with 3130) = UnlockParam_MenuCommand row 10080 {type 2,
+  flag 3131}; with 3131 set the garage gets "AMÉLIORATION OS" after a reload (no dialog), first open shows a tutorial.
+  Lock: the DLL points row 10080 at flag 8020 (the game's own never-set flag of row 99999999; block 8 empty), at boot
+  and with the economy re-apply. Verified: 3131 = 1, menu absent after a mission and after quit + Continue.
+  Notification: the msg hook serves 2101000 without the menu (title: "<menu>/" cut; text: lines naming it dropped),
+  built from the game's own texts per source string (they are reloaded in the game language after the title):
+  "Access Granted: ARENA" / "...• ARENA" checked by debug `osnote`. The real notification (mission 9 return) and any
+  ALLMIND mail about OS Tuning are NOT seen (no save near mission 9).
+- **Grant** (`os.rs`, `choice.rs`): OS Tunings join the reward pool (`[rewards] os_rewards = 1`; Part kind KIND_OS, idx
+  1000+k, never a shop candidate) while level < max. "Pièces obtenues" only opens on a non-empty pending list, so every
+  OS offer queues an item at sortie: its expansion item when not owned (`keep`: committed if picked), else a carrier
+  (PULSE ARMOR item), always taken out of the list in the commit hook. The pick raises the level by 1 there (direct
+  write). With reward_choices = 1 a reward that is an OS Tuning still goes through the grid (one-tile page "PIÈCE
+  OBTENUE") so its carrier is removed.
+- **Tile**: the part view is filled from the queued item, then the DLL writes `_Content_/TileNN/ItemName` (tuning name)
+  and `CategoryName` ("AMÉLIORATION OS  LV n/max", n = level after the pick); `SelIdx` carries a 3rd field, a bit mask
+  of tiles whose ItemIcon / MakerLogo the movie hides (non-expansion tunings: no image).
+- **Verified** (profile ac6-roguelike-exp.me3, fresh copy of saves/ac-mission-available.sl2, 3 rewards per mission,
+  debug `force_os 5050 5020 5010` with PULSE ARMOR owned at level 1 and 3131 set): grid pages showed "Coup de pied
+  propulsé  LV 1/1" (no image), "Bouclier à impulsions  LV 2/2" (chip image), "Bouclier d'assaut  LV 1/3" (chip image);
+  picks -> levels 0->1, 1->2, 0->1, pending 9 handles -> only the assault armor item kept; Assemblage lists one assault
+  armor + one pulse armor; boost kick and pulse armor no longer rollable; levels kept after quit + Continue.
+- Penalty unchanged (expansions keep no slot in FRAME_SLOTS / WEAPON_SLOTS, price 0): kept after a failed sortie.
+- Debug: `os` (level / max / rollable / item owned per tuning), `osnote`, `force_os <rows>`, `force_reward <hex ids>`
+  (now several: first offer of each reward).

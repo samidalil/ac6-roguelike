@@ -8,7 +8,8 @@
 //!   active. 0->1 = mission start, 1->0 = the mission-end "obtained parts" commit.
 //! * POOL: shop offers and rewards are drawn by rarity among every buyable part; weapons and frame parts can repeat
 //!   and be owned several times (dupshop.rs lists an owned one in the shop). Boosters, generators and FCS are
-//!   unique: never rolled while owned or once lost forever.
+//!   unique: never rolled while owned or once lost forever. OS Tunings are rewards only: one level per pick, the
+//!   vanilla OS Tuning menu locked (os.rs).
 //! * REWARD: at mission start we grant one random part through the game's give wrapper
 //!   with bypass-defer = 0, so it is queued and the vanilla "Pièces obtenues" dialog shows it at
 //!   mission end and commits it on OK.
@@ -59,6 +60,7 @@ mod trace;
 mod rewardmenu;
 mod choice;
 mod dupshop;
+mod os;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
 struct Lineup {
@@ -96,19 +98,26 @@ unsafe fn release_rank_rewards(lu: &Lineup) {
     if n > 0 { logf!("{} vanilla rank/arena reward(s) turned into shop parts", n); }
 }
 
-/// One buyable row, cached from the param (indices are stable for a given game version).
+/// One buyable row, cached from the param (indices are stable for a given game version), or an OS Tuning reward
+/// (`os` = its OsReinforce row, `idx` = OS_IDX + its index: no lineup row, `equip_id` = its core expansion item or 0).
 #[derive(Clone, Copy)]
-struct Part { idx: u16, equip_id: u32, kind: u8, tier: u8 }
+struct Part { idx: u16, equip_id: u32, kind: u8, tier: u8, os: u16 }
+const KIND_OS: u8 = 0xFF;
+const OS_IDX: u16 = 1000;
 impl Part {
     fn is_weapon(&self) -> bool { self.kind == 0 }
+    /// OS Tuning: a reward only, one level per pick (os.rs)
+    fn is_os(&self) -> bool { self.kind == KIND_OS }
     /// one copy at most: booster, generator, FCS (copies would share a handle)
     fn unique(&self) -> bool { matches!(self.kind, 4 | 5 | 6) }
     /// id accepted by the item-descriptor builder (grant path)
-    fn grant_id(&self) -> u32 { o::id_tag(self.kind) | (self.equip_id & 0x0FFF_FFFF) }
+    fn grant_id(&self) -> u32 { if self.is_os() { self.equip_id } else { o::id_tag(self.kind) | (self.equip_id & 0x0FFF_FFFF) } }
+    fn name(&self) -> String { if self.is_os() { os::name(self.os) } else { penalty::part_name(self.grant_id()) } }
 }
 
-/// Every row a roguelike shop may offer: priced, not a mission reward, weapon / frame / internal. Each gets a rarity
-/// tier (1 common, 2 rare, 3 epic) from [part_rarity], else the configured unlisted tier.
+/// Every row a roguelike shop may offer: priced, not a mission reward, weapon / frame / internal, plus the OS Tunings
+/// (rewards only) unless [rewards] os_rewards = 0. Each gets a rarity tier (1 common, 2 rare, 3 epic) from
+/// [part_rarity] (OS Tunings by OsReinforce row id), else the configured unlisted tier.
 unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
     let cfg = config::get();
     let mut by_id: std::collections::HashMap<u32, u8> = std::collections::HashMap::new();
@@ -130,7 +139,14 @@ unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
                 if let Some(t) = by_name.get(&config::name_key(&penalty::part_name(item))) { tier = *t; }
             }
             counts[tier as usize] += 1;
-            v.push(Part { idx: i as u16, equip_id: id, kind, tier });
+            v.push(Part { idx: i as u16, equip_id: id, kind, tier, os: 0 });
+        }
+    }
+    if cfg.os_rewards {
+        for (k, t) in os::tunings().iter().enumerate() {
+            let tier = by_id.get(&(t.row as u32)).copied().unwrap_or(cfg.unlisted_tier as u8);
+            counts[tier as usize] += 1;
+            v.push(Part { idx: OS_IDX + k as u16, equip_id: t.item, kind: KIND_OS, tier, os: t.row });
         }
     }
     logf!("rarity: {} common, {} rare, {} epic", counts[1], counts[2], counts[3]);
@@ -522,7 +538,9 @@ unsafe extern "system" fn pause_hook(this: usize) {
 static CHOSEN: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
 static PRED_CALLS: AtomicUsize = AtomicUsize::new(0);
 /// DEBUG: item id forced as the next sortie's reward (0 = none).
-static FORCE_REWARD: AtomicU32 = AtomicU32::new(0);
+static FORCE_REWARD: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+/// FORCE_REWARD tag: the low 16 bits are an OsReinforce row (debug `force_os`)
+const FORCE_OS_TAG: u32 = 0x8000_0000;
 static PAGE_CACHE_MAN: AtomicUsize = AtomicUsize::new(0);
 static PAGE_CACHE: [AtomicUsize; 16] = [const { AtomicUsize::new(0) }; 16];
 fn clear_page_cache() { for c in &PAGE_CACHE { c.store(0, Relaxed); } }
@@ -690,12 +708,14 @@ impl Run {
 
     /// Parts that can roll: the shop's weapons (`Some(true)`) or other parts (`Some(false)`), or both (`None`,
     /// rewards), not in `exclude`. Weapons and frame parts roll even when owned (each copy is its own inventory
-    /// entry); unique parts neither while owned nor once lost forever. Each lineup row is its own part (left and
-    /// right weapon versions included).
-    unsafe fn candidates(&self, man: usize, owned: &[u32], weapon: Option<bool>, exclude: &[u16]) -> Vec<Part> {
+    /// entry); unique parts neither while owned nor once lost forever. OS Tunings: rewards only (never in the shop),
+    /// while below their max level. Each lineup row is its own part (left and right weapon versions included).
+    unsafe fn candidates(&self, gd: usize, man: usize, owned: &[u32], weapon: Option<bool>, exclude: &[u16]) -> Vec<Part> {
         let lost = self.game.read_rows(man, o::ROWS_LOST);
-        self.pool.iter().copied().filter(|p| weapon.map_or(true, |w| p.is_weapon() == w)
-            && !exclude.contains(&p.idx) && !(p.unique() && (owned.contains(&p.grant_id()) || lost.contains(&p.idx)))).collect()
+        self.pool.iter().copied().filter(|p| weapon.map_or(true, |w| !p.is_os() && p.is_weapon() == w)
+            && !exclude.contains(&p.idx)
+            && !(p.unique() && (owned.contains(&p.grant_id()) || lost.contains(&p.idx)))
+            && !(p.is_os() && !os::tuning(p.os).zip(os::level(gd, p.os)).is_some_and(|(t, l)| l < t.max))).collect()
     }
 
     /// config shop_weapons weapons + shop_parts other parts, by rarity, all different. The parts being awarded right
@@ -708,7 +728,7 @@ impl Run {
         let mut out = Vec::new();
         for (count, weapon) in [(cfg.shop_weapons, true), (cfg.shop_parts, false)] {
             for n in 0..count {
-                let cands = self.candidates(man, &owned, Some(weapon), &taken);
+                let cands = self.candidates(gd, man, &owned, Some(weapon), &taken);
                 let Some(p) = pick_weighted(&mut self.rng, &cands) else {
                     logf!("shop: no {} left, {} slot(s) empty", if weapon { "weapon" } else { "part" }, count - n);
                     break;
@@ -726,7 +746,7 @@ impl Run {
         let owned = self.game.owned_ids(gd);
         let mut exclude = taken.to_vec();
         exclude.extend(self.game.read_state(man).unwrap_or_default().into_iter().filter(|i| self.part_by_idx(*i).is_some_and(|p| p.unique())));
-        self.candidates(man, &owned, None, &exclude)
+        self.candidates(gd, man, &owned, None, &exclude)
     }
 
     unsafe fn apply_state(&self, man: usize, idx: &[u16], why: &str) {
@@ -743,32 +763,47 @@ impl Run {
         self.last_grant_tick = tick_count();
         if self.reward_parts.is_empty() { self.roll_rewards(gd, man, why); self.force_reward(why); }
         self.reward_handles.clear();
-        let mut handles = Vec::new();
+        let owned = self.game.owned_ids(gd);
+        let mut offers = Vec::new();
         for p in self.reward_parts.clone() {
+            // an OS Tuning queues its core expansion item when not owned yet (kept if picked), else a carrier item
+            let keep = p.is_os() && p.equip_id != 0 && !owned.contains(&p.equip_id);
+            let id = if p.is_os() && !keep { o::OS_CARRIER_ITEM } else { p.grant_id() };
             let before = self.game.pending(gd);
-            let (r, err) = self.game.give_deferred(gd, p.grant_id());
+            let (r, err) = self.game.give_deferred(gd, id);
             let after = self.game.pending(gd);
             let new_handle = after.iter().copied().find(|h| !before.contains(h));
             if let Some(h) = new_handle { self.reward_handles.push(h); }
-            handles.push(new_handle.unwrap_or(0));
-            logf!("{}: reward row {} equip {} tier {} grant_id {:#X} -> rax={} err={} handle={:?} pending={}",
-                why, p.idx, p.equip_id, p.tier, p.grant_id(), r, err, new_handle.map(|h| format!("{:#X}", h)), after.len());
+            let label = if p.is_os() { Some(os::label(gd, p.os)) } else { None };
+            offers.push(choice::Offer { id, handle: new_handle.unwrap_or(0), os: p.os, keep, label });
+            logf!("{}: reward {} {} tier {} item {:#X} -> rax={} err={} handle={:?} pending={}",
+                why, if p.is_os() { format!("OS {}", p.os) } else { format!("row {}", p.idx) }, p.name(), p.tier, id, r, err, new_handle.map(|h| format!("{:#X}", h)), after.len());
         }
-        if !self.reward_sets.is_empty() {
-            let mut it = self.reward_parts.iter().zip(handles);
-            choice::arm(self.reward_sets.iter().map(|s| s.iter().filter_map(|_| it.next().map(|(p, h)| (p.grant_id(), h))).collect()).collect());
+        // the grid also shows the OS Tunings of plain rewards (their carrier items must leave the list)
+        let sets: Vec<usize> = if !self.reward_sets.is_empty() { self.reward_sets.iter().map(|s| s.len()).collect() }
+            else if self.reward_parts.iter().any(|p| p.is_os()) { vec![1; offers.len()] } else { Vec::new() };
+        if !sets.is_empty() {
+            let mut it = offers.into_iter();
+            choice::arm(sets.iter().map(|n| it.by_ref().take(*n).collect()).collect());
         }
     }
 
-    /// DEBUG `force_reward <hex item id>`: the next sortie's first reward (or first offer of the first choice) is that
-    /// part, owned or not (duplicate tests).
+    /// DEBUG `force_reward <hex item ids>`: the next sortie's rewards (or first offer of each choice) are these parts,
+    /// owned or not (duplicate tests). `force_os <rows>` (FORCE_OS_TAG | row): these OS Tunings.
     fn force_reward(&mut self, why: &str) {
-        let id = FORCE_REWARD.swap(0, Relaxed);
-        if id == 0 { return; }
-        let Some(p) = self.pool.iter().copied().find(|p| p.grant_id() == id) else { logf!("{}: forced reward {:#X} not in the pool", why, id); return };
-        if let Some(s) = self.reward_sets.first_mut() { if !s.is_empty() { s[0] = p; } }
-        if self.reward_parts.is_empty() { self.reward_parts.push(p); } else { self.reward_parts[0] = p; }
-        logf!("{}: DEBUG forced reward row {} {} ({:#X})", why, p.idx, penalty::part_name(id), id);
+        let ids = FORCE_REWARD.lock().map(|mut f| core::mem::take(&mut *f)).unwrap_or_default();
+        for (k, id) in ids.into_iter().enumerate() {
+            let found = if id & FORCE_OS_TAG != 0 { self.pool.iter().copied().find(|p| p.is_os() && p.os as u32 == id & 0xFFFF) }
+                else { self.pool.iter().copied().find(|p| !p.is_os() && p.grant_id() == id) };
+            let Some(p) = found else { logf!("{}: forced reward {:#X} not in the pool", why, id); continue };
+            if !self.reward_sets.is_empty() {
+                let Some(s) = self.reward_sets.get_mut(k).filter(|s| !s.is_empty()) else { break };
+                s[0] = p;
+                let at: usize = self.reward_sets[..k].iter().map(|s| s.len()).sum();
+                self.reward_parts[at] = p;
+            } else if k < self.reward_parts.len() { self.reward_parts[k] = p; } else { self.reward_parts.push(p); }
+            logf!("{}: DEBUG forced reward {}: {} {} ({:#X})", why, k, p.idx, p.name(), id);
+        }
     }
 
     /// Roll this sortie's parts_per_mission rewards. Reward choice: each reward is an offer of reward_choices parts
@@ -876,9 +911,11 @@ fn boot() {
                 let lu = Lineup { data: rows[0].1 };
                 if unsafe { anchors_ok(lu.data) } {
                     unsafe { release_rank_rewards(&lu); }
+                    if !unsafe { os::init(base) } { sleep_ms(500); continue; }
                     pool = unsafe { build_pool(&lu) };
                     unsafe { penalty::init(base, &lu, tank_legs(base)); buyback::init(base, &lu); }
-                    logf!("lineup (repository) at {:#X}: pool = {} buyable rows ({} weapons)", lu.data, pool.len(), pool.iter().filter(|p| p.is_weapon()).count());
+                    logf!("lineup (repository) at {:#X}: pool = {} rows ({} weapons, {} OS Tunings)", lu.data, pool.len(),
+                        pool.iter().filter(|p| p.is_weapon()).count(), pool.iter().filter(|p| p.is_os()).count());
                     if !pool.is_empty() { break; }
                 }
             }
@@ -934,6 +971,7 @@ fn boot() {
     }
     let n = unsafe { apply_economy(base) };
     logf!("economy: {} reward fields scaled at boot", n);
+    if config::get().os_rewards && unsafe { os::lock_menu(base) } { log("OS Tuning menu locked (OS Tunings are rewards)"); }
     // RE: %USERPROFILE%/ac6_watch.txt = trace commands run at every boot (kept, unlike ac6_debug.txt)
     let watch = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_watch.txt");
     for l in std::fs::read_to_string(&watch).unwrap_or_default().lines().filter(|l| l.starts_with("watch ")) { unsafe { trace::command(l.trim()); } }
@@ -967,6 +1005,7 @@ fn boot() {
                 clear_page_cache();
                 let n = apply_economy(run.game.base);
                 if n > 0 { logf!("economy: re-applied {} fields (params were reloaded)", n); }
+                if config::get().os_rewards && os::lock_menu(run.game.base) { log("OS Tuning menu locked again (params were reloaded)"); }
             } // re-walk the map every 5 s (pages can be reallocated)
 
             // (1) persisted shop state (flags) -> chosen ids. Handles Continue / New Game / our own writes.
@@ -1102,12 +1141,25 @@ fn boot() {
                             logf!("DEBUG: rows after clear {:?}", g.read_rows(man, o::ROWS_SOLD));
                         }
                         "lost" => logf!("DEBUG: lost forever rows {:?}", run.game.read_rows(man, o::ROWS_LOST)),
+                        "osnote" => for c in [o::MSG_CAT_MENU_TITLE, o::MSG_CAT_MENU_TEXT] {
+                            logf!("DEBUG: unlock notification {}: {:?}", c, msg::shown(c, o::MSG_OS_UNLOCKED));
+                        },
+                        "os" => {
+                            // each OS Tuning: level / max, rollable as a reward, its core expansion item owned
+                            let owned = run.game.owned_ids(gd);
+                            let cands = run.reward_candidates(gd, man, &[]);
+                            for t in os::tunings() {
+                                logf!("DEBUG: OS {} {}: level {:?}/{}, in pool {}, rollable {}{}", t.row, os::name(t.row), os::level(gd, t.row), t.max,
+                                    run.pool.iter().any(|p| p.os == t.row), cands.iter().any(|p| p.os == t.row),
+                                    if t.item != 0 { format!(", item owned {}", owned.contains(&t.item)) } else { String::new() });
+                            }
+                        }
                         "save" => logf!("DEBUG: save requested (mask before {:?})", run.game.request_save()),
                         "reward" => {
                             // a sortie's reward roll, without granting
                             run.reward_parts.clear(); run.reward_sets.clear();
                             run.roll_rewards(gd, man, "DEBUG reward");
-                            logf!("DEBUG: rewards {:?}", run.reward_parts.iter().map(|p| format!("{} {}", p.idx, penalty::part_name(p.grant_id()))).collect::<Vec<_>>());
+                            logf!("DEBUG: rewards {:?}", run.reward_parts.iter().map(|p| format!("{} {}", p.idx, p.name())).collect::<Vec<_>>());
                             run.reward_parts.clear(); run.reward_sets.clear();
                         }
                         c if c.starts_with("shop ") => {
@@ -1127,7 +1179,7 @@ fn boot() {
                             let cands = run.reward_candidates(gd, man, &[]);
                             let sets = choice::roll(&run.game, man, &cands, cfg.parts_per_mission, cfg.reward_choices as usize);
                             let n = sets.len();
-                            rewardmenu::set_pages(sets.iter().enumerate().map(|(i, s)| rewardmenu::Page { ids: s.iter().map(|p| p.grant_id()).collect(), title: format!("CHOISISSEZ UNE PIÈCE ({}/{})", i + 1, n) }).collect());
+                            rewardmenu::set_pages(sets.iter().enumerate().map(|(i, s)| rewardmenu::Page::parts(s.iter().map(|p| p.grant_id()).collect(), format!("CHOISISSEZ UNE PIÈCE ({}/{})", i + 1, n))).collect());
                             logf!("DEBUG: reward choice grid, {} page(s)", n);
                             rewardmenu::OPEN_REQUEST.store(true, Relaxed);
                         }
@@ -1135,16 +1187,19 @@ fn boot() {
                             rewardmenu::VANILLA.store(c.starts_with("vanilla "), Relaxed);
                             let ids: Vec<u32> = c[c.find(' ').unwrap_or(0) + 1..].split_whitespace().filter_map(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()).take(12).collect();
                             logf!("DEBUG: parts grid {:X?}", ids);
-                            if !ids.is_empty() { rewardmenu::set_pages(vec![rewardmenu::Page { ids, title: "CHOISISSEZ UNE PIÈCE".to_string() }]); rewardmenu::OPEN_REQUEST.store(true, Relaxed); }
+                            if !ids.is_empty() { rewardmenu::set_pages(vec![rewardmenu::Page::parts(ids, "CHOISISSEZ UNE PIÈCE".to_string())]); rewardmenu::OPEN_REQUEST.store(true, Relaxed); }
                         }
                         c if c.starts_with("give2 ") => match u32::from_str_radix(c[6..].trim().trim_start_matches("0x"), 16) {
                             Ok(id) => { logf!("DEBUG: give2 {:#X} (game thread, even if owned)", id); penalty::GIVE_FORCE.store(true, Relaxed); penalty::GIVE_REQUEST.store(id, Relaxed); }
                             Err(_) => logf!("DEBUG: bad item id {:?}", c),
                         },
-                        c if c.starts_with("force_reward ") => match u32::from_str_radix(c[13..].trim().trim_start_matches("0x"), 16) {
-                            Ok(id) => { logf!("DEBUG: next sortie's reward forced to {:#X}", id); FORCE_REWARD.store(id, Relaxed); }
-                            Err(_) => logf!("DEBUG: bad item id {:?}", c),
-                        },
+                        c if c.starts_with("force_os ") || c.starts_with("force_reward ") => {
+                            let os = c.starts_with("force_os ");
+                            let ids: Vec<u32> = c[c.find(' ').unwrap_or(0) + 1..].split_whitespace().filter_map(|v| if os { v.parse::<u16>().ok().map(|r| FORCE_OS_TAG | r as u32) }
+                                else { u32::from_str_radix(v.trim_start_matches("0x"), 16).ok() }).collect();
+                            logf!("DEBUG: next sortie's rewards forced to {:X?}", ids);
+                            if let Ok(mut f) = FORCE_REWARD.lock() { *f = ids; }
+                        }
                         "dups" => penalty::log_duplicates(gd),
                         c if c.starts_with("give ") => match u32::from_str_radix(c[5..].trim().trim_start_matches("0x"), 16) {
                             Ok(id) => { logf!("DEBUG: give {:#X} (game thread)", id); penalty::GIVE_REQUEST.store(id, Relaxed); }

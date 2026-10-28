@@ -10,6 +10,8 @@ starting_credits = 100000        # pay of the first mission of a run (Illegal En
 [rewards]
 parts_per_mission = 1            # rewards at the end of each cleared mission (0 to 3)
 reward_choices = 3               # parts offered for each reward, you pick one (1 to 12; 1 = given directly)
+os_rewards = 1                   # 1 = OS Tunings are rewards: each pick adds one level (up to the tuning's max; a
+                                 # core expansion also gives its part), and the OS Tuning menu stays locked
 
 [shop]
 # A part's value is the game's shop price; [prices] gives values to the parts the game prices at 0 (starter
@@ -130,6 +132,24 @@ epic_weight = 10
 "VP-61PS" = 1    # 1.00 (MetaTierList D, GameRant D)
 "WR-0777 SWEET SIXTEEN" = 1    # 1.00 (MetaTierList D)
 "WUERGER/66E" = 1    # 1.00 (MetaTierList D, Games D, GameRant D)
+# OS Tunings (rewards only), by OsReinforce row id (their names are translated): core expansions epic, the rest rare
+5010 = 3    # ASSAULT ARMOR
+5020 = 3    # PULSE ARMOR
+5030 = 3    # PULSE PROTECTION
+5040 = 3    # TERMINAL ARMOR
+10 = 2      # Kinetic Weapons - Fire Control Tuning
+20 = 2      # Energy Weapons - Output Control Tuning
+30 = 2      # Explosive Weapons - Fuse Control Tuning
+40 = 2      # Melee Weapons - Drive Control Tuning
+50 = 2      # Direct Hit Modifier - Damage Tuning
+1010 = 2    # ACS - Dynamic Deflection Control Tuning
+2020 = 2    # Repair Kits - Optimization
+3010 = 2    # Access Speed - Optimization
+4010 = 2    # Weight Control
+5050 = 2    # Boost Kick
+5060 = 2    # Manual Aiming
+5070 = 2    # Weapon Bay
+5080 = 2    # Quick Turn
 # frames and internals: recommended by 3+ guides = epic, 1-2 = rare
 "07-061 MIND ALPHA" = 3    # 4 guide(s): GGRecon/GoSuNoob; Push; PCGamesN; GameRant
 "DF-BD-08 TIAN-QIANG" = 3    # 4 guide(s): GGRecon/GoSuNoob; Digital; Push; GameRant
