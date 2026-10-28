@@ -31,6 +31,8 @@ pub static GAME_OVER_PENDING: AtomicBool = AtomicBool::new(false);
 /// mission clear, before the commit charges the mission's costs (money must exist before them).
 pub static CREDIT_REQUEST: AtomicI32 = AtomicI32::new(0);
 pub static GIVE_REQUEST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// DEBUG: grant GIVE_REQUEST even when it is already owned (a second copy).
+pub static GIVE_FORCE: AtomicBool = AtomicBool::new(false);
 
 
 static BASE: AtomicUsize = AtomicUsize::new(0);
@@ -199,7 +201,15 @@ unsafe extern "system" fn frame_hook(this: usize) {
     if CLEANUP_REQUEST.swap(false, Relaxed) { cleanup_orphans(&game, gd); }
     if PENALTY_REQUEST.swap(false, Relaxed) { apply_penalty(&game, ctx, gd); }
     let give = GIVE_REQUEST.swap(0, Relaxed);
-    if give != 0 { logf!("DEBUG: give {:#X}: granted {}", give, ensure_owned(&game, gd, give)); }
+    if give != 0 {
+        if GIVE_FORCE.swap(false, Relaxed) {
+            let mut buf = [0u8; 0x40];
+            let d = game.desc(give, &mut buf);
+            let r = (game.give_item)(gd + o::GD_GIVE_OBJ, d, 1, 1, 1, 1, 1);
+            logf!("DEBUG: give2 {:#X}: rax={} status={}", give, r, mem::rd_u32(gd + o::GD_GIVE_OBJ + o::GIVEOBJ_ERROR));
+            log_duplicates(gd);
+        } else { logf!("DEBUG: give {:#X}: granted {}", give, ensure_owned(&game, gd, give)); }
+    }
     let deficit = AUTOSELL_DEFICIT.swap(0, Relaxed);
     if deficit < 0 { auto_sell(&game, ctx, gd, deficit); }
 }
@@ -236,6 +246,23 @@ unsafe fn ensure_owned(game: &Game, gd: usize, id: u32) -> bool {
     let d = game.desc(id, &mut buf);
     (game.give_item)(gd + o::GD_GIVE_OBJ, d, 1, 1, 1, 1, 1);
     true
+}
+
+/// DEBUG: log the inventory entries (index, handle, count, ordinal, equipped) of every item id owned more than once.
+pub unsafe fn log_duplicates(gd: usize) {
+    let mgr = gd + o::GD_ITEM_MGR;
+    let equipped = equipped_handles(gd);
+    let mut by_id: Vec<(u32, Vec<String>)> = Vec::new();
+    for i in 0..capacity(mgr) {
+        let e = entry(mgr, i);
+        let (h, id, n, ord) = (mem::rd_u32(e), mem::rd_u32(e + 4), mem::rd_u32(e + 8), mem::rd_u32(e + 0xC));
+        if h == EMPTY || id >> 28 == 4 { continue; }
+        let s = format!("#{} h={:#X} n={} ord={}{}", i, h, n, ord, if equipped.contains(&h) { " EQ" } else { "" });
+        match by_id.iter_mut().find(|x| x.0 == id) { Some(x) => x.1.push(s), None => by_id.push((id, vec![s])) }
+    }
+    let dups: Vec<_> = by_id.iter().filter(|x| x.1.len() > 1).collect();
+    logf!("DEBUG: {} part id(s), {} owned more than once", by_id.len(), dups.len());
+    for (id, v) in dups { logf!("DEBUG:   {:#X} {}: {}", id, part_name(*id), v.join(" | ")); }
 }
 
 unsafe fn find_handle(mgr: usize, handle: u32) -> Option<u32> {
