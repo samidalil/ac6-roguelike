@@ -517,6 +517,8 @@ unsafe extern "system" fn pause_hook(this: usize) {
 /// The chosen shop rows as their `equipId` (row +0). 0 = empty slot.
 static CHOSEN: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
 static PRED_CALLS: AtomicUsize = AtomicUsize::new(0);
+/// DEBUG: item id forced as the next sortie's reward (0 = none).
+static FORCE_REWARD: AtomicU32 = AtomicU32::new(0);
 static PAGE_CACHE_MAN: AtomicUsize = AtomicUsize::new(0);
 static PAGE_CACHE: [AtomicUsize; 16] = [const { AtomicUsize::new(0) }; 16];
 fn clear_page_cache() { for c in &PAGE_CACHE { c.store(0, Relaxed); } }
@@ -776,7 +778,7 @@ impl Run {
     /// (mission restart from the pause menu empties it while the mission stays active).
     unsafe fn queue_reward(&mut self, gd: usize, man: usize, why: &str) {
         self.last_grant_tick = tick_count();
-        if self.reward_parts.is_empty() && self.reward_credits.is_empty() { self.roll_rewards(gd, man, why); }
+        if self.reward_parts.is_empty() && self.reward_credits.is_empty() { self.roll_rewards(gd, man, why); self.force_reward(why); }
         self.reward_handles.clear();
         let mut handles = Vec::new();
         for p in self.reward_parts.clone() {
@@ -793,6 +795,18 @@ impl Run {
             let mut it = self.reward_parts.iter().zip(handles);
             choice::arm(self.reward_sets.iter().map(|s| s.iter().filter_map(|_| it.next().map(|(p, h)| (p.grant_id(), h))).collect()).collect());
         }
+    }
+
+    /// DEBUG `force_reward <hex item id>`: the next sortie's first reward (or first offer of the first choice) is that
+    /// part, owned or not (duplicate tests).
+    fn force_reward(&mut self, why: &str) {
+        let id = FORCE_REWARD.swap(0, Relaxed);
+        if id == 0 { return; }
+        let Some(p) = self.pool.iter().copied().find(|p| p.grant_id() == id) else { logf!("{}: forced reward {:#X} not in the pool", why, id); return };
+        if let Some(s) = self.reward_sets.first_mut() { if !s.is_empty() { s[0] = p; } }
+        if self.reward_parts.is_empty() { self.reward_parts.push(p); } else { self.reward_parts[0] = p; }
+        self.reward_credits.clear();
+        logf!("{}: DEBUG forced reward row {} {} ({:#X})", why, p.idx, penalty::part_name(id), id);
     }
 
     /// Roll this sortie's parts_per_mission rewards (parts, or credits when no part is left). Reward choice: each reward
@@ -1118,7 +1132,8 @@ fn boot() {
                 // DEBUG: %USERPROFILE%/ac6_debug.txt with a command ("reroll" = new shop now, "mission_end" = what a
                 // cleared mission does to the shop, "rows_test" = row bitset round trip, "lost" = lost-forever rows, "rolled" =
                 // rolled rows, "reward" = a sortie's reward roll + mission clear without the grant, "save" = request a save,
-                // "give <hex item id>" = grant an item in the garage), then deleted
+                // "give <hex item id>" = grant an item in the garage, "give2 <hex>" = same even if owned, "force_reward <hex>" = next
+                // sortie's reward, "dups" = log the inventory entries of every part owned twice), then deleted
                 let dbg_cmd = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_debug.txt");
                 if tick % 5 == 0 && dbg_cmd.exists() {
                     let cmd = std::fs::read_to_string(&dbg_cmd).unwrap_or_default();
@@ -1163,6 +1178,15 @@ fn boot() {
                             logf!("DEBUG: parts grid {:X?}", ids);
                             if !ids.is_empty() { rewardmenu::set_pages(vec![rewardmenu::Page { ids, title: "CHOISISSEZ UNE PIÈCE".to_string() }]); rewardmenu::OPEN_REQUEST.store(true, Relaxed); }
                         }
+                        c if c.starts_with("give2 ") => match u32::from_str_radix(c[6..].trim().trim_start_matches("0x"), 16) {
+                            Ok(id) => { logf!("DEBUG: give2 {:#X} (game thread, even if owned)", id); penalty::GIVE_FORCE.store(true, Relaxed); penalty::GIVE_REQUEST.store(id, Relaxed); }
+                            Err(_) => logf!("DEBUG: bad item id {:?}", c),
+                        },
+                        c if c.starts_with("force_reward ") => match u32::from_str_radix(c[13..].trim().trim_start_matches("0x"), 16) {
+                            Ok(id) => { logf!("DEBUG: next sortie's reward forced to {:#X}", id); FORCE_REWARD.store(id, Relaxed); }
+                            Err(_) => logf!("DEBUG: bad item id {:?}", c),
+                        },
+                        "dups" => penalty::log_duplicates(gd),
                         c if c.starts_with("give ") => match u32::from_str_radix(c[5..].trim().trim_start_matches("0x"), 16) {
                             Ok(id) => { logf!("DEBUG: give {:#X} (game thread)", id); penalty::GIVE_REQUEST.store(id, Relaxed); }
                             Err(_) => logf!("DEBUG: bad item id {:?}", c),

@@ -921,3 +921,80 @@ scan (~45 s; `tools/chr_paths.py` re-finds the lists if an update moves them).
   "Destruction de l'AC d'essai" -> briefing -> Déploiement -> OUI -> wait for control -> `kill_enemies.py --max-ap 12300`.
 - Keep `tools/save_backup.ps1` running while testing; never kill the game mid-sortie (escrow -> failure penalty on the
   next load), restore the pre-sortie backup instead.
+
+## Duplicate parts (2026-10-28, research)
+Question: can a reward give a part the player already owns (a second copy) instead of the credits fallback?
+Tested on an isolated save (copy of saves/ac-mission-available.sl2, profile ac6-roguelike-dup.me3), DLL off then on.
+New debug commands: `give2 <hex id>` (direct give even if owned, then logs the duplicates), `force_reward <hex id>`
+(the next sortie's first reward / first offer is that part, owned or not), `dups` (inventory entries of every part
+owned more than once: index, handle, count, ordinal, EQ).
+
+**Vanilla.** The shop never sells a second copy: the buy dialog has no quantity, and the ownership filter hides a part
+as soon as one copy is owned (bought HG-003 COQUILLETT with the DLL off: gone from Achat at once). Vente's tutorial:
+parts sell at their buy price and can be bought back in Achat (vanilla buy-back = the same "not owned" filter).
+Left/right versions are separate rows, so dual-wielding the same weapon = owning both rows, never two copies of one.
+The arm+back "weapon bay" (OS Tuning unlock, not on this save: back lists showed back units only) would be the only
+way to equip the same row twice; untested.
+
+**The give paths accept a second copy (static + live).** Give wrapper exe+46B1C0: `exe+BA9420(id)` = "stacks?" is
+true only for goods (0x4…) and weapons whose EquipParamWeapon.weaponCategory (+0xE6) is 13/14 (Arrow/Bolt, engine
+leftovers: no AC6 part). Stackables go through the find-by-id `exe+474060` + add-count `exe+473990` (status 2 =
+refused/overflow at obj+0xBCC). Everything else (weapons, frames, internals) goes straight to AddItem `exe+474D80`,
+which has no duplicate check: a NEW table entry every time (count 1, next ordinal), or the pending queue when the
+defer byte is set. Purchase (`exe+473EE0`) calls the same core.
+- Direct give (garage): COQUILLETT, VE-44A head, TALBOT FCS each got a second entry, rax = new index, status 0.
+- Deferred grant at sortie + commit: owned TALBOT forced as offer 1 of the reward grid → queued like any part
+  (rax=-1, pending handle 0x742C4620), shown in "CHOISISSEZ UNE PIÈCE" with no owned marker, picked → the commit
+  inserted entry #87 (ordinal 28). The other 2 offers were pruned as usual.
+
+**Handles: weapons/frames unique, internals NOT.** Weapons get `0x08000000|serial`, frames `0x18000000|serial`, one per
+copy (renumbered at each load). Boosters / generators / FCS use **handle == item id** (like goods), so two copies of an
+internal share one handle (both FC-008 TALBOT entries: 0x742C4620). Counts stay 1 per entry; no per-item limit, the
+table holds 0x800 entries (mgr+0x08; parts start at index 64).
+
+**Game UI handles copies by inventory INDEX, fine.** Assemblage lists every copy as its own tile (EQ on the installed
+one) and the slot INDEX array follows the chosen copy (FCS slot 25 idx 0x59 = 2nd copy, handle array identical).
+Vente lists every copy, equipped one greyed with EQ, and removes exactly the chosen copy, even for internals with a
+shared handle (sold TALBOT #89 while #83 was equipped: #89 freed). Two copies of a frame part / internal can never be
+equipped at once (one slot each). Duplicates survive save + reload (same indexes; handles renumbered).
+
+**Mod systems keyed on "owned".**
+- Shop ownership filter (vanilla) + `owned_ids` / pool candidates / `choice::roll` / starters always buyable: a
+  duplicate only ever ADDS ownership, so these keep excluding the part; after selling one copy the part stays hidden
+  while another copy is owned. Nothing ever offers a part already owned unless forced.
+- Buy-back: a Vente sale of a copy records its row (sold COQUILLETT → row 166, TALBOT → row 105) but Achat does not
+  show it while another copy is owned; it appears only if the last copy goes before the reroll. Harmless.
+- Failure plan / auto-sell (`penalty.rs`) identify parts by HANDLE (`equipped_handles`, `stash`, `newest_spare`,
+  `find_handle`, `remove_handle`):
+  - weapons / frames: correct. Verified: VE-44A equipped + spare copy → "lost VE-44A forever", "replaced by VE-44A"
+    (the spare copy, newest ordinal), so the row is in ROWS_LOST while the player still has that part.
+  - internals: every copy looks equipped. The spare copy is never a spare (verified: TALBOT lost, replaced by the
+    older SCT-G1/P01 starter instead of the newer TALBOT copy; with no other FCS the plan would BUY the starter),
+    never in the stash (auto-sell and the game-over check ignore its value), and `remove_handle` removes the first
+    entry with that handle (verified: the unequipped TALBOT #83 was removed, the lost one #87 stayed in the
+    inventory). Net counts are right by luck; the player keeps a TALBOT whose row is "lost forever".
+- Mission-reward prune at the commit erases unpicked offers BY HANDLE from the pending vector: an unpicked internal
+  offer would also erase another pending copy of the same internal (e.g. a story reward of the same FCS). Rare.
+- Inventory cap (parallel task): must count entries (each copy is one), not distinct ids.
+
+**Recommendation for "give a duplicate instead of credits".** Feasible with the existing grant path (no game-side
+blocker), but before switching the fallback: (1) make penalty.rs identify parts by inventory INDEX (or handle+index)
+instead of handle, so internal copies are spares / stash / removed correctly; (2) decide whether a lost row with a
+copy still owned should go to ROWS_LOST (simplest: only mark it lost when no copy is left); (3) prune pending offers
+by position, not handle value; (4) count copies in the cap. Safe today without changes: duplicate weapons and frame
+parts (unique handles); the risky case is internals.
+
+**Decision (user, 2026-10-28, for the next pool task):** the "don't roll what's already out" pool goes away, so weapons
+and frame parts (head/core/arms/legs) may roll again and be duplicated; boosters, generators and FCS keep being
+excluded from rolls once owned (their copies would share a handle). Handle evidence per slot: two copies tested for a
+head (VE-44A, serial handles 0x1800001E / 0x18000021) and an FCS (TALBOT, both 0x742C4620); the other slots read from
+the table: core/arms/legs starters 0x18000018/19/1A (serials), booster 0x63949A00 and generator 0x53DFD240 (= id).
+Consequences for that task:
+- Rewards (direct or deferred give, reward grid, commit prune) handle duplicate weapons/frames as tested.
+- **The SHOP cannot show an owned part as is:** the game's ownership filter (`filter->Accept` in the per-frame loop
+  exe+E928F0, see "Ownership filter") hides every owned row whatever `shop_pred` returns, so a rolled duplicate leaves
+  an empty slot (same for buy-back and the starters). Showing duplicates in Achat needs that filter found and
+  bypassed for the chosen rows (its predicate is not identified yet: exe+E88B10 jumps through [filterObj+8]).
+- penalty.rs stays correct for weapons/frames; with internals never duplicated, the shared-handle problems above do
+  not arise (the starters are only re-granted through `ensure_owned`, which skips owned ones).
+- Still to decide: a lost weapon/frame row goes to ROWS_LOST even when the player keeps another copy.
