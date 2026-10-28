@@ -9,7 +9,10 @@ Needs the Rust MSVC toolchain (`x86_64-pc-windows-msvc`). Close the game first: 
 cargo build --release
 ```
 Output: `target/release/ac6_roguelike.dll`, loaded by the `[[natives]]` entry of `../ac6-roguelike-fresh3.me3`.
-Release package (DLL + profile + README + zip in `../dist`): `powershell -File ../tools/package.ps1`.
+The reward choice screen is a menu movie, `../mod/menu/02_rwdchoice.gfx` (loaded by the profile's `[[packages]]`
+entry), built from the game's own 02_gotreward.gfx and `../mod/src/rwdchoice_MainTimeline.as` with
+`powershell -File ../tools/build_rwdchoice.ps1` (needs FFDec + Java, see the script).
+Release package (DLL + mod folder + profile + README + zip in `../dist`): `powershell -File ../tools/package.ps1`.
 
 ## Run
 ```
@@ -27,11 +30,17 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   part values (shop price, stat model, `[prices]` overrides) and the sell-price hook.
 - `buyback.rs` — parts sold since the last reroll (Vente sale hook + auto-sales) offered again in the shop, kept in
   the `ROWS_SOLD` bitset, cleared at the reroll.
+- `choice.rs` — reward choice (pick 1 of `reward_choices` per reward): offers rolled at sortie from their own pool
+  and RNG (saved in event flags), queued like plain rewards; at the commit the parts not picked leave the pending list.
+- `rewardmenu.rs` — the choice grid: the results screen's "Pièces obtenues" call opens our movie instead (one page per
+  reward, tiles filled by the game's own part view), navigation from the game's menu actions (pad + keyboard).
+- `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, rarity, prices).
 - `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts).
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
 ## Status
-Playable end to end: mission pay removed, random shop and rewards by rarity tier, failed sorties take parts, auto-sell
+Playable end to end: mission pay removed, random shop and rewards by rarity tier (pick 1 of 3 per reward), failed
+sorties take parts, auto-sell
 when broke, game over back to the title with the run's save closed. Vanilla rank / arena reward parts are not granted;
 they are shop parts like the others.
