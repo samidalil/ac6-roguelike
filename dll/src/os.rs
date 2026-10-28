@@ -88,10 +88,10 @@ pub unsafe fn lock_menu(base: usize) -> bool {
     true
 }
 
-/// Silence the OS Tuning lines (2 and 3) of ALLMIND's message after Wallclimber: their TalkParam rows get msgId and
-/// voiceId -1, and the player goes from line 1 straight to line 4 (one voiced row per line). The rows stay: the
-/// message's line count is not taken from them (removing rows made it play the next message's lines). Idempotent like
-/// `lock_menu`: a row 913001011 still showing the OS line means a fresh param. True when it changed the rows.
+/// Silence the OS Tuning lines (2 and 3) of ALLMIND's message granting OS Tuning + Arena: their TalkParam rows get
+/// msgId and voiceId -1, and the player goes from line 1 straight to line 4 (one voiced row per line). The rows stay:
+/// the message's line count is not taken from them (removing rows made it play the next message's lines). Idempotent
+/// like `lock_menu`: a row 913001011 still showing the OS line means a fresh param. True when it changed the rows.
 pub unsafe fn cut_allmind_talk(base: usize) -> bool {
     let Some(f) = param_index(base, "TalkParam").and_then(|i| param_file(base, i)) else { return false };
     let rows = param_rows(f);
