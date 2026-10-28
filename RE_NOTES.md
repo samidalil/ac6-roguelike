@@ -920,8 +920,12 @@ scan (~45 s; `tools/chr_paths.py` re-finds the lists if an update moves them).
   99999 (scripted objects, leave them). Zeroing the AC -> mission cleared, results, rewards as usual.
 - Save right before it, in the repo: `saves/ac-mission-available.sl2` (garage, no sortie pending).
   `tools/restore_save.ps1` puts it in place of the dev save (game closed; the current save is kept first).
-- Scripted: `tools/restore_save.ps1 -Save <save>` -> `tools/relaunch.ps1 -Profile <profile>` -> `python tools/to_mission.py
-  --row 1 --kill --results` (title -> mission -> kill -> reward grid; it focuses the game itself).
+- Scripted: `tools/restore_save.ps1 -Save <save>` -> `tools/relaunch.ps1 -Profile <profile>` -> `python
+  tools/title_to_garage.py` -> `python tools/garage_to_mission_success.py` (garage -> mission -> kill -> reward grid; they
+  keep the game in front; restore the save each time: the cleared mission leaves the list). Menus need a hover before
+  the click (a click on the frame the cursor arrives only highlights the entry); every step waits for its screen (pixel
+  probe, timeout). The briefing (~50 s, first view per game session) has no keyboard skip found: its "Passer" prompt
+  shows the pad's Menu button; Esc / Enter / Space / Backspace / Tab / F / Q tapped, doubled or held do nothing.
 - Full cycle by hand: `tools/restore_save.ps1` -> `tools/relaunch.ps1` -> title OK + CONTINUER -> DÉPLOIEMENT -> MISSIONS ->
   "Destruction de l'AC d'essai" -> briefing -> Déploiement -> OUI -> wait for control -> `kill_enemies.py --max-ap 12300`.
 - Keep `tools/save_backup.ps1` running while testing; never kill the game mid-sortie (escrow -> failure penalty on the
@@ -1114,3 +1118,21 @@ expansions (5010..5040) = 1 in both.
   and `"HC-2000 FINDER EYE" = 0`: L-arm weapon and head kept, the rest lost as before, expansion still lost.
 - Test note: the first attempt had 58 906 COAM for a 534 000 failure -> game over at load (unaffordable failure rule),
   so give the test save money before the failure.
+
+## Parts out of the pools: tier 0 / weight 0 (2026-10-29, implemented)
+User request (2026-10-28): unlisted parts or parts whose pool is 0 are kept out of the pools, so pools can be made small
+on purpose. User decisions: no credits fallback (an empty pool just gives nothing: shop slots stay empty, an offer shows
+the parts left, an offer with none is dropped); OS Tunings follow the same rule.
+- `[rarity] unlisted_tier = 0` and `[part_rarity] <part> = 0` put parts out; a tier whose weight is 0 is out too.
+  `Part::in_pool` (tier 1..3 with a weight > 0) is checked by `candidates` (shop, plain rewards, reward choice); excluded
+  parts stay in `Run::pool` for lookups (a shop slot rolled under another config shows until the next reroll, debug
+  `shop` / `force_reward` still find them). `pick_weighted` no longer falls back to a uniform pick when every weight is 0.
+- Boot log: `rarity: N common, N rare, N epic, N at tier 0; weights a/b/c` and `pools after exclusion: shop weapons N,
+  shop parts N, rewards N (N OS Tunings); N part(s) left out`. Debug `choice` with an empty pool logs "no grid".
+- **Verified** (profile ac6-roguelike-excl.me3, copies of saves/ac-mission-available.sl2): config with unlisted_tier 0,
+  epic weight 0, ZIMMERMAN 1, BAD COOK 2, TIAN-LAO 2, VERRILL 3 (out), VE-60SNA 0, Boost Kick 2, Assault Armor 3 (out),
+  3 rewards x 4 choices -> pools 4 / 1 / 6; rerolls = ZIMMERMAN + TIAN-LAO + an empty slot; real clear: offers [4 parts],
+  [2 parts] (3rd reward dropped), shop at the clear all empty (every pool part was on offer), grid 4 + 2 tiles, commit
+  kept the picks. Everything out (`"SG-027 ZIMMERMAN" = 0`, nothing else listed): pools 0, reroll empty, debug `reward`
+  -> [], `choice` -> no grid, real clear: `reward offers []`, no grid, commit (log "WARNING: mission-end commit with no
+  reward queued", expected).

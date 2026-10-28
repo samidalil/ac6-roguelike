@@ -21,7 +21,9 @@ Run from this folder with the game running (`PYTHONIOENCODING=utf-8 python <scri
 - `ce/step14_vanilla_unlock_observer.lua` — CE trap on `SetEventFlag` (exe+B08500) logging 3xxx/6xxx flag writes with a
   backtrace; arm it (via `ce_bridge.py`) then complete a mission in the VANILLA game (DLL `enabled = false`) to find the
   mission-complete unlock handler. Output goes to `%USERPROFILE%\ac6_re_log.txt`.
-- `to_mission.py [--garage] [--row N] [--kill] [--results]` — drive the game from the title screen (or the garage) into
-  a mission, kill the tester AC (`kill_enemies.py --max-ap 12300`) and open the reward grid; with
+- `title_to_garage.py` then `garage_to_mission_success.py [--no-results]` — title screen -> garage menu, then garage ->
+  "Destruction de l'AC d'essai" -> tester AC killed (`kill_enemies.py --max-ap 12300`) -> results closed -> reward grid
+  open (or the commit when nothing is offered). Menu clicks once each screen is up (pixel probes with timeouts, the game
+  kept in front), the DLL log for load / sortie / clear / results; shared helpers in `menu_drive.py`. With
   `restore_save.ps1` + `relaunch.ps1` it is the automated mission success of RE_NOTES "Test routine: instant mission
-  clear".
+  clear" (about 2 min 15 s, 50 s of it the briefing).
