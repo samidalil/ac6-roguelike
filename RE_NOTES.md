@@ -879,3 +879,31 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   `exe+C8CBA0(handle+8, L"sel/count")` (SetText); the movie's AS3 lays out count tiles (3 columns) and grows the
   window. The real dialog gets only the first part, so its OK closes it. Tools: tools/build_rwdchoice.ps1 (+ .py),
   mod/src/rwdchoice_MainTimeline.as, tools/relaunch.ps1. The movie's AS3 receives NO input (keys, mouse).
+- **In the results flow: WORKS (2026-10-28).** Opening the grid on our own at the clear (5074) popped it mid-mission
+  and the commit closed it. Now: the offers (parts_per_mission x reward_choices parts) are rolled and queued at sortie
+  like plain rewards; the results lambda's call `exe+E9A26E -> exe+10158D0(&job, ctx, &list)` (list = the pending
+  parts) is hooked and opens our grid instead, one page per offer (+ one per other pending part, e.g. a story reward);
+  the highlighted tile of each page is its pick; the commit `exe+B042FC -> exe+4756E0(mgr, 1, obj)` is hooked and
+  first erases the other offered handles from the pending vector (mgr+0x80/+0x88, u32 handles), so only the picks
+  are inserted. Pages: one class, N pages (OK = next page); a page is recognised by its page object (rsi at the
+  content lookup), filled at the class's next part fill. The movie name stays ours until the last page is up.
+  On the "AC d'essai" results screen the parts step waits for Fermer (pending list intact until then).
+- **Pad: NOT via XInput.** XInput sees the pad from outside the game (slot 0, Bluetooth Xbox), but inside the process
+  the DLL's XInputGetState calls (xinput1_4 / XINPUT9_1_0) report nothing and the game never calls its
+  XINPUT9_1_0 import (0 reads): the game has its own input system. The grid reads the keyboard only for now; pad
+  navigation must come from the game's menu input (to do).
+
+## Test routine: instant mission clear (2026-10-28)
+`python tools/kill_enemies.py` (game running, in a mission) lists every character's AP block: the player's is
+`[[[[exe+4E0F598]+A5A0]+320]+0]` (AP i32 +278, max +27C), the others share its vtable (+0) and are found by a scan of
+the game's private RW memory (the main heap region is ~2.3 GB, read in 64 MB chunks). `--write --only <block>` sets
+that block's AP to 0 and the game kills it at once (no hit needed); `--write` alone zeroes every non-player block.
+- "Destruction de l'AC d'essai" (chapter 1, the tester AC): blocks AP 12300 (the AC: zero only this one), 750 and
+  99999 (scripted objects, leave them). Zeroing the AC -> mission cleared, results, rewards as usual.
+- Save right before it: `%APPDATA%\ArmoredCore6\backups\keep\KEEP_2026-10-28_ac-mission-available.sl2` (garage,
+  no sortie pending). Restore with the game closed, copy over `76561198128476385\AC6_roguelike_fresh3.sl2`.
+- Full cycle: restore that save -> `tools/relaunch.ps1` -> title OK + CONTINUER -> DÉPLOIEMENT -> MISSIONS ->
+  "Destruction de l'AC d'essai" -> briefing -> Déploiement -> OUI -> wait for control -> `kill_enemies.py` (dry run,
+  pick the 12300 block) -> `--write --only <it>`.
+- Keep `tools/save_backup.ps1` running while testing; never kill the game mid-sortie (escrow -> failure penalty on the
+  next load), restore the pre-sortie backup instead.
