@@ -54,6 +54,9 @@ mod buyback;
 mod msg;
 mod dialog;
 mod config;
+mod trace;
+mod rewardmenu;
+mod choice;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
 struct Lineup {
@@ -664,6 +667,8 @@ struct Run {
     reward_handles: Vec<u32>,
     /// the parts chosen for the current sortie: a retry re-queues THESE parts (no reroll by retrying)
     reward_parts: Vec<Part>,
+    /// reward choice: the current sortie's offers, by reward (reward_parts = all of them)
+    reward_sets: Vec<Vec<Part>>,
     /// rewards of the current sortie paid as credits (no part left to give): the part each one rolled
     reward_credits: Vec<Part>,
     /// what the converted rewards paid, shown in a dialog once the result screen closes
@@ -744,7 +749,8 @@ impl Run {
     /// Mission cleared: the rewards were given, so they leave the pool, and the converted ones are paid now (before
     /// the commit charges the mission's costs).
     unsafe fn on_mission_cleared(&mut self, man: usize) {
-        for p in &self.reward_parts { self.game.put_row(man, o::ROWS_ROLLED, p.idx, true); }
+        if self.reward_sets.is_empty() { for p in &self.reward_parts { self.game.put_row(man, o::ROWS_ROLLED, p.idx, true); } }
+        else { choice::mark_offered(&self.game, man, &self.reward_parts); }
         if self.reward_credits.is_empty() { return; }
         let mut total = 0i64;
         let mut names = Vec::new();
@@ -772,19 +778,38 @@ impl Run {
         self.last_grant_tick = tick_count();
         if self.reward_parts.is_empty() && self.reward_credits.is_empty() { self.roll_rewards(gd, man, why); }
         self.reward_handles.clear();
+        let mut handles = Vec::new();
         for p in self.reward_parts.clone() {
             let before = self.game.pending(gd);
             let (r, err) = self.game.give_deferred(gd, p.grant_id());
             let after = self.game.pending(gd);
             let new_handle = after.iter().copied().find(|h| !before.contains(h));
             if let Some(h) = new_handle { self.reward_handles.push(h); }
+            handles.push(new_handle.unwrap_or(0));
             logf!("{}: reward row {} equip {} tier {} grant_id {:#X} -> rax={} err={} handle={:?} pending={}",
                 why, p.idx, p.equip_id, p.tier, p.grant_id(), r, err, new_handle.map(|h| format!("{:#X}", h)), after.len());
         }
+        if !self.reward_sets.is_empty() {
+            let mut it = self.reward_parts.iter().zip(handles);
+            choice::arm(self.reward_sets.iter().map(|s| s.iter().filter_map(|_| it.next().map(|(p, h)| (p.grant_id(), h))).collect()).collect());
+        }
     }
 
-    /// Roll this sortie's parts_per_mission rewards (parts, or credits when no part is left).
+    /// Roll this sortie's parts_per_mission rewards (parts, or credits when no part is left). Reward choice: each reward
+    /// is an offer of reward_choices parts from the reward pool (choice.rs).
     unsafe fn roll_rewards(&mut self, gd: usize, man: usize, why: &str) {
+        let cfg = config::get();
+        if cfg.reward_choices > 1 {
+            self.reward_sets = choice::roll(&self.game, gd, man, &self.pool, cfg.parts_per_mission, cfg.reward_choices as usize);
+            self.reward_parts = self.reward_sets.iter().flatten().copied().collect();
+            logf!("{}: reward offers {:?}", why, self.reward_sets.iter().map(|s| s.iter().map(|p| p.idx).collect::<Vec<_>>()).collect::<Vec<_>>());
+            // nothing left to offer: each missing reward pays a random sellable part's value
+            let sellable: Vec<Part> = self.pool.iter().copied().filter(|p| penalty::sell_value(p.grant_id()).unwrap_or(0) > 0).collect();
+            for _ in self.reward_sets.len()..cfg.parts_per_mission as usize {
+                if let Some(p) = pick_weighted(&mut self.rng, &sellable) { logf!("{}: no part left to offer -> reward paid as credits", why); self.reward_credits.push(p); }
+            }
+            return;
+        }
         for _ in 0..config::get().parts_per_mission {
             let taken: Vec<u16> = self.reward_parts.iter().map(|p| p.idx).collect();
             match self.pick_reward(gd, man, &taken) {
@@ -859,6 +884,9 @@ fn boot() {
     logf!("module base = {:#X}", base);
     config::load();
     msg::set_base(base);
+    // before the menus are preloaded: our reward choice movie takes a spare menu table entry
+    for _ in 0..100 { if unsafe { mem::rd_usize(base + o::MENU_TABLE_SPARE_ENTRY) } != 0 { break; } sleep_ms(20); }
+    unsafe { rewardmenu::register_movie(base); }
     let game = unsafe { Game::new(base) };
 
     // wait for GameDataMan (title screen), up to ~60 s
@@ -930,6 +958,7 @@ fn boot() {
         Ok(cave) => logf!("open-session hook installed: exe+{:X} -> cave {:#X}", o::OPEN_SESSION_CALLSITE, cave),
         Err(e) => logf!("open-session hook FAILED: {}", e),
     }
+    unsafe { rewardmenu::install(base); }
     match unsafe { msg::install(base) } {
         Ok(()) => logf!("message lookup hook installed: exe+{:X}", o::FN_MSG_LOOKUP),
         Err(e) => logf!("message lookup hook FAILED: {}", e),
@@ -940,8 +969,11 @@ fn boot() {
     }
     let n = unsafe { apply_economy(base) };
     logf!("economy: {} reward fields scaled at boot", n);
+    // RE: %USERPROFILE%/ac6_watch.txt = trace commands run at every boot (kept, unlike ac6_debug.txt)
+    let watch = std::path::Path::new(&std::env::var("USERPROFILE").unwrap_or_default()).join("ac6_watch.txt");
+    for l in std::fs::read_to_string(&watch).unwrap_or_default().lines().filter(|l| l.starts_with("watch ")) { unsafe { trace::command(l.trim()); } }
 
-    let mut run = Run { game, pool, rng: Rng::seeded(), reward_handles: Vec::new(), reward_parts: Vec::new(), reward_credits: Vec::new(), credit_text: None, last_grant_tick: 0, mission_ran: false, market_wait: false };
+    let mut run = Run { game, pool, rng: Rng::seeded(), reward_handles: Vec::new(), reward_parts: Vec::new(), reward_sets: Vec::new(), reward_credits: Vec::new(), credit_text: None, last_grant_tick: 0, mission_ran: false, market_wait: false };
     let mut prev_defer: Option<u8> = None;
     let mut coam_seen: u32 = 0;
     // death tax state for the current sortie
@@ -1113,7 +1145,23 @@ fn boot() {
                             logf!("DEBUG: rewards {:?} credits {:?}", run.reward_parts.iter().map(|p| p.idx).collect::<Vec<_>>(), run.reward_credits.iter().map(|p| p.idx).collect::<Vec<_>>());
                             run.on_mission_cleared(man);
                             if let Some(t) = run.credit_text.take() { dialog::show(&t); }
-                            run.reward_parts.clear(); run.reward_credits.clear();
+                            run.reward_parts.clear(); run.reward_sets.clear(); run.reward_credits.clear();
+                        }
+                        c if c.starts_with("watch ") || c == "unwatch" => trace::command(c),
+                        // "choice" = the grid of a sortie's reward offers, "parts <hex ids>" = a one-page grid (display only), "vanilla <hex ids>" = the vanilla dialog with them
+                        "choice" => {
+                            let cfg = config::get();
+                            let sets = choice::roll(&run.game, gd, man, &run.pool, cfg.parts_per_mission, cfg.reward_choices as usize);
+                            let n = sets.len();
+                            rewardmenu::set_pages(sets.iter().enumerate().map(|(i, s)| rewardmenu::Page { ids: s.iter().map(|p| p.grant_id()).collect(), title: format!("CHOISISSEZ UNE PIÈCE ({}/{})", i + 1, n) }).collect());
+                            logf!("DEBUG: reward choice grid, {} page(s)", n);
+                            rewardmenu::OPEN_REQUEST.store(true, Relaxed);
+                        }
+                        c if c.starts_with("parts ") || c.starts_with("vanilla ") => {
+                            rewardmenu::VANILLA.store(c.starts_with("vanilla "), Relaxed);
+                            let ids: Vec<u32> = c[c.find(' ').unwrap_or(0) + 1..].split_whitespace().filter_map(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()).take(12).collect();
+                            logf!("DEBUG: parts grid {:X?}", ids);
+                            if !ids.is_empty() { rewardmenu::set_pages(vec![rewardmenu::Page { ids, title: "CHOISISSEZ UNE PIÈCE".to_string() }]); rewardmenu::OPEN_REQUEST.store(true, Relaxed); }
                         }
                         c if c.starts_with("give ") => match u32::from_str_radix(c[5..].trim().trim_start_matches("0x"), 16) {
                             Ok(id) => { logf!("DEBUG: give {:#X} (game thread)", id); penalty::GIVE_REQUEST.store(id, Relaxed); }
@@ -1155,18 +1203,20 @@ fn boot() {
                         // mission start (sortie): the game is idle here, the give call returns at once.
                         // The dialog content is built at the mission-clear instant, so the reward must
                         // already be queued by then; check_reward re-queues if the game empties the list.
-                        log("defer 0->1 (mission active)"); run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_credits.clear(); run.mission_ran = true;
+                        log("defer 0->1 (mission active)"); run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_sets.clear(); run.reward_credits.clear(); run.mission_ran = true;
                         alive = false; dead = false; cleared_seen = false;
                         msg::GAME_OVER_TEXT.store(false, Relaxed);
                         // escrow should already be in the save (armed during the pre-mission talk); the game
                         // never saves during a mission, so this is only a fallback for the in-memory state
                         if escrow_save_pending { log("WARNING: mission started before the escrow save was written"); }
                         if run.game.get_flag(man, o::FLAG_ESCROW) != Some(true) { log("WARNING: mission started without the escrow flag"); }
+                        choice::disarm();
                         run.queue_reward(gd, man, "mission start");
+                        trace::reapply("mission start");
                     }
                     if p == 1 && d == 0 {
                         if run.reward_handles.is_empty() && run.reward_credits.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
-                        log("defer 1->0 (commit)"); run.reward_handles.clear();
+                        log("defer 1->0 (commit)"); run.reward_handles.clear(); choice::disarm();
                         // ignore the flip caused by the game shutting down / exiting to title (save no longer loaded)
                         if !cleared_seen && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {
                             logf!("mission FAILED ({})", if dead { "death" } else { "quit" });
@@ -1180,7 +1230,8 @@ fn boot() {
                             }
                         }
                     }
-                    if p == 1 && d == 1 { run.check_reward(gd, man); }
+                    // a dead player's sortie is failed (no retry): the game empties the pending list, nothing to re-queue
+                    if p == 1 && d == 1 && !dead { run.check_reward(gd, man); }
                 }
                 // death: AP reaches 0 during a mission (charged once; re-armed on respawn after Retry)
                 if d == 1 && !cleared_seen {
@@ -1204,6 +1255,7 @@ fn boot() {
                     run.game.put_flag(man, o::FLAG_ESCROW, false);
                     penalty::disarm();
                     log("escrow flag CLEARED (mission cleared)");
+                    trace::reapply("mission cleared");
                     logf!("5074 rose (mission cleared); reward queued={}", format!("{:X?}", run.reward_handles));
                     // Reroll NOW: the game autosaves at the commit (~10 s later), so the new shop state
                     // (direct flag writes, no game call) is included in that save.

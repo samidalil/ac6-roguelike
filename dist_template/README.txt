@@ -5,7 +5,7 @@ It uses its own save file (AC6_roguelike.sl2), so your normal save is untouched.
 
 INSTALL
 1. Install me3 (https://github.com/garyttierney/me3) and make sure Steam is running.
-2. Unzip this folder anywhere.
+2. Unzip this folder anywhere (keep its "mod" folder next to the profile: it holds the reward choice screen).
 3. Launch with:   me3 launch --auto-detect -p "<this folder>\ac6-roguelike.me3"
    (or open ac6-roguelike.me3 with me3 if file associations are set up)
 4. Start a NEW GAME for a fresh run.
@@ -14,8 +14,10 @@ HOW IT PLAYS
 - Missions pay nothing. Selling parts is your income; ammunition and repairs still cost money.
 - The first mission of a run (Illegal Entry) pays 100 000 credits, your starting money. No other mission pays.
 - The parts shop (open from mission 2 on) only offers a few random parts (1 weapon + 2 parts by default), rerolled after every cleared
-  mission (or every few missions: reroll_interval). Each cleared mission also gives you a random part.
-  Rarer parts come up less often.
+  mission (or every few missions: reroll_interval). Rarer parts come up less often.
+- Each cleared mission gives a reward: on the results screen you pick 1 part out of 3 random ones (pad, or arrows +
+  Enter). Several rewards per mission (parts_per_mission) are several pages. Parts offered and not picked do not come
+  back until every other part has been offered.
 - A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
   so you can buy it back.
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
@@ -33,7 +35,7 @@ HOW IT PLAYS
 SETTINGS
 ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restart the game:
 mission pay %, starting credits, ammo/repair cost %, sell and buy %, shop size, reroll interval, parts per mission,
-part prices, rarity odds and tiers.
+parts offered per reward, part prices, rarity odds and tiers.
 Each setting is explained in the file. Delete the file to get the defaults back.
 
 LOG

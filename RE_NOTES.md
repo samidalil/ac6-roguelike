@@ -824,3 +824,100 @@ mid-mission (22 094 -> 40 844, seen by the COAM detour) and reroll — but the g
 effect of the clear, not a trigger. Still unobserved: the converted-reward dialog after a real result screen (3139↓).
 Arena fights: no 5074, the queued reward is given silently at the end (separate task). Note: one debug `save` request right after a Continue was not written (cause unknown,
 file unchanged); the next one was.
+
+## Native reward choice: menu RE (2026-10-28, task "pick 1 of 3")
+Goal: a native dialog (grid of parts, a TAKE button each). Menus are Scaleform GFX v11 files `menu/<name>.gfx` (me3 can
+override them; the logo-skip mod does). `tools/ac6_unpack.py` extracts single files from Data0-3 (BHD5 RSA keys read
+from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles them (`-export script`, `-dumpSWF`).
+- `02_gotreward.gfx` = "Pièces obtenues" and every other reward popup: AS3 is display-only (frame stops, named slots
+  Title/Button/Thumbnail/Message/HitArea); the C++ class (code ~exe+1012000-1016000, Arxan-split) drives it.
+  Menu names table: exe+4E28CF0 (16-byte entries, GotReward = id 0x46, name ptr at exe+4E29158).
+- Menus are created from `std::function<RefPtr<MenuJob>(ComponentStack&)>` objects (MSVC: 0x38 storage + callable
+  ptr at +0x38; callable = {vtable, captures...}): `exe+DA3410(&job, &func)` makes the job, `exe+DC2A70(&job)` hands
+  it to the menu manager (`[exe+4E15530]+0x18`, exe+D834E0) and releases it. `dll/src/rewardmenu.rs` does this from
+  the garage game thread (debug `gotreward <vtable rva> [item hex] [capture hex]`).
+- GotReward factory vtables (exe+392B500..392B920, call slot -> class function), fired from the garage:
+  392B7D0/392B590/392B6B0 (no capture) -> "Début de la phase de promotion"; 392B770 (int capture = emblem id) ->
+  "Emblème acquis"; 392B800 -> "Fin de la phase de promotion"; 392B860 -> "Plaque obtenue"; 392B890 (0x14 bytes) ->
+  "Progression dans Loghunt"; 392B8F0 (captures a RefPtr to a data object; zero capture CRASHED the game) -> likely
+  the parts list ("Pièces obtenues", class fn exe+1015640); 392B8C0 (moved ptr + int) and 392B920 (8 bytes) untested.
+- RE tracer: `dll/src/trace.rs` = hardware breakpoints on every thread + VEH log (regs, [rcx..], return chain);
+  debug `watch <slot> <addr|exe+rva> <x|w|rw> <len> [max]` / `unwatch`; `%USERPROFILE%\ac6_watch.txt` = commands
+  run at boot; re-armed at sortie and at the mission clear. Screenshots: grant `tabtip.exe` (an invisible
+  full-screen TabTip window otherwise masks the whole screen).
+- **"Pièces obtenues" with our own list: WORKS (2026-10-28).** Real flow: results screen lambda exe+E9A220 builds a
+  `vector<u32>` {allocator (exe+2923D10()), begin, end, cap} with `exe+E9D420(results, &list)` and calls
+  `exe+10158D0(&job, ctx, &list)` (the parts mode of the GotReward class; title code exe+10142B9 runs from
+  exe+1015973). Entries = the tagged item ids the DLL grants with (`Part::grant_id`: weapon bare id, frame
+  0x10000000|id, booster 0x6.., FCS 0x7.., generator 0x5..); a bad id shows "(id rounded to 100) +N". The DLL's own
+  std::function (vtable in rewardmenu.rs: _Copy, _Move, _Do_call(this, out, ctx), _Target_type, _Delete_this, _Get)
+  calls exe+10158D0 with our list; pushed like the others it opens a native one-part-per-page dialog (OK = next page),
+  display only (nothing granted). Debug: `parts <id hex> ...`. Menus pushed while another modal is up wait for it.
+- **How the class fills a part tile** (seen live with a breakpoint in the filler while our dialog opened): in the
+  parts update (around exe+1012CA8..1012D1C, game/menu thread = our garage hook thread):
+  `exe+C92E20(&comp, parent)` -> component handle, `exe+1001530(&view, comp)` builds a part view (binds the
+  children with `exe+C928E0(component, &out, "CategoryName" / "MakerLogo" / "ItemName" ...)` = get child by
+  instance name), `exe+1000B60(&view, item)` fills it, `exe+E83BE0(&view)` destroys the view (~0x8A0 bytes,
+  stack). Grid plan: a modified 02_gotreward.gfx with K copies of the parts content symbol (Symbol 218: MakerLogo,
+  ItemIcon/Thumbnail, CategoryName, ItemName) as TileNN, filled by the DLL with these calls; the tiles themselves
+  selectable (controller cursor + mouse HitArea), max 3 columns x 4 rows (user, 2026-10-28). Open: the item argument
+  of exe+1000B60, the framework's button/focus component (Button + HitArea + Cursor) and its press callback.
+- **Own movie file: WORKS (2026-10-28).** `mod/menu/02_rwdchoice.gfx` (me3 `[[packages]] path = 'mod'`) is
+  preloaded under the menu table entry of 02_OnlineArena_GotReward (exe+4E29168 name ptr -> our UTF-16
+  "02_RwdChoice", set at boot before the title preload exe+1604BCC). Our factory writes "02_RwdChoice" over the
+  class's name string exe+39BF5C8 ("02_GotReward", same length) and restores it ~60 garage frames later (the class
+  reads the name after the factory returns). Test file = vanilla layout with `Dialog` scaled 0.6 in MainTimeline
+  frame 1 (FFDec `-importScript`): the dialog came up scaled, vanilla "Pièces obtenues" unchanged.
+- **Native grid filled: WORKS (2026-10-28).** Each "page" of the parts dialog is a fresh window made by the factory
+  exe+1012BB0 from a page object whose content `std::function` (page+0x48, _Impl ptr at page+0x80, callable vtable
+  exe+39BF948, record at +8 copied with exe+E837C0) fills the part view. The page function (class+0x4F0 = window
+  root, +0x558 = button) does GetChild(root, "_Content_") (call exe+1010A44, rsi = page), `exe+C94640(&h)`, then
+  `_Do_call(callable, &h)`. For the grid: our factory also builds one hidden single-part job per part with
+  exe+10158D0 (never pushed) and finds each job's content callable (search for the vtable); when our dialog binds its
+  content (hooks on exe+1012CD4 / 1012CE4 / 1010A44), for each part: GetChild(root, "_Content_/TileNN"),
+  C94640, `_Do_call(callable_i, &tile)`, `exe+C6A370(&tile)` (handle dtor). "_Content_/SelIdx" gets
+  `exe+C8CBA0(handle+8, L"sel/count")` (SetText); the movie's AS3 lays out count tiles (3 columns) and grows the
+  window. The real dialog gets only the first part, so its OK closes it. Tools: tools/build_rwdchoice.ps1 (+ .py),
+  mod/src/rwdchoice_MainTimeline.as, tools/relaunch.ps1. The movie's AS3 receives NO input (keys, mouse).
+- **In the results flow: WORKS (2026-10-28).** Opening the grid on our own at the clear (5074) popped it mid-mission
+  and the commit closed it. Now: the offers (parts_per_mission x reward_choices parts) are rolled and queued at sortie
+  like plain rewards; the results lambda's call `exe+E9A26E -> exe+10158D0(&job, ctx, &list)` (list = the pending
+  parts) is hooked and opens our grid instead, one page per offer (+ one per other pending part, e.g. a story reward);
+  the highlighted tile of each page is its pick; the commit `exe+B042FC -> exe+4756E0(mgr, 1, obj)` is hooked and
+  first erases the other offered handles from the pending vector (mgr+0x80/+0x88, u32 handles), so only the picks
+  are inserted. Pages: one class, N pages (OK = next page); a page is recognised by its page object (rsi at the
+  content lookup), filled at the class's next part fill. The movie name stays ours until the last page is up.
+  On the "AC d'essai" results screen the parts step waits for Fermer (pending list intact until then).
+- **Pad: NOT via XInput.** XInput sees the pad from outside the game (slot 0, Bluetooth Xbox), but inside the process
+  the DLL's XInputGetState calls report nothing and the game never calls its XINPUT9_1_0 import: the game reads the
+  pad through its own input system (probably Steam Input). Solved with the game's menu actions (below).
+
+## Menu input (2026-10-28): the game's menu actions drive the grid
+Found by memory diff (tools/input_scan.py: snapshots while an arrow key is held / released, 7 GB, ~20 candidates in 6
+rounds; tools/input_watch.py / input_dump.py to watch them; tools/ptr_scan.py for pointer chains):
+- A float array (one per virtual input id, -1 = idle) holds the menu auto-repeat timers; down = id 0x15C. Written
+  every frame by exe+29F23F0(repeater rcx, input rdx, ?, ?, f32 dt): for each repeat entry {f32 delay 0.2, f32 repeat
+  0.067, i32 id} (vector at [r9-derived obj+0x10..0x18]) whose bit is set in the bitset [input+0x7C8], the timer runs and
+  the bit is CLEARED between repeats -> after the call, [input+0x7C8] = this frame's menu actions (press + repeat
+  pulses). Called per device mapper from exe+2A39420 (virtual [obj+0x20], input object = r13) under the input manager
+  loop exe+29EC4xx ([mgr+0x770..0x778] = mappers). Keyboard and pad both feed it (same ids).
+- Ids: confirm 0x155, back 0x154, right 0x156, left 0x159, down 0x15C, up 0x15F (each direction also raises sibling
+  ids, e.g. right 0x137/0x138/0x157/0x158; the title/garage menus show more: 0xD0.., 0x100.., 0x12E..).
+- The DLL hooks exe+29F23F0's entry (15-byte prologue moved to a trampoline), ORs [input+0x7C8] words 0..15 after
+  each call, and the grid's tick takes them: directions move the highlight, confirm closes the page (the class's OK
+  does the rest). No XInput, no keyboard polling: the pad, the keyboard, the game's own repeat timing.
+## Test routine: instant mission clear (2026-10-28)
+`python tools/kill_enemies.py --max-ap 12300` (game running, in the mission, 0.4 s) zeroes the tester AC's AP and the
+game kills it at once (no hit needed). Characters come from WorldChrMan `[exe+4E0F598]`: its lists `[WCM+0xAB58]`
+(player = entry 0, opposing ACs: tester AC = entry 1), `[WCM+0xAB78]` / `[WCM+0xA760]` (scripted objects) hold ChrIns
+pointers; ChrIns `+0x320` -> modules, `[0]` = AP block (AP i32 +278, max +27C, same class as the player's). Without
+options the script lists them; `--write [--only <block>]` zeroes the listed ones; `--scan` falls back to a full memory
+scan (~45 s; `tools/chr_paths.py` re-finds the lists if an update moves them).
+- "Destruction de l'AC d'essai" (chapter 1, the tester AC): blocks AP 12300 (the AC: zero only this one), 750 and
+  99999 (scripted objects, leave them). Zeroing the AC -> mission cleared, results, rewards as usual.
+- Save right before it, in the repo: `saves/ac-mission-available.sl2` (garage, no sortie pending).
+  `tools/restore_save.ps1` puts it in place of the dev save (game closed; the current save is kept first).
+- Full cycle: `tools/restore_save.ps1` -> `tools/relaunch.ps1` -> title OK + CONTINUER -> DÉPLOIEMENT -> MISSIONS ->
+  "Destruction de l'AC d'essai" -> briefing -> Déploiement -> OUI -> wait for control -> `kill_enemies.py --max-ap 12300`.
+- Keep `tools/save_backup.ps1` running while testing; never kill the game mid-sortie (escrow -> failure penalty on the
+  next load), restore the pre-sortie backup instead.

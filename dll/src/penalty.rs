@@ -179,6 +179,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
     let Some(ctx) = CTX.get() else { return };
     let game = Game::new(base);
     let Some(gd) = game.game_data() else { return };
+    rewardmenu::tick(base);
     if RETIRE_REQUEST.swap(false, Relaxed) && game.defer_byte(gd) == 1 {
         let retire: unsafe extern "system" fn() -> u8 = core::mem::transmute(base + o::FN_RETIRE_MISSION);
         retire();
@@ -192,6 +193,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
         mem::wr_i32(gd + o::GD_COAM, new);
         logf!("converted reward: +{} COAM ({} -> {})", credits, old, new);
     }
+    rewardmenu::open_pending(base); // movie name restore (also during the results)
     if game.defer_byte(gd) != 0 { return; } // the rest is garage-only work
     dialog::open_pending(base);
     if CLEANUP_REQUEST.swap(false, Relaxed) { cleanup_orphans(&game, gd); }

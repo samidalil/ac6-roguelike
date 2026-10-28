@@ -8,7 +8,9 @@ repair_cost_percent = 100        # % of the game's repair costs charged after a 
 starting_credits = 100000        # pay of the first mission of a run (Illegal Entry), the run's starting money
 
 [rewards]
-parts_per_mission = 1            # parts given at the end of each cleared mission (0 to 3)
+parts_per_mission = 1            # rewards at the end of each cleared mission (0 to 3)
+reward_choices = 3               # parts offered for each reward, you pick one (1 to 12; 1 = given directly)
+# The offers come from their own pool: every offered part leaves it, picked or not, until it runs dry and refills.
 
 [shop]
 # A part's value is the game's shop price; [prices] gives values to the parts the game prices at 0 (starter
