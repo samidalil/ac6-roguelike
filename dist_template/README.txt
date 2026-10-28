@@ -23,10 +23,11 @@ HOW IT PLAYS
 - OS Tunings are mission rewards, never bought: the OS Tuning menu stays locked. Each pick adds one level (the tile
   shows the level it brings) and a tuning comes back until its max level. The core expansions (Assault Armor, Pulse
   Armor, Pulse Protection, Terminal Armor) are rarer; the first pick also gives the part to equip in Assemblage.
-  Each one shows up only once per run: once offered on the results screen, picked or not, it never comes back
-  (one level at most). The equipped one is lost on a failed sortie (part and level); every other installed OS
-  Tuning loses one level.
-  [unique_occurrences] and [lost_on_failure] in the settings set this per item.
+  Each one shows up a limited number of times per run, as many as its levels (Assault Armor and Pulse Protection
+  3, Pulse Armor 2, Terminal Armor 1): every results screen that offers it counts, picked or not. The equipped one
+  is lost on a failed sortie (part and level); the loss does not give back offers. Every other installed OS
+  Tuning loses one level on a failed sortie.
+  [max_occurrences] and [lost_on_failure] in the settings set this per item.
 - A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
   so you can buy it back.
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
@@ -47,13 +48,15 @@ SETTINGS
 ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restart the game:
 mission pay %, starting credits, ammo/repair cost %, sell and buy %, shop size, reroll interval, parts per mission,
 parts offered per reward, OS Tunings as rewards, part prices, rarity odds and tiers, what a failed sortie takes
-([lost_on_failure]) and which items are offered only once per run ([unique_occurrences]).
+([lost_on_failure]) and how many times per run an item can be offered ([max_occurrences]: any part or OS Tuning,
+1 to 15, every shop or reward choice that shows it counts).
 A part at tier 0 (or every part [part_rarity] does not list, with unlisted_tier = 0), or in a tier whose odds are 0,
 is never offered in the shop nor as a reward; with few parts left, shop slots stay empty and rewards offer fewer
 parts or none.
-An older settings file has no [lost_on_failure] / [unique_occurrences] sections: core expansions are then kept after a
-failure and offered again; an older [lost_on_failure] does not list the other OS Tunings: they then keep their levels.
-Delete the file (or copy the sections from a new one) to get the new defaults.
+An older settings file has no [lost_on_failure] / [max_occurrences] sections (an old [unique_occurrences] section is
+ignored): core expansions are then kept after a failure and offered without limit; delete the file (or copy the
+sections from a new one) to get them. An older [lost_on_failure] does not list the other OS Tunings: they then keep
+their levels after a failure.
 Each setting is explained in the file. Delete the file to get the defaults back.
 
 LOG

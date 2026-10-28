@@ -68,8 +68,9 @@ pub unsafe fn reset(gd: usize, row: u16) {
     mem::wr_i32(lv + t.off, 0);
 }
 
-/// [unique_occurrences]: the tuning was offered once this run (save bit OS_GONE + its rank in OS_TUNINGS).
-fn rank(row: u16) -> Option<u32> { o::OS_TUNINGS.iter().position(|t| t.0 == row).map(|k| k as u32) }
+/// [max_occurrences]: the tuning was offered its max number of times this run (save bit OS_GONE + its rank in
+/// OS_TUNINGS; occur.rs keeps the counts below the max).
+pub fn rank(row: u16) -> Option<u32> { o::OS_TUNINGS.iter().position(|t| t.0 == row).map(|k| k as u32) }
 pub unsafe fn gone(g: &Game, man: usize, row: u16) -> bool { rank(row).is_some_and(|k| g.get_flag(man, o::OS_GONE + k) == Some(true)) }
 pub unsafe fn set_gone(g: &Game, man: usize, row: u16) { if let Some(k) = rank(row) { g.put_flag(man, o::OS_GONE + k, true); } }
 /// The core expansion tuning of an item id (tag bits ignored).
@@ -95,5 +96,21 @@ pub unsafe fn lock_menu(base: usize) -> bool {
     let flag = r + o::UNLOCK_ROW_FLAG;
     if mem::rd_u32(flag) != o::FLAG_OS_TUNING_MENU { return false; }
     mem::wr_u32(flag, o::FLAG_NEVER);
+    true
+}
+
+/// Silence the OS Tuning lines (2 and 3) of ALLMIND's message granting OS Tuning + Arena: their TalkParam rows get
+/// msgId and voiceId -1, and the player goes from line 1 straight to line 4 (one voiced row per line). The rows stay:
+/// the message's line count is not taken from them (removing rows made it play the next message's lines). Idempotent
+/// like `lock_menu`: a row 913001011 still showing the OS line means a fresh param. True when it changed the rows.
+pub unsafe fn cut_allmind_talk(base: usize) -> bool {
+    let Some(f) = param_index(base, "TalkParam").and_then(|i| param_file(base, i)) else { return false };
+    let rows = param_rows(f);
+    let Some(&(_, r)) = rows.iter().find(|x| x.0 == o::TALK_ALLMIND_OS) else { return false };
+    if mem::rd_u32(r + o::TALK_ROW_MSG) != o::TALK_ALLMIND_OS_MSG { return false; }
+    for &(_, r) in rows.iter().filter(|x| (o::TALK_ALLMIND_OS..o::TALK_ALLMIND_OS + o::TALK_ALLMIND_CUT).contains(&x.0)) {
+        mem::wr_i32(r + o::TALK_ROW_MSG, -1);
+        mem::wr_i32(r + o::TALK_ROW_VOICE, -1);
+    }
     true
 }

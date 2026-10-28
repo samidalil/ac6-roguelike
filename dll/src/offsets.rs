@@ -85,7 +85,7 @@ pub const STATE_FLAG_EXTRA_BASE: u32 = 7900;
 /// probes 4000/4500/4900/7000/7500, avoided); set + save + relaunch + read back verified 2026-10-27.
 #[allow(dead_code)] // used by the buy-back, lost-forever and pool features
 pub const ROWS_SOLD: u32 = 4100;   // 4100..4417: sold since the last reroll (buy-back)
-pub const ROWS_LOST: u32 = 4550;   // 4550..4867: never offered again (lost forever, or a unique occurrence offered)
+pub const ROWS_LOST: u32 = 4550;   // 4550..4867: never offered again (lost forever, or offered [max_occurrences] times)
 // Freed when duplicates came in (the "already rolled" sets of the pool without repeats); dupshop::migrate clears
 // them once in older saves. 7100..7131 now hold the shop baselines + the save format.
 pub const OLD_ROWS_ROLLED: u32 = 7100;     // 7100..7417
@@ -97,9 +97,17 @@ pub const SHOP_BASELINE: u32 = 7100;
 /// 8-bit save format value (7124..7131): SAVE_FORMAT_DUPES once the old rolled sets are cleared.
 pub const SAVE_FORMAT: u32 = 7124;
 pub const SAVE_FORMAT_DUPES: u32 = 0xA5;
-/// [unique_occurrences] OS Tunings already offered once this run (1 bit per OS_TUNINGS entry: 4418..4434; lineup
-/// parts use ROWS_LOST). Block 4 was verified to hold only ROWS_SOLD / ROWS_LOST / REWARD_RNG bits several missions in.
+/// [max_occurrences] OS Tunings offered their max number of times this run (1 bit per OS_TUNINGS entry: 4418..4434;
+/// lineup parts use ROWS_LOST). Block 4 was verified to hold only ROWS_SOLD / ROWS_LOST / REWARD_RNG bits several
+/// missions in.
 pub const OS_GONE: u32 = 4418;
+/// [max_occurrences] items offered but not used up yet (occur.rs): OCCUR_SLOTS slots of {9-bit key: lineup row + 1,
+/// or ROW_COUNT + 1 + rank in OS_TUNINGS, 0 = free; 4-bit count}, LSB first, 8030..8991. Block 8 holds no game flag
+/// (0 set on a fresh save and several missions in; 8020 = FLAG_NEVER is never set and stays out of the range).
+pub const OCCUR_BASE: u32 = 8030;
+pub const OCCUR_SLOTS: u32 = 74;
+pub const OCCUR_KEY_BITS: u32 = 9;
+pub const OCCUR_COUNT_BITS: u32 = 4;
 /// reward choice (choice.rs): the reward RNG state, 64 bits
 pub const REWARD_RNG: u32 = 4901;          // 4901..4964
 /// Missions cleared since the last shop reroll (8 bits, LSB first).
@@ -172,6 +180,13 @@ pub const MENU_ROW_OS_TUNING: u32 = 10080;
 pub const UNLOCK_ROW_FLAG: usize = 0x4;
 pub const FLAG_OS_TUNING_MENU: u32 = 3131;
 pub const FLAG_NEVER: u32 = 8020;
+/// ALLMIND's garage message granting OS Tuning + Arena: TalkParam rows 913001010..016, one voiced line each
+/// ({?, msgId @+4, voiceId @+8}). Rows 011 (OS Tuning granted) and 012 ("En outre...") are silenced.
+pub const TALK_ALLMIND_OS: u32 = 913001011;
+pub const TALK_ALLMIND_OS_MSG: u32 = 913001020;
+pub const TALK_ALLMIND_CUT: u32 = 2;
+pub const TALK_ROW_MSG: usize = 0x4;
+pub const TALK_ROW_VOICE: usize = 0x8;
 
 /// `AddCoam(PlayerGameData, delta)`: new = old + delta, clamped to [0, 999999999]
 pub const FN_ADD_COAM: usize = 0x48DD70;
