@@ -29,8 +29,9 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   path), the game-thread loop and the game-over exit sequence.
 - `penalty.rs` — failure plan built at sortie (escrow flag), penalty on the next garage load, auto-sell, game over,
   part values (shop price, stat model, `[prices]` overrides) and the sell-price hook. `[lost_on_failure]` decides per
-  item whether the equipped part is lost (unlisted: weapons / frame / internals yes, core expansion no); a lost core
-  expansion (assembly slot 11, `+0x520`) loses its item and its OS Tuning level.
+  item whether the equipped part is lost (unlisted: weapons / frame / internals yes, OS Tunings no); a lost core
+  expansion (assembly slot 11, `+0x520`) loses its item and its OS Tuning level, a listed non-expansion OS Tuning
+  loses one level (`os::level_down`), shown in the loss dialog.
 - `buyback.rs` — parts sold since the last reroll (Vente sale hook + auto-sales) offered again in the shop, kept in
   the `ROWS_SOLD` bitset, cleared at the reroll.
 - `choice.rs` — reward choice (pick 1 of `reward_choices` per reward): offers rolled at sortie with their own RNG

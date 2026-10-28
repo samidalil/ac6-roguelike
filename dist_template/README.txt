@@ -25,7 +25,8 @@ HOW IT PLAYS
   Armor, Pulse Protection, Terminal Armor) are rarer; the first pick also gives the part to equip in Assemblage.
   Each one shows up a limited number of times per run, as many as its levels (Assault Armor and Pulse Protection
   3, Pulse Armor 2, Terminal Armor 1): every results screen that offers it counts, picked or not. The equipped one
-  is lost on a failed sortie (part and level); the loss does not give back offers.
+  is lost on a failed sortie (part and level); the loss does not give back offers. Every other installed OS
+  Tuning loses one level on a failed sortie.
   [max_occurrences] and [lost_on_failure] in the settings set this per item.
 - A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
   so you can buy it back.
@@ -33,8 +34,8 @@ HOW IT PLAYS
 - No pause menu during missions: no retry, no quitting.
 - Dying, or leaving a mission any other way (even closing the game), counts as a failed sortie:
   * every equipped weapon and frame part / internal is lost, and the equipped core expansion (its OS Tuning level
-    goes back to 0; the other OS Tunings are never lost); a lost booster, generator or FCS is lost for good (never
-    offered again, except the starter parts), lost weapons and frame parts can come up again;
+    goes back to 0); every other installed OS Tuning loses one level; a lost booster, generator or FCS is lost for
+    good (never offered again, except the starter parts), lost weapons and frame parts can come up again;
     [lost_on_failure] in the settings changes what is lost, per item;
   * each emptied slot gets your most recently obtained spare part for it; with no spare, the starter part is bought
     (its shop price) and equipped. Tank legs have no booster: the booster slot stays empty.
@@ -54,7 +55,8 @@ is never offered in the shop nor as a reward; with few parts left, shop slots st
 parts or none.
 An older settings file has no [lost_on_failure] / [max_occurrences] sections (an old [unique_occurrences] section is
 ignored): core expansions are then kept after a failure and offered without limit; delete the file (or copy the
-sections from a new one) to get them.
+sections from a new one) to get them. An older [lost_on_failure] does not list the other OS Tunings: they then keep
+their levels after a failure.
 Each setting is explained in the file. Delete the file to get the defaults back.
 
 LOG

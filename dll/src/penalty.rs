@@ -9,7 +9,8 @@
 //! * every equipped frame part / internal is lost and its slot gets the most recently obtained spare for it, else the
 //!   starter, bought at its shop price; tank legs take no booster;
 //! * `[lost_on_failure]` changes that per item (0 = survives), and with a 1 the equipped core expansion is lost too:
-//!   item removed, its OS Tuning level back to 0;
+//!   item removed, its OS Tuning level back to 0; a listed non-expansion OS Tuning (no slot: every installed one)
+//!   loses one level;
 //! * lost boosters / generators / FCS (starters excepted) are lost forever: never rolled again. Weapons and frame
 //!   parts can be owned several times, so a lost one may roll again. A loss does not change `[max_occurrences]` counts;
 //! * a negative balance sells stash parts (never equipped ones), most expensive first; still negative with
@@ -48,6 +49,8 @@ pub struct Ctx {
     pub tank_legs: Vec<u32>,
     /// [lost_on_failure] by inventory item id (tag | equipId; core expansions: their plain item id)
     pub lost_rule: HashMap<u32, bool>,
+    /// non-expansion OS Tunings (OsReinforce rows) losing one level on a failed sortie ([lost_on_failure] = 1)
+    pub os_lost: Vec<u16>,
 }
 
 impl Ctx {
@@ -160,15 +163,17 @@ pub unsafe fn init(base: usize, lu: &Lineup, tank_legs: Vec<u32>) {
         logf!("starter {} {}: value {}, failure charge {}, sells for {}", name, starter, value, starter_price[k], pct(value, cfg.part_sell_percent));
     }
     logf!("tank legs (no booster): {:?}", tank_legs);
-    let _ = CTX.set(Ctx { price_of, starter_price, tank_legs, lost_rule: lost_rule(lu) });
+    let (lost_rule, os_lost) = lost_rule(lu);
+    let _ = CTX.set(Ctx { price_of, starter_price, tank_legs, lost_rule, os_lost });
 }
 
 /// [lost_on_failure] entries resolved to item ids: every lineup weapon / frame part / internal (by equipId or name)
-/// and the core expansions (OsReinforce row, item id or either name). Other OS Tunings are never lost.
-unsafe fn lost_rule(lu: &Lineup) -> HashMap<u32, bool> {
+/// and the core expansions (OsReinforce row, item id or either name); plus the other OS Tunings listed with a 1 (row
+/// or name), which lose one level.
+unsafe fn lost_rule(lu: &Lineup) -> (HashMap<u32, bool>, Vec<u16>) {
     let table = &config::get().lost_on_failure;
-    let mut m = HashMap::new();
-    if table.is_empty() { return m; }
+    let (mut m, mut os_lost) = (HashMap::new(), Vec::new());
+    if table.is_empty() { return (m, os_lost); }
     for i in 0..o::ROW_COUNT {
         let (id, kind) = (lu.equip_id(i), lu.equip_type(i));
         if !matches!(kind, 0 | 1 | 4 | 5 | 6) || os::of_item(id).is_some() { continue; }
@@ -177,13 +182,14 @@ unsafe fn lost_rule(lu: &Lineup) -> HashMap<u32, bool> {
     }
     for t in os::tunings() {
         let Some(v) = config::lookup(table, &[t.row as u32, t.item], &[os::name(t.row), part_name(t.item)]) else { continue };
-        if t.item == 0 { logf!("[lost_on_failure]: {} ({}) is not a core expansion, never lost", os::name(t.row), t.row); continue; }
+        if t.item == 0 { if v { os_lost.push(t.row); } continue; }
         m.insert(t.item, v);
     }
     let mut v: Vec<String> = m.iter().map(|(k, v)| format!("{} = {}", part_name(*k), *v as u8)).collect();
     v.sort();
     logf!("[lost_on_failure]: {}", v.join(", "));
-    m
+    logf!("[lost_on_failure]: OS Tunings losing one level: {:?}", os_lost);
+    (m, os_lost)
 }
 
 /// Sell value of an inventory item id (tag | equipId) from our price table (value x sell %), None if not priced.
@@ -359,6 +365,8 @@ pub struct FailurePlan {
     frames: Vec<(usize, Option<(u32, u32)>, Fill)>,
     /// the equipped core expansion, when [lost_on_failure] says it is lost: (OsReinforce row, handle, item id)
     expansion: Option<(u16, u32, u32)>,
+    /// installed OS Tunings losing one level: (OsReinforce row, level at sortie)
+    os_levels: Vec<(u16, i32)>,
     starter_cost: i64,
     /// stash parts sold to cover the cost, most expensive first (the spares about to be equipped excluded)
     sell: Vec<(i32, u32, u32)>,
@@ -395,7 +403,8 @@ impl FailurePlan {
         let expansion = if x == EMPTY { None } else {
             os::of_item(x).filter(|t| ctx.lost_on_failure(t.item)).map(|t| (t.row, mem::rd_u32(gd + EXPANSION_SLOT - HANDLE_DELTA), t.item))
         };
-        FailurePlan { weapons, frames, expansion, starter_cost, sell }
+        let os_levels = ctx.os_lost.iter().filter_map(|&row| Some((row, os::level(gd, row).filter(|&l| l > 0)?))).collect();
+        FailurePlan { weapons, frames, expansion, os_levels, starter_cost, sell }
     }
 
     /// Balance left after the penalty and selling everything sellable; negative = game over.
@@ -405,8 +414,8 @@ impl FailurePlan {
 
     fn summary(&self) -> String {
         let n = |f: fn(&Fill) -> bool| self.frames.iter().filter(|x| f(&x.2)).count();
-        format!("{} weapon(s) lost, {} part(s) lost, {} kept, expansion lost {:?}, {} spare(s) equipped, {} starter(s) to buy ({}), {} slot(s) left empty, {} sellable part(s) worth {}",
-            self.weapons.len(), self.frames.iter().filter(|f| f.1.is_some()).count(), n(|f| matches!(f, Fill::Keep)), self.expansion.map(|e| e.0),
+        format!("{} weapon(s) lost, {} part(s) lost, {} kept, expansion lost {:?}, OS levels lost {:?}, {} spare(s) equipped, {} starter(s) to buy ({}), {} slot(s) left empty, {} sellable part(s) worth {}",
+            self.weapons.len(), self.frames.iter().filter(|f| f.1.is_some()).count(), n(|f| matches!(f, Fill::Keep)), self.expansion.map(|e| e.0), self.os_levels,
             n(|f| matches!(f, Fill::Spare(..))), n(|f| matches!(f, Fill::Buy)), self.starter_cost, n(|f| matches!(f, Fill::Empty)),
             self.sell.len(), self.sell.iter().map(|s| s.0 as i64).sum::<i64>())
     }
@@ -508,6 +517,10 @@ unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {
         os::reset(gd, row);
         lines.push(format!("core expansion {} ({}) lost{}", os::name(row), row, if removed { "" } else { " (was not in the inventory)" }));
     }
+    // the other listed OS Tunings: one level less each
+    for &(row, _) in &plan.os_levels {
+        if let Some((old, new)) = os::level_down(gd, row) { lines.push(format!("OS Tuning {} ({}): level {} -> {}", os::name(row), row, old, new)); }
+    }
     let bal = mem::rd_i32(gd + o::GD_COAM) as i64 - plan.starter_cost;
     if plan.starter_cost > 0 { lines.push(format!("starter costs: {} (balance {} -> {})", plan.starter_cost, bal + plan.starter_cost, bal)); }
     let over = if bal < 0 {
@@ -543,6 +556,10 @@ fn loss_report(plan: &FailurePlan, sold: &[(u32, i32)]) -> String {
     }).collect();
     if !repl.is_empty() { t += &format!("Remplacées par : {}\n", repl.join(", ")); }
     if let Some((row, ..)) = plan.expansion { t += &format!("Extension perdue : {}\n", os::name(row)); }
+    if !plan.os_levels.is_empty() {
+        let names: Vec<String> = plan.os_levels.iter().map(|&(row, lv)| format!("{} (LV {} > {})", os::name(row), lv, lv - 1)).collect();
+        t += &format!("Niveaux OS perdus : {}\n", names.join(", "));
+    }
     if plan.starter_cost > 0 {
         t += &format!("Pièces de départ facturées : {} COAM\n", money(plan.starter_cost));
     }

@@ -51,6 +51,16 @@ pub unsafe fn level_up(gd: usize, row: u16) {
     logf!("OS Tuning {} ({}): level {} -> {}/{} at the commit", row, name(row), old, new, t.max);
 }
 
+/// Failure loss of a non-expansion tuning ([lost_on_failure] = 1): one level less. Returns (old, new).
+pub unsafe fn level_down(gd: usize, row: u16) -> Option<(i32, i32)> {
+    let (Some(lv), Some(t)) = (levels(gd), tuning(row)) else { logf!("WARNING: OS Tuning {}: levels unreadable, no level lost", row); return None };
+    let old = mem::rd_i32(lv + t.off);
+    let new = (old - 1).max(0);
+    mem::wr_i32(lv + t.off, new);
+    logf!("OS Tuning {} ({}): level {} -> {}/{} (lost)", row, name(row), old, new, t.max);
+    Some((old, new))
+}
+
 /// Failure loss of a core expansion: level back to 0 (Assemblage stops listing it).
 pub unsafe fn reset(gd: usize, row: u16) {
     let (Some(lv), Some(t)) = (levels(gd), tuning(row)) else { logf!("WARNING: OS Tuning {}: levels unreadable, not reset", row); return };

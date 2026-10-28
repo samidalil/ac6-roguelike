@@ -1115,8 +1115,8 @@ part name, OsReinforce row for the expansions), value 1/0, unlisted = the old ru
 expansions (5010..5040) = 1 in both.
 - **`[lost_on_failure]`**: 1 = the equipped item is lost on a failed sortie, 0 = it survives (stays equipped, no
   replacement, no charge). Unlisted: weapons / frame parts / internals lost, core expansion kept. Non-expansion OS
-  Tunings are never lost (ignored with a log line). A lost expansion: slot emptied, item removed, level -> 0; the loss
-  dialog gets "Extension perdue : <name>".
+  Tunings are never lost (ignored with a log line; superseded: one level lost, see "OS Tunings: one level lost on
+  failure"). A lost expansion: slot emptied, item removed, level -> 0; the loss dialog gets "Extension perdue : <name>".
 - **`[unique_occurrences]`** (the user merged "lost forever" and "skip is final" into this): 1 = offered at most once
   per run, picked or not. Rewards are marked at 5074 (every offer of the sortie: the results screen shows them all,
   before the commit autosave), shop parts at the reroll. A listed item lost on a failure is marked too. Among the OS
@@ -1183,3 +1183,23 @@ expansion's max level).
   choices): offers [Assault Armor, VE-60SNA, ZIMMERMAN 139] -> at 5074 "Bouclier d'assaut 1/3, SG-027 ZIMMERMAN 2/2
   (never again)", then the shop reroll, grid shown. Not verified (user asked to merge without more tests): the pick,
   persistence after a relaunch, New Game clearing block 8, a second offer of an expansion raising it to level 2.
+
+## OS Tunings: one level lost on failure (2026-10-29, implemented)
+User decisions (2026-10-29): `[lost_on_failure]` now applies to the 13 non-expansion OS Tunings too; a failed sortie
+takes ONE level from each listed installed tuning (not all its levels). Core expansions unchanged (the equipped one:
+item + level -> 0). Default config lists all 13 as lost and re-tiers them by effect: rare = build-agnostic power (50
+direct hit, 1010 ACS, 2020 repair kits, 5070 weapon bay), common = one weapon type's damage (10/20/30/40) and small
+utilities (3010, 4010, 5050, 5060, 5080). The loss dialog gets one line "Niveaux OS perdus : <name> (LV a > b), ..." (the
+dialog font has no "→": it showed a box);
+an assembly-style loss screen with the shop's chips is a later task (user sketch).
+- `penalty::lost_rule` returns the non-expansion rows listed with 1 (`Ctx::os_lost`); `FailurePlan::os_levels` =
+  (row, level at sortie) of those with level > 0 (no slot: equipped or not does not apply); `apply_penalty` calls
+  `os::level_down` (level - 1, floor 0, direct write like `level_up`). A tuning below its max is rollable again, so a
+  lost level can come back as a reward. Unlisted / 0 = kept.
+- **Verified** (profile ac6-roguelike-oslevels.me3, fresh copy of saves/ac-mission-available.sl2, config: 3 rewards x 1
+  choice, the 10 starter parts and 5050 Boost Kick = 0 in [lost_on_failure]): boot log "OS Tunings losing one level:
+  [10, 20, 30, 40, 50, 1010, 2020, 3010, 4010, 5060, 5070, 5080]"; `force_os 10 2020 5050` + real clear -> levels
+  0 -> 1 at the commit; kinetic set to 3 by a memory write; escrow 7828 + save, relaunch: plan "OS levels lost [(10, 3),
+  (2020, 1)]", kinetic 3 -> 2, repair kits 1 -> 0, Boost Kick kept at 1, dialog line under the part lines, debug `os`:
+  kinetic / repair kits rollable again. Second failure (escrow again, relaunch): plan [(10, 2)], 2 -> 1, dialog with
+  only "Niveaux OS perdus : Armes cinétiques – Amélioration contrôle de tir (LV 2 > 1)".
