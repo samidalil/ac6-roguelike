@@ -889,10 +889,23 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   content lookup), filled at the class's next part fill. The movie name stays ours until the last page is up.
   On the "AC d'essai" results screen the parts step waits for Fermer (pending list intact until then).
 - **Pad: NOT via XInput.** XInput sees the pad from outside the game (slot 0, Bluetooth Xbox), but inside the process
-  the DLL's XInputGetState calls (xinput1_4 / XINPUT9_1_0) report nothing and the game never calls its
-  XINPUT9_1_0 import (0 reads): the game has its own input system. The grid reads the keyboard only for now; pad
-  navigation must come from the game's menu input (to do).
+  the DLL's XInputGetState calls report nothing and the game never calls its XINPUT9_1_0 import: the game reads the
+  pad through its own input system (probably Steam Input). Solved with the game's menu actions (below).
 
+## Menu input (2026-10-28): the game's menu actions drive the grid
+Found by memory diff (tools/input_scan.py: snapshots while an arrow key is held / released, 7 GB, ~20 candidates in 6
+rounds; tools/input_watch.py / input_dump.py to watch them; tools/ptr_scan.py for pointer chains):
+- A float array (one per virtual input id, -1 = idle) holds the menu auto-repeat timers; down = id 0x15C. Written
+  every frame by exe+29F23F0(repeater rcx, input rdx, ?, ?, f32 dt): for each repeat entry {f32 delay 0.2, f32 repeat
+  0.067, i32 id} (vector at [r9-derived obj+0x10..0x18]) whose bit is set in the bitset [input+0x7C8], the timer runs and
+  the bit is CLEARED between repeats -> after the call, [input+0x7C8] = this frame's menu actions (press + repeat
+  pulses). Called per device mapper from exe+2A39420 (virtual [obj+0x20], input object = r13) under the input manager
+  loop exe+29EC4xx ([mgr+0x770..0x778] = mappers). Keyboard and pad both feed it (same ids).
+- Ids: confirm 0x155, back 0x154, right 0x156, left 0x159, down 0x15C, up 0x15F (each direction also raises sibling
+  ids, e.g. right 0x137/0x138/0x157/0x158; the title/garage menus show more: 0xD0.., 0x100.., 0x12E..).
+- The DLL hooks exe+29F23F0's entry (15-byte prologue moved to a trampoline), ORs [input+0x7C8] words 0..15 after
+  each call, and the grid's tick takes them: directions move the highlight, confirm closes the page (the class's OK
+  does the rest). No XInput, no keyboard polling: the pad, the keyboard, the game's own repeat timing.
 ## Test routine: instant mission clear (2026-10-28)
 `python tools/kill_enemies.py` (game running, in a mission) lists every character's AP block: the player's is
 `[[[[exe+4E0F598]+A5A0]+320]+0]` (AP i32 +278, max +27C), the others share its vtable (+0) and are found by a scan of

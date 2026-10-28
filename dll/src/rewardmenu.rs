@@ -223,7 +223,7 @@ unsafe fn fill_page(base: usize, page: usize) {
     SEL_HANDLE.store(sel as usize, Relaxed);
     SEL.store(0, Relaxed);
     COUNT.store(n as u32, Relaxed);
-    PREV_INPUT.store(u32::MAX, Relaxed); // ignore what is held when the page opens
+    for a in &ACTIONS { a.store(0, Relaxed); } // ignore what was pressed before the page opened
     GRID_OPEN.store(true, Relaxed);
     set_selection(base, 0, n);
     let pages = PAGES.lock().map(|p| p.len()).unwrap_or(0);
@@ -318,47 +318,82 @@ pub unsafe fn install(base: usize) {
         Ok(cave) => logf!("reward grid hook installed: exe+{:X} -> cave {:#X} (saves rsi)", o::CONTENT_LOOKUP_CALLSITE, cave),
         Err(e) => logf!("reward grid hook exe+{:X} FAILED: {}", o::CONTENT_LOOKUP_CALLSITE, e),
     }
+    install_input(base);
 }
 
-// ---- selection: the movie gets no input, so the DLL reads the keyboard and moves the highlight; the
-// highlighted part is the page's pick (the class's own OK goes to the next page / closes)
+// ---- selection: the movie gets no input, so the DLL moves the highlight from the game's own menu actions (pad,
+// keyboard: the game maps both); the highlighted part is the page's pick (the class's own OK goes to the next page /
+// closes)
 static GRID_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static SEL: AtomicU32 = AtomicU32::new(0);
 static COUNT: AtomicU32 = AtomicU32::new(0);
-static PREV_INPUT: AtomicU32 = AtomicU32::new(0);
 const COLS: u32 = 3;
 const IN_UP: u32 = 1; const IN_DOWN: u32 = 2; const IN_LEFT: u32 = 4; const IN_RIGHT: u32 = 8; const IN_OK: u32 = 16;
 
-#[link(name = "user32")]
-extern "system" { fn GetAsyncKeyState(vk: i32) -> i16; }
-
-/// Directions + confirm from the keyboard (arrows / WASD, Enter / E / Space). The game reads the pad through its own
-/// input system, not XInput calls the DLL could share: pad navigation is still to do.
+// The game's menu actions (RE_NOTES "Menu input"): each frame the input mapper calls exe+29F23F0(repeater, input,
+// ..., dt) which turns the held virtual inputs of the bitset [input+0x7C8] into press + auto-repeat pulses (0.2 s, then
+// every 1/15 s). Hooked at its entry: after it, the bits are ORed into ACTIONS until the next tick takes them.
+const ACT_OK: u32 = 0x155; const ACT_RIGHT: u32 = 0x156; const ACT_LEFT: u32 = 0x159; const ACT_DOWN: u32 = 0x15C; const ACT_UP: u32 = 0x15F;
+static ACTIONS: [AtomicU32; 16] = [const { AtomicU32::new(0) }; 16];
+static REPEAT_TRAMPOLINE: AtomicUsize = AtomicUsize::new(0);
+type FnRepeat = unsafe extern "system" fn(usize, usize, usize, usize, f32) -> usize;
+unsafe extern "system" fn repeat_hook(a: usize, input: usize, c: usize, d: usize, dt: f32) -> usize {
+    let orig: FnRepeat = core::mem::transmute(REPEAT_TRAMPOLINE.load(Relaxed));
+    let r = orig(a, input, c, d, dt);
+    let bits = mem::rd_usize(input + o::INPUT_ACTION_BITS);
+    if bits > 0x10000 { for (k, slot) in ACTIONS.iter().enumerate() { let w = mem::rd_u32(bits + 4 * k); if w != 0 { slot.fetch_or(w, Relaxed); } } }
+    r
+}
+/// Hook a function entry: its first `n` bytes (`expect`, no rip-relative code) move to a trampoline that jumps back.
+unsafe fn install_entry_hook(base: usize, rva: usize, expect: &[u8], f: usize) -> Result<usize, String> {
+    let at = base + rva;
+    if (0..expect.len()).any(|i| mem::rd_u8(at + i) != expect[i]) { return Err(format!("unexpected bytes at exe+{:X}", rva)); }
+    let page = alloc_near_page(base).ok_or("no near page for the cave")?;
+    let mut stub = vec![0x48, 0xB8]; stub.extend_from_slice(&(f as u64).to_le_bytes()); stub.extend_from_slice(&[0xFF, 0xE0]); // mov rax, f; jmp rax
+    core::ptr::copy_nonoverlapping(stub.as_ptr(), page as *mut u8, stub.len());
+    let tramp = page + 0x40;
+    let mut t = expect.to_vec();
+    let back = tramp + t.len();
+    t.push(0xE9); t.extend_from_slice(&(((at + expect.len()) as i64 - (back as i64 + 5)) as i32).to_le_bytes());
+    core::ptr::copy_nonoverlapping(t.as_ptr(), tramp as *mut u8, t.len());
+    let mut patch = vec![0x90u8; expect.len()];
+    patch[0] = 0xE9; patch[1..5].copy_from_slice(&((page as i64 - (at as i64 + 5)) as i32).to_le_bytes());
+    if !write_code(at, &patch) { return Err("VirtualProtect failed".into()); }
+    Ok(tramp)
+}
+pub unsafe fn install_input(base: usize) {
+    // mov [rsp+10],rbp; mov [rsp+18],rsi; push rdi; sub rsp,30
+    let prologue = [0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48, 0x83, 0xEC, 0x30];
+    match install_entry_hook(base, o::FN_INPUT_REPEAT, &prologue, repeat_hook as *const () as usize) {
+        Ok(t) => { REPEAT_TRAMPOLINE.store(t, Relaxed); logf!("menu input hook installed: exe+{:X}", o::FN_INPUT_REPEAT); }
+        Err(e) => logf!("menu input hook exe+{:X} FAILED: {}", o::FN_INPUT_REPEAT, e),
+    }
+}
+/// The game's menu actions since the last tick (pulses: press + auto-repeat): directions and confirm.
 unsafe fn read_input() -> u32 {
-    let mut v = 0;
-    let key = |vk: i32| GetAsyncKeyState(vk) as u16 & 0x8000 != 0;
-    if key(0x26) || key(0x57) { v |= IN_UP; }
-    if key(0x28) || key(0x53) { v |= IN_DOWN; }
-    if key(0x25) || key(0x41) { v |= IN_LEFT; }
-    if key(0x27) || key(0x44) { v |= IN_RIGHT; }
-    if key(0x0D) || key(0x45) || key(0x20) { v |= IN_OK; }
-    v
+    let acts: Vec<u32> = ACTIONS.iter().map(|a| a.swap(0, Relaxed)).collect();
+    let has = |id: u32| acts[(id >> 5) as usize] >> (id & 31) & 1 != 0;
+    let mut pulse = 0;
+    if has(ACT_UP) { pulse |= IN_UP; }
+    if has(ACT_DOWN) { pulse |= IN_DOWN; }
+    if has(ACT_RIGHT) { pulse |= IN_RIGHT; }
+    if has(ACT_LEFT) { pulse |= IN_LEFT; }
+    if has(ACT_OK) { pulse |= IN_OK; }
+    pulse
 }
 
 /// Game thread, every frame: move the highlight of the page shown (that part becomes the page's pick). Confirm goes to
 /// the class's OK (next page / close): the page's handles die with it, so nothing more is written until the next fill.
 pub unsafe fn tick(base: usize) {
-    if !GRID_OPEN.load(Relaxed) { return; }
-    let now = read_input();
-    let prev = PREV_INPUT.swap(now, Relaxed);
-    let pressed = now & !prev;
-    if pressed == 0 { return; }
-    if pressed & IN_OK != 0 { GRID_OPEN.store(false, Relaxed); return; }
+    if !GRID_OPEN.load(Relaxed) { for a in &ACTIONS { a.store(0, Relaxed); } return; }
+    let pulse = read_input();
+    if pulse & IN_OK != 0 { GRID_OPEN.store(false, Relaxed); return; }
+    if pulse == 0 { return; }
     let (n, mut sel) = (COUNT.load(Relaxed), SEL.load(Relaxed));
-    if pressed & IN_LEFT != 0 && sel % COLS > 0 { sel -= 1; }
-    if pressed & IN_RIGHT != 0 && sel % COLS < COLS - 1 && sel + 1 < n { sel += 1; }
-    if pressed & IN_UP != 0 && sel >= COLS { sel -= COLS; }
-    if pressed & IN_DOWN != 0 && sel + COLS < n { sel += COLS; }
+    if pulse & IN_LEFT != 0 && sel % COLS > 0 { sel -= 1; }
+    if pulse & IN_RIGHT != 0 && sel % COLS < COLS - 1 && sel + 1 < n { sel += 1; }
+    if pulse & IN_UP != 0 && sel >= COLS { sel -= COLS; }
+    if pulse & IN_DOWN != 0 && sel + COLS < n { sel += COLS; }
     if sel != SEL.load(Relaxed) {
         SEL.store(sel, Relaxed);
         if let Some(p) = PICKS.get(PAGE.load(Relaxed)) { p.store(sel, Relaxed); }

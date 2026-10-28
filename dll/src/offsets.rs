@@ -214,6 +214,10 @@ pub const PAGE_CONTENT_CALLABLE_VTABLE: usize = 0x39BF948; // a parts page's con
 // commit of the pending obtained items (script step exe+B042C0, OK of the results' parts dialog)
 pub const FN_PENDING_COMMIT: usize = 0x4756E0;          // (mgr = GameData+0x600, commit u8, obj = GameData+0x230)
 pub const PENDING_COMMIT_CALLSITE: usize = 0xB042FC;
+// menu input (RE_NOTES "Menu input"): (repeater, input object, ?, ?, f32 dt) -> menu action pulses in the bitset at
+// [input + 0x7C8] (virtual input ids: confirm 0x155, back 0x154, right 0x156, left 0x159, down 0x15C, up 0x15F)
+pub const FN_INPUT_REPEAT: usize = 0x29F23F0;
+pub const INPUT_ACTION_BITS: usize = 0x7C8;
 
 // --- game over ---
 /// Run-over flag (saved): set at game over; a save loaded with it goes straight back to the title.
