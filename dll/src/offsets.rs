@@ -82,14 +82,11 @@ pub const ROWS_SOLD: u32 = 4100;   // 4100..4417: sold since the last reroll (bu
 pub const ROWS_LOST: u32 = 4550;   // 4550..4867: lost forever (failures)
 #[allow(dead_code)]
 pub const ROWS_ROLLED: u32 = 7100; // 7100..7417: already rolled (pool without repeats)
-// reward choice (choice.rs): the reward pool's "offered" bitset is split (rows 0..298 / 299..317), the pending offer
-// is up to 12 x 9-bit row indices, the reward RNG state 64 bits
+// reward choice (choice.rs): the reward pool's "offered" bitset is split (rows 0..298 / 299..317), the reward RNG
+// state 64 bits
 pub const REWARD_ROLLED_A: u32 = 7501;     // 7501..7799
 pub const REWARD_ROLLED_A_LEN: u32 = 299;
 pub const REWARD_ROLLED_B: u32 = 7838;     // 7838..7856
-pub const OFFER_ROWS: u32 = 4420;          // 4420..4527
-pub const OFFER_COUNT: u32 = 4868;         // 4 bits
-pub const OFFER_SETS_LEFT: u32 = 4872;     // 4 bits
 pub const REWARD_RNG: u32 = 4901;          // 4901..4964
 /// Missions cleared since the last shop reroll (8 bits, LSB first).
 pub const REROLL_COUNTER_BASE: u32 = 7830;
@@ -197,27 +194,26 @@ pub const FN_MENU_JOB_RESET: usize = 0xDBA200;          // (handle): vtable rese
 pub const MENU_JOB_HANDLE_VTABLE: usize = 0x386E0C8;
 /// Global the dialog builder requires (null at the title / during loads -> the game's fatal-error path).
 pub const DIALOG_REQUIRED_GLOBAL: usize = 0x4F348C8;
-// "Pièces obtenues" menu (02_GotReward): std::function<RefPtr<MenuJob>(ComponentStack&)> whose call slot (exe+DC3EC0)
-// builds the menu (exe+DBAE70 -> exe+1015AC0); the captured data is unused.
-pub const GOT_REWARD_FACTORY_VTABLE: usize = 0x392B7D0;
-pub const GOT_REWARD_FACTORY_INT_VTABLE: usize = 0x392B770; // same, capturing an int (built at exe+DC1B95)
+// "Pièces obtenues" menu (02_GotReward, parts mode) and the reward choice grid (rewardmenu.rs)
 pub const FN_MENU_JOB_FROM_FACTORY: usize = 0xDA3410;   // (out RefPtr<MenuJob>, const std::function*) -> out
-pub const FN_GOT_REWARD_PARTS_MENU: usize = 0x10158D0; // (out RefPtr<MenuJob>, ctx, const vector<u32>* item ids)
-pub const FN_DEFAULT_ALLOCATOR: usize = 0x2923D10;
-pub const GOT_REWARD_MOVIE_NAME: usize = 0x39BF5C8;  // UTF-16 "02_GotReward" the class builds its window with
-pub const MENU_TABLE_SPARE_ENTRY: usize = 0x4E29168; // menu table {flags, name} name of 02_OnlineArena_GotReward      // () -> the game's default allocator
-pub const FN_MENU_JOB_PUSH: usize = 0xDC2A70;
+pub const FN_MENU_JOB_PUSH: usize = 0xDC2A70;           // (RefPtr<MenuJob>*): hands the job to the menu manager, releases it
+pub const FN_GOT_REWARD_PARTS_MENU: usize = 0x10158D0;  // (out RefPtr<MenuJob>, ctx, const vector<u32>* item ids)
+pub const RESULTS_PARTS_MENU_CALLSITE: usize = 0xE9A26E; // results screen lambda exe+E9A220: the pending parts dialog
+pub const FN_DEFAULT_ALLOCATOR: usize = 0x2923D10;      // () -> the game's default allocator
+pub const GOT_REWARD_MOVIE_NAME: usize = 0x39BF5C8;     // UTF-16 "02_GotReward" the class builds its window with
+pub const MENU_TABLE_SPARE_ENTRY: usize = 0x4E29168;    // menu table {flags, name} name of 02_OnlineArena_GotReward
 // component API of the menu framework and the part view (one part's slots: logo, icon, category, name)
-pub const FN_GET_CHILD: usize = 0xC928E0;        // (component handle, out handle, const char* path "A/B")
-pub const FN_SET_TEXT: usize = 0xC8CBA0;
-pub const FN_HANDLE_PREPARE: usize = 0xC94640;    // (handle*): done on the content handle before its page fills it
-pub const FN_HANDLE_DTOR: usize = 0xC6A370;       // (handle*): component handle destructor         // (handle + 8, const wchar_t*)
-pub const FN_PART_VIEW_BIND: usize = 0x1001530;  // (view ~0x8A0 bytes, component handle)
-pub const FN_PART_VIEW_FILL: usize = 0x1000B60;  // (view, item descriptor)
-pub const PART_VIEW_BIND_CALLSITE: usize = 0x1012CD4; // in the parts mode update
-pub const PART_VIEW_FILL_CALLSITE: usize = 0x1012CE4;
-pub const CONTENT_LOOKUP_CALLSITE: usize = 0x1010A44;
-pub const PAGE_CONTENT_CALLABLE_VTABLE: usize = 0x39BF948; // a parts page's content std::function _Impl (record at +8) // page function: GetChild(root = this+0x4F0, "_Content_")           // (RefPtr<MenuJob>*): hands the job to the menu manager, releases it
+pub const FN_GET_CHILD: usize = 0xC928E0;               // (component handle, out handle, const char* path "A/B")
+pub const FN_SET_TEXT: usize = 0xC8CBA0;                // (handle + 8, const wchar_t*)
+pub const FN_HANDLE_PREPARE: usize = 0xC94640;          // (handle*): done on the content handle before its page fills it
+pub const FN_HANDLE_DTOR: usize = 0xC6A370;             // (handle*): component handle destructor
+pub const FN_PART_VIEW_FILL: usize = 0x1000B60;         // (view, item descriptor)
+pub const PART_VIEW_FILL_CALLSITE: usize = 0x1012CE4;   // in the parts mode update
+pub const CONTENT_LOOKUP_CALLSITE: usize = 0x1010A44;   // page function: GetChild(root = this+0x4F0, "_Content_"), rsi = page
+pub const PAGE_CONTENT_CALLABLE_VTABLE: usize = 0x39BF948; // a parts page's content std::function _Impl (record at +8)
+// commit of the pending obtained items (script step exe+B042C0, OK of the results' parts dialog)
+pub const FN_PENDING_COMMIT: usize = 0x4756E0;          // (mgr = GameData+0x600, commit u8, obj = GameData+0x230)
+pub const PENDING_COMMIT_CALLSITE: usize = 0xB042FC;
 
 // --- game over ---
 /// Run-over flag (saved): set at game over; a save loaded with it goes straight back to the title.

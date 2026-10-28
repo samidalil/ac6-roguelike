@@ -8,7 +8,8 @@ package _02_GotReward_fla
 
    // menu/02_rwdchoice.gfx: the reward choice grid. The game's "Pièces obtenues" class drives Dialog/_Content_; the
    // DLL fills _Content_/TileNN (one part each) and writes "selected/count" into _Content_/SelIdx. This script only
-   // lays the grid out (3 columns, up to 4 rows), resizes the window and moves the highlight. The movie gets no input.
+   // lays the grid out (3 columns, up to 4 rows), resizes the window around it and draws the highlight. The movie gets
+   // no input.
    [SWF(width="1920", height="1080", backgroundColor="#787878", frameRate="30")]
    public dynamic class MainTimeline extends MovieClip
    {
@@ -17,14 +18,14 @@ package _02_GotReward_fla
       private static const COLS:int = 3;
       private static const MAX:int = 12;
       private static const TILE_SCALE:Number = 0.42;
-      private static const GAP:Number = 24;
-      // one part's box in _Content_ coordinates (thumbnail frame, logo, texts), pixels
-      private static const BOX:Rectangle = new Rectangle(30, 40, 560, 230);
+      private static const GAP:Number = 28;
+      private static const SLOTS:Array = ["MakerLogo", "ItemIcon", "CategoryName", "ItemName"];
 
       private var orig:Object = null;   // vanilla positions / sizes, read once
       private var shown:String = "";     // last state applied
-      private var GROW:Boolean = true;
-      private var hl:Shape = null;        // selection frame (drawn: the movie has no fitting symbol)   // window resize (step 2)
+      private var hl:Shape = null;        // selection frame (drawn: the movie has no fitting symbol)
+      private var gridW:Number = 0;       // size of the grid laid out last
+      private var gridH:Number = 0;
 
       public function MainTimeline()
       {
@@ -53,6 +54,20 @@ package _02_GotReward_fla
          return c["Tile" + (i < 10 ? "0" : "") + i] as MovieClip;
       }
 
+      // a tile's part slots, in the tile's own coordinates
+      private function slotBounds(t:MovieClip) : Rectangle
+      {
+         var r:Rectangle = null;
+         for each (var nm:String in SLOTS)
+         {
+            var d:DisplayObject = t[nm];
+            if (d == null) continue;
+            var b:Rectangle = d.getBounds(t);
+            r = r == null ? b : r.union(b);
+         }
+         return r;
+      }
+
       private function tick(e:Event) : void
       {
          var c:MovieClip = this.Dialog ? this.Dialog._Content_ as MovieClip : null;
@@ -63,19 +78,23 @@ package _02_GotReward_fla
          var n:int = parts.length > 1 ? parseInt(parts[1]) : MAX;
          if (isNaN(sel)) sel = 0;
          if (isNaN(n) || n < 1 || n > MAX) n = MAX;
-         if (state == this.shown) return;
+         // the window's own animation keyframes reset some of its pieces: size them again every frame
+         if (state == this.shown) { if (this.gridW > 0) this.grow(this.gridW, this.gridH); return; }
          this.shown = state;
          if (this.orig == null) this.remember(c);
          // the single-part slots the game fills stay bound but hidden
          c.ItemName.visible = false; c.CategoryName.visible = false; c.ItemIcon.visible = false;
          c.MakerLogo.visible = false; c.SelIdx.visible = false;
-         var tb:Rectangle = BOX;
+         var tb:Rectangle = this.orig.tb;
          var pw:Number = tb.width * TILE_SCALE + GAP;
          var ph:Number = tb.height * TILE_SCALE + GAP;
          var cols:int = Math.min(COLS, n);
          var rows:int = Math.ceil(n / COLS);
-         var x0:Number = this.orig.bg != null ? this.orig.bg.x + (this.orig.bg.width - cols * pw + GAP) / 2 : tb.x;
-         var y0:Number = tb.y;
+         var gw:Number = cols * pw - GAP;
+         var gh:Number = rows * ph - GAP;
+         // the grid takes the vanilla content box's place, centred on the window
+         var x0:Number = this.orig.mid - gw / 2;
+         var y0:Number = this.orig.top;
          for (var i:int = 0; i < MAX; i++)
          {
             var t:MovieClip = this.tile(c, i);
@@ -83,18 +102,18 @@ package _02_GotReward_fla
             t.scaleX = t.scaleY = TILE_SCALE;
             t.x = x0 - tb.x * TILE_SCALE + (i % COLS) * pw;
             t.y = y0 - tb.y * TILE_SCALE + int(i / COLS) * ph;
-            t.Sel.visible = i == sel;
-            t.Sel.visible = false;
          }
-         if (this.GROW) this.grow(cols * pw, rows * ph);
+         this.gridW = gw; this.gridH = gh;
+         this.grow(gw, gh);
          this.highlight(c, this.tile(c, Math.min(sel, n - 1)));
       }
 
-      // frame around the selected tile's maker logo + thumbnail
+      // frame around the selected tile's slots
       private function highlight(c:MovieClip, t:MovieClip) : void
       {
          if (this.hl == null) { this.hl = new Shape(); c.addChild(this.hl); }
-         var r:Rectangle = t.ItemIcon.getBounds(c).union(t.MakerLogo.getBounds(c));
+         var b:Rectangle = this.orig.tb;
+         var r:Rectangle = new Rectangle(t.x + b.x * t.scaleX, t.y + b.y * t.scaleY, b.width * t.scaleX, b.height * t.scaleY);
          r.inflate(8, 6);
          this.hl.graphics.clear();
          this.hl.graphics.lineStyle(3, 0xFFE9A0, 1);
@@ -103,23 +122,38 @@ package _02_GotReward_fla
          this.hl.graphics.endFill();
       }
 
-      // the window grows by the grid's extra width / height over the vanilla content box
+      // the window grows (or shrinks in height) by the grid's size over the vanilla content box, around its centre
       private function grow(w:Number, h:Number) : void
       {
          var dw:Number = Math.max(0, w - this.orig.width);
          var dh:Number = h - this.orig.height;
-         for each (var nm:String in ["Bg0", "Bg1", "Bg2", "Bg3"])
+         var nm:String;
+         var o:Object;
+         var d:DisplayObject;
+         for each (nm in ["Bg0", "Bg1", "Bg2"])
          {
-            var o:Object = this.orig[nm];
-            var d:DisplayObject = this.Dialog[nm];
+            o = this.orig[nm]; d = this.Dialog[nm];
             if (d == null || o == null) continue;
-            d.width = o.w + dw;
-            d.height = o.h + dh;
+            d.width = o.w + dw; d.height = o.h + dh;
+            // place by bounds (the pieces' origins are not their corners): dw / 2 more on each side
+            var b:Rectangle = d.getBounds(this.Dialog);
+            d.x += o.b.x - dw / 2 - b.x; d.y += o.b.y - dh / 2 - b.y;
          }
-         for each (var b:String in ["Line0", "Button", "HitArea"])
+         // top part (title, top line, content) moves up, bottom part (line, OK) down
+         for each (nm in ["Title", "Line1", "_Content_", "Bg3"])
          {
-            var bo:DisplayObject = this.Dialog[b];
-            if (bo != null && this.orig[b] != null) { bo.y = this.orig[b].y + dh; bo.x = this.orig[b].x + dw / 2; }
+            o = this.orig[nm]; d = this.Dialog[nm];
+            if (d != null && o != null) d.y = o.y - dh / 2;
+         }
+         for each (nm in ["Line0", "Button", "HitArea"])
+         {
+            o = this.orig[nm]; d = this.Dialog[nm];
+            if (d != null && o != null) d.y = o.y + dh / 2;
+         }
+         for each (nm in ["Line0", "Line1"])
+         {
+            o = this.orig[nm]; d = this.Dialog[nm];
+            if (d != null && o != null) { d.width = o.w + dw; d.x = o.x - dw / 2; }
          }
       }
 
@@ -127,18 +161,18 @@ package _02_GotReward_fla
       {
          var o:Object = {};
          var t:MovieClip = this.tile(c, 0);
-         var s:Number = t.scaleX;
          t.scaleX = t.scaleY = 1;
-         o.tile = t.getBounds(t);
+         o.tb = this.slotBounds(t);
+         // the vanilla content box: one part's slots in _Content_
          var box:Rectangle = c.ItemIcon.getBounds(c).union(c.ItemName.getBounds(c)).union(c.MakerLogo.getBounds(c));
-         o.left = box.x; o.top = box.y; o.width = box.width; o.height = box.height;
-         for each (var nm:String in ["Bg0", "Bg1", "Bg2", "Bg3", "Line0", "Line1", "Button", "HitArea", "Title"])
+         o.top = box.y; o.width = box.width; o.height = box.height;
+         for each (var nm:String in ["Bg0", "Bg1", "Bg2", "Bg3", "Line0", "Line1", "Button", "HitArea", "Title", "_Content_"])
          {
             var d:DisplayObject = this.Dialog[nm];
-            if (d != null) o[nm] = { x: d.x, y: d.y, w: d.width, h: d.height };
+            if (d != null) o[nm] = { x: d.x, y: d.y, w: d.width, h: d.height, b: d.getBounds(this.Dialog) };
          }
-         o.dx = this.Dialog.x; o.dy = this.Dialog.y;
-         o.bg = this.Dialog.Bg0 != null ? this.Dialog.Bg0.getBounds(c) : null;
+         var bg:Rectangle = this.Dialog.Bg0 != null ? this.Dialog.Bg0.getBounds(c) : box;
+         o.mid = bg.x + bg.width / 2;
          this.orig = o;
       }
    }

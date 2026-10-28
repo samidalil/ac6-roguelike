@@ -1,38 +1,40 @@
-//! The game's "Pièces obtenues" menu (02_GotReward), opened by the DLL: we build the same std::function the game
-//! builds for it and hand it to the menu manager. The menu lists the pending obtained-items list (mgr+0x78) and
-//! commits it on OK. Game thread only (garage).
+//! The reward choice grid: the game's "Pièces obtenues" class (02_GotReward, parts mode) shown with our own movie
+//! (menu/02_rwdchoice.gfx), one page per reward, each page a grid of up to 12 parts filled by the game's own part view.
+//! At the results screen the game's call that opens "Pièces obtenues" opens our grid instead (choice.rs gives the
+//! pages); just before the game commits the pending list, choice.rs takes the parts not picked out of it.
+//! RE_NOTES "Native reward choice".
 
 use super::*;
 
-/// 0 = nothing; 1 = open as is; any other value = queue that item id (deferred give) first, then open.
-pub static OPEN_REQUEST: AtomicU32 = AtomicU32::new(0);
-/// Factory std::function vtable rva (0 = exe+392B7D0) and the first captured qword (RE tests).
-pub static VTABLE: AtomicU32 = AtomicU32::new(0);
-pub static CAPTURE: AtomicU32 = AtomicU32::new(0);
+/// One page of the grid: the parts it shows (the highlighted one is that page's pick) and its title.
+#[derive(Clone)]
+pub struct Page { pub ids: Vec<u32>, pub title: String }
+
+/// Pages of the next grid we build.
+static PAGES: std::sync::Mutex<Vec<Page>> = std::sync::Mutex::new(Vec::new());
+/// Per page, per part: the content callable (std::function _Impl, vtable exe+39BF948) of a hidden single-part job.
+static CALLABLES: std::sync::Mutex<Vec<Vec<usize>>> = std::sync::Mutex::new(Vec::new());
+/// Highlighted part of each page (the pick), 0 until moved.
+static PICKS: [AtomicU32; 16] = [const { AtomicU32::new(0) }; 16];
+/// Highlighted part of page `page` (0 when the page was never shown).
+pub fn picked(page: usize) -> usize { PICKS.get(page).map_or(0, |p| p.load(Relaxed) as usize) }
+
+/// Garage debug: open a grid of these pages (display only, nothing granted).
+pub static OPEN_REQUEST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn set_pages(pages: Vec<Page>) { if let Ok(mut p) = PAGES.lock() { *p = pages; } }
 
 /// MSVC std::function: 0x38 bytes of small-object storage + the pointer to the callable (here the storage itself).
 #[repr(C, align(16))]
 struct StdFunction { storage: [usize; 7], callable: usize }
 
-pub unsafe fn open_pending(base: usize, game: &Game, gd: usize) {
-    // the class reads its movie name after our factory returns: restore the vanilla name a little later
+/// Game thread, every frame: the delayed movie name restore, and the debug open.
+pub unsafe fn open_pending(base: usize) {
     let left = RESTORE_IN.load(Relaxed);
-    if left > 0 { RESTORE_IN.store(left - 1, Relaxed); if left == 1 { write_wide(base + o::GOT_REWARD_MOVIE_NAME, VANILLA_MOVIE); log("reward choice: vanilla movie name restored"); } }
-    let req = OPEN_REQUEST.load(Relaxed);
-    if req == 0 || mem::rd_usize(base + o::DIALOG_REQUIRED_GLOBAL) == 0 { return; }
-    OPEN_REQUEST.store(0, Relaxed);
-    if req != 1 {
-        let defer = gd + o::GD_ITEM_MGR + o::MGR_DEFER;
-        mem::wr_u8(defer, 1);
-        let (r, err) = game.give_deferred(gd, req);
-        mem::wr_u8(defer, 0); // back to garage mode at once (the DLL's loop reads 0->1 as a sortie)
-        logf!("got-reward test: queued {:#X} (rax={} err={}), pending {:X?}", req, r, err, game.pending(gd));
-    }
+    if left > 0 { RESTORE_IN.store(left - 1, Relaxed); if left == 1 { restore_movie_name(base); } }
+    if !OPEN_REQUEST.load(Relaxed) || mem::rd_usize(base + o::DIALOG_REQUIRED_GLOBAL) == 0 { return; }
+    OPEN_REQUEST.store(false, Relaxed);
     let mut f = StdFunction { storage: [0; 7], callable: 0 };
-    let vt = VTABLE.load(Relaxed) as usize;
-    f.storage[0] = if vt == OWN { own_vtable() } else { base + if vt == 0 { o::GOT_REWARD_FACTORY_VTABLE } else { vt } };
-    f.storage[1] = CAPTURE.load(Relaxed) as usize;
-    logf!("got-reward test: factory vtable {:#X}, capture {}", f.storage[0], f.storage[1]);
+    f.storage[0] = own_vtable();
     f.callable = f.storage.as_ptr() as usize;
     type FnMake = unsafe extern "system" fn(out: *mut usize, f: *const StdFunction) -> *mut usize;
     type FnPush = unsafe extern "system" fn(job: *mut usize);
@@ -40,51 +42,51 @@ pub unsafe fn open_pending(base: usize, game: &Game, gd: usize) {
     let push: FnPush = core::mem::transmute(base + o::FN_MENU_JOB_PUSH);
     let mut job = 0usize;
     make(&mut job, &f);
-    logf!("got-reward test: job {:#X}", job);
     if job != 0 { push(&mut job); }
 }
-
-// ---- our own factory: the "Pièces obtenues" list built from PARTS (what the results screen does at exe+E9A220)
-/// VTABLE value selecting our own factory.
-pub const OWN: usize = 0xFFFF_FFFF;
-/// Title of the next grid (empty = the game's own "Pièces obtenues").
-pub static TITLE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
-/// Item ids listed by our factory (0 = unused).
-pub static PARTS: [AtomicU32; 12] = [const { AtomicU32::new(0) }; 12];
 
 /// The game's vector<u32> with its allocator (exe+2923D10() = the default one).
 #[repr(C)]
 struct GameVec { alloc: usize, begin: *const u32, end: *const u32, cap: *const u32 }
+type FnPartsMenu = unsafe extern "system" fn(out: *mut usize, ctx: usize, list: *const GameVec) -> *mut usize;
 
-unsafe extern "system" fn own_copy(this: *const usize, dest: *mut usize) -> *mut usize { *dest = *this; *dest.add(1) = *this.add(1); dest }
-unsafe extern "system" fn own_call(_this: usize, out: *mut usize, ctx: usize) -> *mut usize {
-    let base = mem::module_base();
-    let mut ids: Vec<u32> = PARTS.iter().map(|p| p.load(Relaxed)).filter(|v| *v != 0).collect();
-    // grid: the class shows (hidden) and commits nothing but needs one entry; OK on it closes the dialog at once
-    if TRUNCATE.load(Relaxed) { ids.truncate(1); }
-    GRID_PENDING.store(true, Relaxed);
-    let buf: &'static [u32] = Box::leak(ids.into_boxed_slice()); // the menu copies the list; ours just stays alive
+/// Build our grid's job (out) from PAGES: the class gets one part per page (its pages and OK button), each page's
+/// content is then replaced by a grid (fill_hook). Every part also gets a hidden single-part job (never pushed) whose
+/// page content callable fills that part's tile.
+unsafe fn build(base: usize, out: *mut usize, ctx: usize) -> *mut usize {
+    let make: FnPartsMenu = core::mem::transmute(base + o::FN_GOT_REWARD_PARTS_MENU);
     let get_alloc: unsafe extern "system" fn() -> usize = core::mem::transmute(base + o::FN_DEFAULT_ALLOCATOR);
-    let v = GameVec { alloc: get_alloc(), begin: buf.as_ptr(), end: buf.as_ptr().add(buf.len()), cap: buf.as_ptr().add(buf.len()) };
-    logf!("own factory: parts list {:X?}, ctx {:#X}", buf, ctx);
-    let make: unsafe extern "system" fn(*mut usize, usize, *const GameVec) -> *mut usize = core::mem::transmute(base + o::FN_GOT_REWARD_PARTS_MENU);
-    // the class names its movie with this string while it is built: ours for this one construction
-    let name = base + o::GOT_REWARD_MOVIE_NAME;
-    // one hidden single-part job per tile: the game builds each part's page (its content std::function)
-    let all: Vec<u32> = PARTS.iter().map(|p| p.load(Relaxed)).filter(|v| *v != 0).collect();
-    for (i, id) in all.iter().enumerate() {
-        let one: &'static [u32] = Box::leak(vec![*id].into_boxed_slice());
-        let v1 = GameVec { alloc: get_alloc(), begin: one.as_ptr(), end: one.as_ptr().add(1), cap: one.as_ptr().add(1) };
-        let mut job = 0usize;
-        make(&mut job, ctx, &v1);
-        let callable = find_content_callable(base, job);
-        TILE_CALLABLES[i].store(callable, Relaxed);
-        logf!("grid: part {} {:#X}: hidden job {:#X}, content callable {:#X}", i, id, job, callable);
+    let pages = PAGES.lock().map(|p| p.clone()).unwrap_or_default();
+    let mut callables = Vec::new();
+    for (p, page) in pages.iter().enumerate() {
+        let mut row = Vec::new();
+        for id in &page.ids {
+            let one: &'static [u32] = Box::leak(vec![*id].into_boxed_slice());
+            let v1 = GameVec { alloc: get_alloc(), begin: one.as_ptr(), end: one.as_ptr().add(1), cap: one.as_ptr().add(1) };
+            let mut job = 0usize;
+            make(&mut job, ctx, &v1);
+            let c = find_content_callable(base, job);
+            if c == 0 { logf!("grid: page {} part {:#X}: no content callable", p, id); }
+            row.push(c);
+        }
+        callables.push(row);
     }
-    let swap = OWN_MOVIE.load(Relaxed);
-    if swap { write_wide(name, CHOICE_MOVIE); RESTORE_IN.store(60, Relaxed); }
+    if let Ok(mut c) = CALLABLES.lock() { *c = callables; }
+    for p in &PICKS { p.store(0, Relaxed); }
+    if let Ok(mut s) = SEEN_PAGES.lock() { s.clear(); }
+    let firsts: &'static [u32] = Box::leak(pages.iter().map(|p| p.ids[0]).collect::<Vec<_>>().into_boxed_slice());
+    let v = GameVec { alloc: get_alloc(), begin: firsts.as_ptr(), end: firsts.as_ptr().add(firsts.len()), cap: firsts.as_ptr().add(firsts.len()) };
+    logf!("grid: {} page(s) {:X?}", pages.len(), pages.iter().map(|p| p.ids.clone()).collect::<Vec<_>>());
+    // the class names its window with this string while it is built: ours until the last page is up
+    write_wide(base + o::GOT_REWARD_MOVIE_NAME, CHOICE_MOVIE);
+    RESTORE_IN.store(0, Relaxed);
+    ACTIVE.store(true, Relaxed);
     make(out, ctx, &v)
 }
+
+// ---- our std::function (garage debug open)
+unsafe extern "system" fn own_copy(this: *const usize, dest: *mut usize) -> *mut usize { *dest = *this; *dest.add(1) = *this.add(1); dest }
+unsafe extern "system" fn own_call(_this: usize, out: *mut usize, ctx: usize) -> *mut usize { build(mem::module_base(), out, ctx) }
 unsafe extern "system" fn own_type(_this: usize) -> usize { 0 }
 unsafe extern "system" fn own_delete(_this: usize, _dealloc: u32) {}
 unsafe extern "system" fn own_get(this: usize) -> usize { this + 8 }
@@ -101,14 +103,13 @@ unsafe fn own_vtable() -> usize {
     *vt.add(5) = own_get as *const () as usize;
     vt as usize
 }
+
 // ---- our own movie (menu/02_rwdchoice.gfx in the mod package)
 /// Movie names (same length: the class's string is patched in place).
 const VANILLA_MOVIE: &str = "02_GotReward";
 const CHOICE_MOVIE: &str = "02_RwdChoice";
-/// Open our factory's dialog with our movie instead of 02_GotReward (debug toggle).
-pub static OWN_MOVIE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 static mut CHOICE_NAME_W: [u16; 13] = [0; 13];
-/// Garage frames left before the vanilla movie name is written back (0 = nothing pending).
+/// Frames left before the vanilla movie name is written back (0 = nothing pending).
 static RESTORE_IN: AtomicU32 = AtomicU32::new(0);
 
 unsafe fn write_wide(at: usize, s: &str) {
@@ -117,6 +118,11 @@ unsafe fn write_wide(at: usize, s: &str) {
     VirtualProtect(at as *mut c_void, w.len() * 2, PAGE_EXECUTE_READWRITE, &mut old);
     core::ptr::copy_nonoverlapping(w.as_ptr(), at as *mut u16, w.len());
     VirtualProtect(at as *mut c_void, w.len() * 2, old, &mut old);
+}
+unsafe fn restore_movie_name(base: usize) {
+    if mem::rd_u16(base + o::GOT_REWARD_MOVIE_NAME + 6) != 'R' as u16 { return; } // "02_R" = ours
+    write_wide(base + o::GOT_REWARD_MOVIE_NAME, VANILLA_MOVIE);
+    log("reward choice: vanilla movie name restored");
 }
 
 /// Boot: make the game preload our movie, under the menu table entry of 02_OnlineArena_GotReward (online only).
@@ -127,13 +133,9 @@ pub unsafe fn register_movie(base: usize) {
     let old = mem::rd_usize(entry);
     core::ptr::write_unaligned(entry as *mut usize, names as usize);
     logf!("reward choice movie {} registered in menu table entry exe+{:X} (was {:#X})", CHOICE_MOVIE, o::MENU_TABLE_SPARE_ENTRY, old);
-    trace::command(&format!("watch 3 {:X} rw 8 12", names as usize)); // RE: who reads our movie name
 }
-// ---- the grid: our tiles filled with the game's own part view (RE_NOTES "How the class fills a part tile")
-/// Our dialog was built and its tiles are not filled yet.
-/// Per tile: the content callable (std::function _Impl, vtable exe+39BF948) of a hidden single-part job.
-static TILE_CALLABLES: [AtomicUsize; 12] = [const { AtomicUsize::new(0) }; 12];
 
+// ---- the grid: our tiles filled with the game's own part view (RE_NOTES "How the class fills a part tile")
 /// Breadth-first search (3 levels, 0x400 bytes per object) from a job for a pointer P whose [P] is the content
 /// callable vtable: that P is the page's std::function _Impl.
 unsafe fn find_content_callable(base: usize, job: usize) -> usize {
@@ -153,20 +155,19 @@ unsafe fn find_content_callable(base: usize, job: usize) -> usize {
     0
 }
 
-static GRID_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-/// Give the class only the first part (its OK then closes the dialog).
-/// RE: log a real backtrace (unwind data) on the next binds.
-pub static BACKTRACES: AtomicU32 = AtomicU32::new(0);
-extern "system" { fn RtlCaptureStackBackTrace(skip: u32, n: u32, out: *mut usize, hash: *mut u32) -> u16; }
-static TRUNCATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-/// The parts content handle the class just bound its view to (valid during that update).
-static LAST_HANDLE: AtomicUsize = AtomicUsize::new(0);
-/// Handle of _Content_/SelIdx ("selected/count", read by the movie's script). Leaked on purpose: one per dialog.
+/// Our grid is up and some of its pages were not shown yet.
+static ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// A page of our grid just bound its content (its window root): fill it at the class's next fill.
+static NEW_PAGE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Page objects seen so far, in order: a page's index is its rank here.
+static SEEN_PAGES: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+/// Page being shown.
+static PAGE: AtomicUsize = AtomicUsize::new(0);
+/// Handle of _Content_/SelIdx ("selected/count", read by the movie's script). Leaked on purpose: one per page.
 static SEL_HANDLE: AtomicUsize = AtomicUsize::new(0);
-/// Our dialog's window root component (class + 0x4F0, lives as long as the window).
+/// The page's window root component (class + 0x4F0).
 static ROOT_HANDLE: AtomicUsize = AtomicUsize::new(0);
 
-type FnBind = unsafe extern "system" fn(view: *mut u8, handle: usize) -> usize;
 type FnFill = unsafe extern "system" fn(view: *mut u8, record: *const u8) -> usize;
 type FnGetChild = unsafe extern "system" fn(parent: usize, out: *mut usize, path: *const u8) -> usize;
 type FnSetText = unsafe extern "system" fn(target: usize, text: *const u16);
@@ -175,65 +176,54 @@ type FnHandle = unsafe extern "system" fn(handle: *mut usize);
 /// A component handle the game writes into (size unknown, generous). Never freed: the game may keep it linked.
 unsafe fn new_handle() -> *mut usize { Box::leak(Box::new([0usize; 32])).as_mut_ptr() }
 
-unsafe extern "system" fn bind_hook(view: *mut u8, handle: usize) -> usize {
-    let base = mem::module_base();
-    let orig: FnBind = core::mem::transmute(base + o::FN_PART_VIEW_BIND);
-    let r = orig(view, handle);
-    if GRID_PENDING.load(Relaxed) { LAST_HANDLE.store(handle, Relaxed); }
-    if BACKTRACES.load(Relaxed) > 0 {
-        BACKTRACES.fetch_sub(1, Relaxed);
-        let mut frames = [0usize; 24];
-        let n = RtlCaptureStackBackTrace(0, 24, frames.as_mut_ptr(), core::ptr::null_mut()) as usize;
-        let s: Vec<String> = frames[..n].iter().map(|f| if *f >= base && *f < base + 0x0700_0000 { format!("exe+{:X}", f - base) } else { format!("{:X}", f) }).collect();
-        logf!("grid: bind backtrace {}", s.join(" "));
-    }
-    r
-}
-
 unsafe extern "system" fn fill_hook(view: *mut u8, record: *const u8) -> usize {
     let base = mem::module_base();
     let orig: FnFill = core::mem::transmute(base + o::FN_PART_VIEW_FILL);
     let r = orig(view, record);
-    if GRID_PENDING.swap(false, Relaxed) { fill_tiles(base, LAST_HANDLE.load(Relaxed), record); }
+    if NEW_PAGE.swap(false, Relaxed) { fill_page(base, PAGE.load(Relaxed)); }
     r
 }
 
-unsafe fn fill_tiles(base: usize, _content: usize, _record: *const u8) {
+unsafe fn fill_page(base: usize, page: usize) {
     let root = ROOT_HANDLE.load(Relaxed);
-    if root == 0 { log("grid: no window root"); return; }
-    let n = PARTS.iter().filter(|p| p.load(Relaxed) != 0).count();
+    let Some(info) = PAGES.lock().ok().and_then(|p| p.get(page).cloned()) else { return };
+    let callables = CALLABLES.lock().ok().and_then(|c| c.get(page).cloned()).unwrap_or_default();
     let get_child: FnGetChild = core::mem::transmute(base + o::FN_GET_CHILD);
     let prepare: FnHandle = core::mem::transmute(base + o::FN_HANDLE_PREPARE);
     let release: FnHandle = core::mem::transmute(base + o::FN_HANDLE_DTOR);
+    let set_text: FnSetText = core::mem::transmute(base + o::FN_SET_TEXT);
+    let n = info.ids.len().min(12);
     for i in 0..n {
-        let callable = TILE_CALLABLES[i].load(Relaxed);
-        if callable == 0 { logf!("grid: tile {}: no content callable", i); continue; }
+        let callable = callables.get(i).copied().unwrap_or(0);
+        if callable == 0 { continue; }
         let tile = new_handle();
         let name = format!("_Content_/Tile{:02}\0", i);
         get_child(root, tile, name.as_ptr());
         prepare(tile);
-        // the page's content std::function: _Do_call(callable, &component) -> the part view controller (kept)
+        // the page's content std::function: _Do_call(callable, &component) fills the part view
         let call: unsafe extern "system" fn(usize, *mut usize) -> usize = core::mem::transmute(mem::rd_usize(mem::rd_usize(callable) + 0x10));
-        let ctl = call(callable, tile);
+        call(callable, tile);
         release(tile);
-        logf!("grid: tile {} filled (controller {:#X}, handle {:X?})", i, ctl, core::slice::from_raw_parts(tile, 4));
     }
     let title = new_handle();
     get_child(root, title, b"Title\0".as_ptr());
-    let text: Vec<u16> = TITLE.lock().map(|t| t.clone()).unwrap_or_default().encode_utf16().chain(Some(0)).collect();
-    if text.len() > 1 { let set_text: FnSetText = core::mem::transmute(base + o::FN_SET_TEXT); set_text(title as usize + 8, text.as_ptr()); }
+    let text: Vec<u16> = info.title.encode_utf16().chain(Some(0)).collect();
+    set_text(title as usize + 8, text.as_ptr());
     release(title);
     let sel = new_handle();
     get_child(root, sel, b"_Content_/SelIdx\0".as_ptr());
     SEL_HANDLE.store(sel as usize, Relaxed);
     SEL.store(0, Relaxed);
     COUNT.store(n as u32, Relaxed);
-    PREV_INPUT.store(u32::MAX, Relaxed); // ignore what is held when the grid opens
+    PREV_INPUT.store(u32::MAX, Relaxed); // ignore what is held when the page opens
     GRID_OPEN.store(true, Relaxed);
     set_selection(base, 0, n);
+    let pages = PAGES.lock().map(|p| p.len()).unwrap_or(0);
+    logf!("grid: page {}/{} filled ({} part(s))", page + 1, pages, n);
+    if page + 1 >= pages { ACTIVE.store(false, Relaxed); RESTORE_IN.store(60, Relaxed); }
 }
 /// Write "selected/count" into _Content_/SelIdx (game thread).
-pub unsafe fn set_selection(base: usize, sel: usize, count: usize) {
+unsafe fn set_selection(base: usize, sel: usize, count: usize) {
     let h = SEL_HANDLE.load(Relaxed);
     if h == 0 { return; }
     let text: Vec<u16> = format!("{}/{}", sel, count).encode_utf16().chain(Some(0)).collect();
@@ -241,28 +231,21 @@ pub unsafe fn set_selection(base: usize, sel: usize, count: usize) {
     set_text(h + 8, text.as_ptr());
 }
 
-type FnGetChildHook = unsafe extern "system" fn(parent: usize, out: *mut usize, path: *const u8) -> usize;
-/// RE: the page function's "_Content_" lookup (rdi = class, rsi = page object at this point).
+/// The page function's "_Content_" lookup (rsi = the page object at this point): a page of our grid opens.
 unsafe extern "system" fn content_lookup_hook(parent: usize, out: *mut usize, path: *const u8) -> usize {
     let page = mem::rd_usize(SAVED_RSI.load(Relaxed));
-    let base = mem::module_base();
-    let orig: FnGetChildHook = core::mem::transmute(base + o::FN_GET_CHILD);
+    let orig: FnGetChild = core::mem::transmute(mem::module_base() + o::FN_GET_CHILD);
     let r = orig(parent, out, path);
-    if GRID_PENDING.load(Relaxed) { ROOT_HANDLE.store(parent, Relaxed); }
-    if PAGE_DUMPS.load(Relaxed) > 0 {
-        PAGE_DUMPS.fetch_sub(1, Relaxed);
-        let this = parent - 0x4F0;
-        logf!("grid: content lookup, class {:#X} page {:#X}; page[0..0x100] {:X?}", this, page, (0..32).map(|k| mem::rd_usize(page + 8 * k)).collect::<Vec<_>>());
-        let hits: Vec<String> = (0..0x6A0 / 8).filter_map(|k| { let v = mem::rd_usize(this + 8 * k); if v != 0 && v.abs_diff(page) < 0x800 { Some(format!("+{:X}={:X}", 8 * k, v)) } else { None } }).collect();
-        logf!("grid: class fields near the page: {}", hits.join(" "));
-        let mut frames = [0usize; 20];
-        let n = RtlCaptureStackBackTrace(0, 20, frames.as_mut_ptr(), core::ptr::null_mut()) as usize;
-        let s: Vec<String> = frames[..n].iter().map(|f| if *f >= base && *f < base + 0x0700_0000 { format!("exe+{:X}", f - base) } else { format!("{:X}", f) }).collect();
-        logf!("grid: page function backtrace {}", s.join(" "));
+    if ACTIVE.load(Relaxed) {
+        if let Ok(mut seen) = SEEN_PAGES.lock() {
+            let idx = seen.iter().position(|p| *p == page).unwrap_or_else(|| { seen.push(page); seen.len() - 1 });
+            PAGE.store(idx, Relaxed);
+        }
+        ROOT_HANDLE.store(parent, Relaxed);
+        NEW_PAGE.store(true, Relaxed);
     }
     r
 }
-static PAGE_DUMPS: AtomicU32 = AtomicU32::new(0);
 /// Address of the qword where the content lookup cave stores the caller's rsi (the page object).
 static SAVED_RSI: AtomicUsize = AtomicUsize::new(0);
 
@@ -286,10 +269,38 @@ unsafe fn install_call_hook_saving_rsi(base: usize, site_rva: usize, target_rva:
     Ok(cave)
 }
 
-/// Boot: route the parts view bind / fill calls of the "Pièces obtenues" class through our hooks.
+/// Results screen: the game opens "Pièces obtenues" with its pending parts list; with a reward choice armed, our
+/// grid opens instead.
+unsafe extern "system" fn results_parts_hook(out: *mut usize, ctx: usize, list: *const GameVec) -> *mut usize {
+    let base = mem::module_base();
+    let l = &*list;
+    let n = (l.end as usize).saturating_sub(l.begin as usize) / 4;
+    let ids: Vec<u32> = if n > 0 && n < 256 { core::slice::from_raw_parts(l.begin, n).to_vec() } else { Vec::new() };
+    if let Some(pages) = choice::pages(&ids) {
+        logf!("results: parts list {:X?} -> reward choice grid", ids);
+        set_pages(pages);
+        return build(base, out, ctx);
+    }
+    let orig: FnPartsMenu = core::mem::transmute(base + o::FN_GOT_REWARD_PARTS_MENU);
+    orig(out, ctx, list)
+}
+
+type FnCommit = unsafe extern "system" fn(mgr: usize, commit: u32, obj: usize) -> usize;
+/// The game commits the pending obtained items (OK of the results' parts dialog): take the parts not picked out first.
+unsafe extern "system" fn commit_hook(mgr: usize, commit: u32, obj: usize) -> usize {
+    if commit & 0xFF != 0 { choice::prune(mgr); }
+    GRID_OPEN.store(false, Relaxed);
+    let base = mem::module_base();
+    restore_movie_name(base);
+    let orig: FnCommit = core::mem::transmute(base + o::FN_PENDING_COMMIT);
+    orig(mgr, commit, obj)
+}
+
+/// Boot: the hooks of the grid (page fill, content lookup), of the results' parts dialog and of the commit.
 pub unsafe fn install(base: usize) {
-    for (site, target, f) in [(o::PART_VIEW_BIND_CALLSITE, o::FN_PART_VIEW_BIND, bind_hook as *const () as usize),
-                              (o::PART_VIEW_FILL_CALLSITE, o::FN_PART_VIEW_FILL, fill_hook as *const () as usize)] {
+    for (site, target, f) in [(o::PART_VIEW_FILL_CALLSITE, o::FN_PART_VIEW_FILL, fill_hook as *const () as usize),
+                              (o::RESULTS_PARTS_MENU_CALLSITE, o::FN_GOT_REWARD_PARTS_MENU, results_parts_hook as *const () as usize),
+                              (o::PENDING_COMMIT_CALLSITE, o::FN_PENDING_COMMIT, commit_hook as *const () as usize)] {
         match install_call_hook(base, site, target, f) {
             Ok(cave) => logf!("reward grid hook installed: exe+{:X} -> cave {:#X}", site, cave),
             Err(e) => logf!("reward grid hook exe+{:X} FAILED: {}", site, e),
@@ -300,74 +311,49 @@ pub unsafe fn install(base: usize) {
         Err(e) => logf!("reward grid hook exe+{:X} FAILED: {}", o::CONTENT_LOOKUP_CALLSITE, e),
     }
 }
-// ---- selection: the movie gets no input, so the DLL reads the pad / keyboard and moves the highlight
+
+// ---- selection: the movie gets no input, so the DLL reads the keyboard and moves the highlight; the
+// highlighted part is the page's pick (the class's own OK goes to the next page / closes)
 static GRID_OPEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static SEL: AtomicU32 = AtomicU32::new(0);
 static COUNT: AtomicU32 = AtomicU32::new(0);
 static PREV_INPUT: AtomicU32 = AtomicU32::new(0);
-/// The part picked in the last grid (0 = none yet).
-pub static PICKED: AtomicU32 = AtomicU32::new(0);
 const COLS: u32 = 3;
 const IN_UP: u32 = 1; const IN_DOWN: u32 = 2; const IN_LEFT: u32 = 4; const IN_RIGHT: u32 = 8; const IN_OK: u32 = 16;
 
-#[repr(C)]
-struct XInputState { packet: u32, buttons: u16, lt: u8, rt: u8, lx: i16, ly: i16, rx: i16, ry: i16 }
-type FnXInputGetState = unsafe extern "system" fn(user: u32, state: *mut XInputState) -> u32;
-static XINPUT: AtomicUsize = AtomicUsize::new(0);
 #[link(name = "user32")]
 extern "system" { fn GetAsyncKeyState(vk: i32) -> i16; }
-extern "system" {
-    fn LoadLibraryA(name: *const u8) -> usize;
-    fn GetProcAddress(module: usize, name: *const u8) -> usize;
-}
 
-/// Directions + confirm from the first pad (d-pad, left stick, A) and the keyboard (arrows / WASD, Enter / E / Space).
+/// Directions + confirm from the keyboard (arrows / WASD, Enter / E / Space). The game reads the pad through its own
+/// input system, not XInput calls the DLL could share: pad navigation is still to do.
 unsafe fn read_input() -> u32 {
     let mut v = 0;
-    if XINPUT.load(Relaxed) == 0 {
-        let m = LoadLibraryA(b"xinput1_4.dll\0".as_ptr());
-        if m != 0 { XINPUT.store(GetProcAddress(m, b"XInputGetState\0".as_ptr()), Relaxed); }
-    }
-    let f = XINPUT.load(Relaxed);
-    if f != 0 {
-        let get: FnXInputGetState = core::mem::transmute(f);
-        let mut s = XInputState { packet: 0, buttons: 0, lt: 0, rt: 0, lx: 0, ly: 0, rx: 0, ry: 0 };
-        if get(0, &mut s) == 0 {
-            let b = s.buttons;
-            if b & 0x1 != 0 || s.ly > 16000 { v |= IN_UP; }
-            if b & 0x2 != 0 || s.ly < -16000 { v |= IN_DOWN; }
-            if b & 0x4 != 0 || s.lx < -16000 { v |= IN_LEFT; }
-            if b & 0x8 != 0 || s.lx > 16000 { v |= IN_RIGHT; }
-            if b & 0x1000 != 0 { v |= IN_OK; }
-        }
-    }
     let key = |vk: i32| GetAsyncKeyState(vk) as u16 & 0x8000 != 0;
     if key(0x26) || key(0x57) { v |= IN_UP; }
     if key(0x28) || key(0x53) { v |= IN_DOWN; }
     if key(0x25) || key(0x41) { v |= IN_LEFT; }
     if key(0x27) || key(0x44) { v |= IN_RIGHT; }
-    if key(0x0D) || key(0x45) || key(0x20) || key(0x01) { v |= IN_OK; }
+    if key(0x0D) || key(0x45) || key(0x20) { v |= IN_OK; }
     v
 }
 
-/// Game thread, every frame: move the highlight, and take the highlighted part when confirm is pressed (the dialog's
-/// own OK closes it on the same press).
+/// Game thread, every frame: move the highlight of the page shown (that part becomes the page's pick). Confirm goes to
+/// the class's OK (next page / close): the page's handles die with it, so nothing more is written until the next fill.
 pub unsafe fn tick(base: usize) {
     if !GRID_OPEN.load(Relaxed) { return; }
     let now = read_input();
     let prev = PREV_INPUT.swap(now, Relaxed);
     let pressed = now & !prev;
     if pressed == 0 { return; }
+    if pressed & IN_OK != 0 { GRID_OPEN.store(false, Relaxed); return; }
     let (n, mut sel) = (COUNT.load(Relaxed), SEL.load(Relaxed));
     if pressed & IN_LEFT != 0 && sel % COLS > 0 { sel -= 1; }
     if pressed & IN_RIGHT != 0 && sel % COLS < COLS - 1 && sel + 1 < n { sel += 1; }
     if pressed & IN_UP != 0 && sel >= COLS { sel -= COLS; }
     if pressed & IN_DOWN != 0 && sel + COLS < n { sel += COLS; }
-    if sel != SEL.load(Relaxed) { SEL.store(sel, Relaxed); set_selection(base, sel as usize, n as usize); }
-    if pressed & IN_OK != 0 {
-        GRID_OPEN.store(false, Relaxed);
-        let id = PARTS[sel as usize].load(Relaxed);
-        PICKED.store(id, Relaxed);
-        logf!("reward choice: part {} picked ({:#X})", sel, id);
+    if sel != SEL.load(Relaxed) {
+        SEL.store(sel, Relaxed);
+        if let Some(p) = PICKS.get(PAGE.load(Relaxed)) { p.store(sel, Relaxed); }
+        set_selection(base, sel as usize, n as usize);
     }
 }

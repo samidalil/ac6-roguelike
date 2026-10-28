@@ -1,8 +1,8 @@
 """build_rwdchoice.py <vanilla 02_gotreward ffdec xml> <out xml>: the reward choice layout (menu/02_rwdchoice.gfx).
 
 From the vanilla "Pièces obtenues" movie (FFDec -swf2xml), on the parts content sprite (218, Dialog/_Content_):
-- sprite 900 = a copy of 218 (one part: MakerLogo, ItemIcon/Thumbnail, CategoryName, ItemName + its frame) with the
-  button cursor graphic (199) on top, named "Sel" (selection highlight);
+- sprite 900 = a copy of 218 reduced to one part's named slots (MakerLogo, ItemIcon = thumbnail + its frame,
+  CategoryName, ItemName): a grid tile;
 - 218 keeps its named children (the game binds them) but loses its decorations, and gets Tile00..Tile11 (sprite 900)
   and "SelIdx" (a copy of the ItemName text field, 901): the DLL writes "selected/count" there;
 - Dialog (274) frame 1 decorations get names (Bg0..Bg3, Line0, Line1) so the AS3 can resize the window.
@@ -26,10 +26,11 @@ def place(char, depth, name, sx=None, tx=0, ty=0):
             '<matrix type="MATRIX" hasRotate="false" %snRotateBits="0" nTranslateBits="17" translateX="%d" translateY="%d"/>\n'
             '</item>\n') % (char, depth, name, scale, tx, ty)
 
-# --- tile sprite 900 = copy of 218 + "Sel" highlight
+UNNAMED = r'<item type="PlaceObject\d?Tag"(?![^>]*\bname=)[^>]*>.*?</item>\n?'
+
+# --- tile sprite 900 = copy of 218 with only its named slots (the vanilla box's decorations overlap the next tile)
 m218 = sprite_block(218)
-tile = m218.group().replace('spriteId="218"', 'spriteId="900"', 1)
-tile = tile.replace('<item type="ShowFrameTag"', place(199, 40, "Sel") + '<item type="ShowFrameTag"', 1)
+tile = re.sub(UNNAMED, '', m218.group().replace('spriteId="218"', 'spriteId="900"', 1), flags=re.S)
 
 # --- SelIdx text field 901 = copy of the ItemName field 204
 m204 = re.search(r'<item type="DefineEditTextTag"[^>]*\bcharacterID="204".*?</item>', x, re.S)
@@ -37,7 +38,7 @@ seltext = m204.group().replace('characterID="204"', 'characterID="901"', 1).repl
 
 # --- 218: drop unnamed placements (decorations), add the tiles and SelIdx
 body = m218.group()
-body = re.sub(r'<item type="PlaceObject\d?Tag"(?![^>]*\bname=)[^>]*>.*?</item>\n?', '', body, flags=re.S)
+body = re.sub(UNNAMED, '', body, flags=re.S)
 adds = "".join(place(900, 30 + i, "Tile%02d" % i) for i in range(12)) + place(901, 60, "SelIdx")
 body = body.replace('<item type="ShowFrameTag"', adds + '<item type="ShowFrameTag"', 1)
 

@@ -1,7 +1,9 @@
-//! Reward choice (pick 1 of K): every reward of a cleared mission offers `reward_choices` parts and the player picks
-//! one in the native grid (rewardmenu.rs). The offers come from their own pool (every offered part leaves it, picked
-//! or not) and their own random generator; both, and the pending offer, live in the save (event flags), so quitting
-//! or reloading neither rerolls nor loses an offer.
+//! Reward choice (pick 1 of K): each of a mission's rewards (parts_per_mission) offers `reward_choices` parts. The
+//! offers are rolled and queued at sortie like plain rewards (the game's pending obtained-items list); at the results
+//! screen the game's "Pièces obtenues" opens our grid instead (rewardmenu.rs, one page per reward), and just before the
+//! game commits the pending list the parts not picked are taken out of it. The offers come from their own pool (every
+//! offered part leaves it when the mission is cleared, picked or not) and their own random generator, both saved in
+//! event flags.
 
 use super::*;
 
@@ -22,106 +24,87 @@ unsafe fn save_rng(g: &Game, man: usize, r: &Rng) {
     g.put_bits(man, o::REWARD_RNG + 32, 32, (r.0 >> 32) as u32);
 }
 
-/// The pending offer (lineup row indices), empty when none.
-pub unsafe fn offer(g: &Game, man: usize) -> Vec<u16> {
-    let n = g.get_bits(man, o::OFFER_COUNT, 4).min(12);
-    (0..n).map(|k| g.get_bits(man, o::OFFER_ROWS + 9 * k, 9) as u16).collect()
-}
-unsafe fn write_offer(g: &Game, man: usize, rows: &[u16]) {
-    for (k, r) in rows.iter().enumerate().take(12) { g.put_bits(man, o::OFFER_ROWS + 9 * k as u32, 9, *r as u32); }
-    g.put_bits(man, o::OFFER_COUNT, 4, rows.len().min(12) as u32);
-}
-/// Rewards still to pick for the last cleared mission, the pending offer included.
-pub unsafe fn sets_left(g: &Game, man: usize) -> u32 { g.get_bits(man, o::OFFER_SETS_LEFT, 4) }
-unsafe fn put_sets_left(g: &Game, man: usize, n: u32) { g.put_bits(man, o::OFFER_SETS_LEFT, 4, n.min(15)); }
-
-/// Roll one offer of `k` parts by rarity: not owned, not lost forever, not offered before. A pool that runs dry is
-/// refilled once (everything but this roll) and completes from the refill. Every offered part leaves the pool.
-unsafe fn roll(g: &Game, gd: usize, man: usize, pool: &[Part], k: usize) -> Vec<Part> {
+/// Roll `n` offers of `k` parts by rarity: not owned, not lost forever, not offered before, each part in one offer
+/// only. A pool that runs dry is refilled once (everything but this roll) and completes from the refill; an offer
+/// still empty after that is left out (the caller pays that reward in credits).
+pub unsafe fn roll(g: &Game, gd: usize, man: usize, pool: &[Part], n: u32, k: usize) -> Vec<Vec<Part>> {
     let mut rng = load_rng(g, man);
     let owned = g.owned_ids(gd);
     let lost = g.read_rows(man, o::ROWS_LOST);
-    let mut out: Vec<Part> = Vec::new();
+    let mut sets: Vec<Vec<Part>> = Vec::new();
+    let mut taken: Vec<u16> = Vec::new();
     let mut refilled = false;
-    while out.len() < k {
-        let cands: Vec<Part> = pool.iter().copied().filter(|p| !rolled(g, man, p.idx) && !lost.contains(&p.idx)
-            && !owned.contains(&p.grant_id()) && !out.iter().any(|o| o.idx == p.idx)).collect();
-        match pick_weighted(&mut rng, &cands) {
-            Some(p) => out.push(p),
-            None if !refilled => {
-                let mut n = 0;
-                for p in pool { if rolled(g, man, p.idx) && !out.iter().any(|o| o.idx == p.idx) { set_rolled(g, man, p.idx, false); n += 1; } }
-                logf!("reward pool refill: {} part(s) back in", n);
-                refilled = true;
+    for _ in 0..n {
+        let mut set = Vec::new();
+        while set.len() < k {
+            let cands: Vec<Part> = pool.iter().copied().filter(|p| !rolled(g, man, p.idx) && !lost.contains(&p.idx)
+                && !owned.contains(&p.grant_id()) && !taken.contains(&p.idx)).collect();
+            match pick_weighted(&mut rng, &cands) {
+                Some(p) => { taken.push(p.idx); set.push(p); }
+                None if !refilled => {
+                    let mut m = 0;
+                    for p in pool { if rolled(g, man, p.idx) && !taken.contains(&p.idx) { set_rolled(g, man, p.idx, false); m += 1; } }
+                    logf!("reward pool refill: {} part(s) back in", m);
+                    refilled = true;
+                }
+                None => break,
             }
-            None => break,
+        }
+        if set.is_empty() { break; }
+        sets.push(set);
+    }
+    save_rng(g, man, &rng);
+    sets
+}
+
+/// Mission cleared: every offered part leaves the reward pool.
+pub unsafe fn mark_offered(g: &Game, man: usize, parts: &[Part]) {
+    for p in parts { set_rolled(g, man, p.idx, true); }
+}
+
+/// The current sortie's offers, by reward: (grant id, pending-list handle, 0 = not found) of each part.
+static ARMED: std::sync::Mutex<Vec<Vec<(u32, u32)>>> = std::sync::Mutex::new(Vec::new());
+
+/// The offers are queued (sortie, or re-queued after a restart).
+pub fn arm(sets: Vec<Vec<(u32, u32)>>) {
+    logf!("reward choice armed: {:X?}", sets);
+    if let Ok(mut a) = ARMED.lock() { *a = sets; }
+}
+pub fn disarm() { if let Ok(mut a) = ARMED.lock() { a.clear(); } }
+
+/// Results screen: the pages of our grid for the game's pending parts list `ids` (None = no choice armed: the vanilla
+/// dialog). One page per offer, then one per other part of the list (a mission's own reward).
+pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
+    let sets = ARMED.lock().ok()?.clone();
+    if sets.is_empty() { return None; }
+    let n = sets.len();
+    let mut pages: Vec<rewardmenu::Page> = sets.iter().enumerate().map(|(i, s)| rewardmenu::Page {
+        ids: s.iter().map(|x| x.0).collect(),
+        title: if n > 1 { format!("CHOISISSEZ UNE PIÈCE ({}/{})", i + 1, n) } else { "CHOISISSEZ UNE PIÈCE".to_string() },
+    }).collect();
+    for id in ids {
+        if !sets.iter().flatten().any(|x| x.0 == *id) { pages.push(rewardmenu::Page { ids: vec![*id], title: "PIÈCE OBTENUE".to_string() }); }
+    }
+    Some(pages)
+}
+
+/// The game is about to commit the pending list (mgr = its item manager): take the parts not picked out of it.
+pub unsafe fn prune(mgr: usize) {
+    let sets = match ARMED.lock() { Ok(mut a) => core::mem::take(&mut *a), Err(_) => return };
+    if sets.is_empty() { return; }
+    let mut drop = Vec::new();
+    let mut kept = Vec::new();
+    for (s, set) in sets.iter().enumerate() {
+        let pick = rewardmenu::picked(s).min(set.len() - 1);
+        for (j, (id, h)) in set.iter().enumerate() {
+            if j == pick { kept.push(*id); } else if *h != 0 { drop.push(*h); } else { logf!("WARNING: reward choice: no handle for {:#X}, it stays granted", id); }
         }
     }
-    for p in &out { set_rolled(g, man, p.idx, true); }
-    save_rng(g, man, &rng);
-    out
-}
-
-/// Grant ids of an offer's rows (rows not in the pool are skipped).
-fn ids(pool: &[Part], rows: &[u16]) -> Vec<u32> {
-    rows.iter().filter_map(|r| pool.iter().find(|p| p.idx == *r)).map(|p| p.grant_id()).collect()
-}
-
-/// Ask the game thread to open the grid for the pending offer ("Récompense 2/3" when a mission gives several).
-unsafe fn show(g: &Game, man: usize, pool: &[Part], rows: &[u16]) {
-    let total = config::get().parts_per_mission.max(1);
-    let n = total + 1 - sets_left(g, man).clamp(1, total);
-    let title = if total > 1 { format!("CHOISISSEZ UNE PIÈCE ({}/{})", n, total) } else { "CHOISISSEZ UNE PIÈCE".to_string() };
-    if let Ok(mut t) = rewardmenu::TITLE.lock() { *t = title; }
-    let v = ids(pool, rows);
-    for (k, p) in rewardmenu::PARTS.iter().enumerate() { p.store(v.get(k).copied().unwrap_or(0), Relaxed); }
-    rewardmenu::VTABLE.store(rewardmenu::OWN as u32, Relaxed);
-    rewardmenu::OPEN_REQUEST.store(1, Relaxed);
-    logf!("reward choice: offer {:X?} opened", v);
-}
-
-/// Mission cleared (flag writes only, before the commit autosave): roll the first offer and open it. An empty roll
-/// (nothing left that is not owned / lost) returns false: the caller pays the reward in credits instead.
-pub unsafe fn on_mission_cleared(g: &Game, gd: usize, man: usize, pool: &[Part]) -> bool {
-    let cfg = config::get();
-    if cfg.parts_per_mission == 0 { return true; }
-    let rolled = roll(g, gd, man, pool, cfg.reward_choices as usize);
-    logf!("reward choice: {} reward(s), first offer rows {:?}", cfg.parts_per_mission, rolled.iter().map(|p| p.idx).collect::<Vec<_>>());
-    if rolled.is_empty() { return false; }
-    let rows: Vec<u16> = rolled.iter().map(|p| p.idx).collect();
-    write_offer(g, man, &rows);
-    put_sets_left(g, man, cfg.parts_per_mission);
-    show(g, man, pool, &rows);
-    true
-}
-
-/// A save was loaded with an offer still pending (quit before picking): show it again.
-pub unsafe fn on_save_loaded(g: &Game, man: usize, pool: &[Part]) {
-    let rows = offer(g, man);
-    if !rows.is_empty() { logf!("reward choice: pending offer {:?} found in the save", rows); show(g, man, pool, &rows); }
-}
-
-/// The player picked `id` (DLL loop): grant it, then roll the next offer or close the reward. Returns true when a
-/// save should be requested (picked in the garage: no mission commit will save it).
-pub unsafe fn on_picked(g: &Game, gd: usize, man: usize, pool: &[Part], id: u32) -> bool {
-    let in_mission = g.defer_byte(gd) == 1;
-    if in_mission {
-        let (r, err) = g.give_deferred(gd, id);
-        logf!("reward choice: {:#X} queued with the mission (rax={} err={})", id, r, err);
-    } else {
-        penalty::GIVE_REQUEST.store(id, Relaxed);
-        logf!("reward choice: {:#X} granted in the garage", id);
-    }
-    let left = sets_left(g, man).saturating_sub(1);
-    put_sets_left(g, man, left);
-    write_offer(g, man, &[]);
-    if left > 0 {
-        let next = roll(g, gd, man, pool, config::get().reward_choices as usize);
-        if !next.is_empty() {
-            let rows: Vec<u16> = next.iter().map(|p| p.idx).collect();
-            write_offer(g, man, &rows);
-            show(g, man, pool, &rows);
-        } else { put_sets_left(g, man, 0); }
-    }
-    !in_mission
+    let (b, e) = (mem::rd_usize(mgr + o::MGR_PENDING_BEGIN), mem::rd_usize(mgr + o::MGR_PENDING_END));
+    if b == 0 || e < b || e - b > 0x1000 { log("WARNING: reward choice: pending list unreadable at the commit"); return; }
+    let all: Vec<u32> = (0..(e - b) / 4).map(|i| mem::rd_u32(b + 4 * i)).collect();
+    let keep: Vec<u32> = all.iter().copied().filter(|h| !drop.contains(h)).collect();
+    for (i, h) in keep.iter().enumerate() { mem::wr_u32(b + 4 * i, *h); }
+    core::ptr::write_unaligned((mgr + o::MGR_PENDING_END) as *mut usize, b + 4 * keep.len());
+    logf!("reward choice: picked {:X?}; pending {:X?} -> {:X?} at the commit", kept, all, keep);
 }

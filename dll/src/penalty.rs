@@ -193,7 +193,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
         mem::wr_i32(gd + o::GD_COAM, new);
         logf!("converted reward: +{} COAM ({} -> {})", credits, old, new);
     }
-    rewardmenu::open_pending(base, &game, gd); // the reward choice also opens at the mission clear
+    rewardmenu::open_pending(base); // movie name restore (also during the results)
     if game.defer_byte(gd) != 0 { return; } // the rest is garage-only work
     dialog::open_pending(base);
     if CLEANUP_REQUEST.swap(false, Relaxed) { cleanup_orphans(&game, gd); }
