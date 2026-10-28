@@ -2,7 +2,7 @@
 
 From the vanilla "Pièces obtenues" movie (FFDec -swf2xml), on the parts content sprite (218, Dialog/_Content_):
 - sprite 900 = a copy of 218 (one part: MakerLogo, CategoryName, ItemName, the image box = background + frame +
-  ItemIcon) without its corner lines: a grid tile;
+  ItemIcon) without its corner lines, plus PoolName (902, an empty copy of the CategoryName field): a grid tile;
 - 218 keeps its named children (the game binds them) but loses its decorations, and gets Tile00..Tile11 (sprite 900)
   and "SelIdx" (a copy of the ItemName text field, 901): the DLL writes "selected/count" there;
 - Dialog (274) frame 1 decorations get names (Bg0..Bg3, Line0, Line1) so the AS3 can resize the window (depth 3 is
@@ -34,10 +34,15 @@ UNNAMED = r'<item type="PlaceObject\d?Tag"(?![^>]*\bname=)[^>]*>.*?</item>\n?'
 m218 = sprite_block(218)
 LINES = r'<item type="PlaceObject\d?Tag"[^>]*\bcharacterId="214"[^>]*>.*?</item>\n?'
 tile = re.sub(LINES, '', m218.group().replace('spriteId="218"', 'spriteId="900"', 1), flags=re.S)
+# + "PoolName" (902, a copy of the CategoryName field 205, empty): the part's pool label, one line above the category
+# (the DLL writes the text, the AS3 its colour)
+tile = tile.replace('<item type="ShowFrameTag"', place(902, 40, "PoolName", tx=2700, ty=820 - 540) + '<item type="ShowFrameTag"', 1)
 
 # --- SelIdx text field 901 = copy of the ItemName field 204
 m204 = re.search(r'<item type="DefineEditTextTag"[^>]*\bcharacterID="204".*?</item>', x, re.S)
 seltext = m204.group().replace('characterID="204"', 'characterID="901"', 1).replace('initialText="HD-XXXXXXXXXXXXX"', 'initialText="-"', 1)
+m205 = re.search(r'<item type="DefineEditTextTag"[^>]*\bcharacterID="205".*?</item>', x, re.S)
+pooltext = m205.group().replace('characterID="205"', 'characterID="902"', 1).replace('initialText="HD-XXXXXXXXXXXXX"', 'initialText=""', 1)
 
 # --- 218: drop unnamed placements (decorations), add the tiles and SelIdx
 body = m218.group()
@@ -45,7 +50,7 @@ body = re.sub(UNNAMED, '', body, flags=re.S)
 adds = "".join(place(900, 30 + i, "Tile%02d" % i) for i in range(12)) + place(901, 60, "SelIdx")
 body = body.replace('<item type="ShowFrameTag"', adds + '<item type="ShowFrameTag"', 1)
 
-x = x[:m218.start()] + tile + "\n" + seltext + "\n" + body + x[m218.end():]
+x = x[:m218.start()] + pooltext + "\n" + tile + "\n" + seltext + "\n" + body + x[m218.end():]
 
 # --- Dialog 274: name the frame-1 decorations
 m274 = sprite_block(274)

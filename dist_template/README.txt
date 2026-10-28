@@ -47,12 +47,16 @@ HOW IT PLAYS
 SETTINGS
 ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restart the game:
 mission pay %, starting credits, ammo/repair cost %, sell and buy %, shop size, reroll interval, parts per mission,
-parts offered per reward, OS Tunings as rewards, part prices, rarity odds and tiers, what a failed sortie takes
-([lost_on_failure]) and how many times per run an item can be offered ([max_occurrences]: any part or OS Tuning,
+parts offered per reward, OS Tunings as rewards, part prices, the pools parts are drawn from, what a failed sortie
+takes ([lost_on_failure]) and how many times per run an item can be offered ([max_occurrences]: any part or OS Tuning,
 1 to 15, every shop or reward choice that shows it counts).
-A part at tier 0 (or every part [part_rarity] does not list, with unlisted_tier = 0), or in a tier whose odds are 0,
-is never offered in the shop nor as a reward; with few parts left, shop slots stay empty and rewards offer fewer
-parts or none.
+Pools: each [pool.NAME] section is a pool with a weight (its odds), a color ("#RRGGBB" or 0xRRGGBB) and optionally a
+label and show_name; [part_rarity] puts parts in them ("SG-027 ZIMMERMAN" = epic). Shipped: common, uncommon, rare,
+epic, and the built-in unlisted pool (weight 0) for every part [part_rarity] does not list. The reward choice shows
+each part's pool name in the pool's colour. A part listed as 0, or in a pool whose weight is 0, is never offered in
+the shop nor as a reward; with few parts left, shop slots stay empty and rewards offer fewer parts or none.
+A settings file from an older version uses numbered tiers ([part_rarity] = 1/2/3, [rarity] *_weight): those are no
+longer read, so every part ends up in the unlisted pool and nothing is offered. Delete the file to get the new one.
 An older settings file has no [lost_on_failure] / [max_occurrences] sections (an old [unique_occurrences] section is
 ignored): core expansions are then kept after a failure and offered without limit; delete the file (or copy the
 sections from a new one) to get them. An older [lost_on_failure] does not list the other OS Tunings: they then keep

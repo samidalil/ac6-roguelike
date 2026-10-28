@@ -1,5 +1,6 @@
 //! Player-editable settings: `ac6_roguelike.toml` next to the DLL, read once at boot. Written with the defaults
-//! (and comments) when missing. A tiny TOML subset: `[section]`, `key = integer`, quoted keys, `#` comments.
+//! (and comments) when missing. A tiny TOML subset: `[section]`, `key = value` (integer, 0x hex, quoted or bare
+//! string), quoted keys, `#` comments (outside quotes).
 
 use super::*;
 use std::sync::OnceLock;
@@ -33,14 +34,13 @@ pub struct Config {
     pub reroll_interval: u32,
     /// pay of the first mission of a run (MissionParam 2010, Illegal Entry): the run's starting money
     pub starting_credits: u32,
-    /// rarity tier (1 common, 2 rare, 3 epic, 0 = out of the pools) of every part [part_rarity] does not list
-    pub unlisted_tier: u32,
-    /// odds of each tier when the shop or a reward picks a part (0 = the tier is out of the pools)
-    pub common_weight: u32,
-    pub rare_weight: u32,
-    pub epic_weight: u32,
-    /// [part_rarity]: tier overrides, (part name or equipId as written, tier 0..3; 0 = out of the pools)
-    pub part_rarity: Vec<(String, u32)>,
+    /// [pool.NAME] sections, in file order, plus the internal unlisted pool (always there)
+    pub pools: Vec<Pool>,
+    /// [rarity] unlisted_pool: index in `pools` of the pool that gets every part [part_rarity] does not list
+    pub unlisted_pool: usize,
+    /// [part_rarity]: (part name, equipId or OsReinforce row as written, index in `pools`; None = `= 0`, out of the
+    /// pools)
+    pub part_rarity: Vec<(String, Option<usize>)>,
     /// [lost_on_failure]: (part name, equipId or OsReinforce row as written, 1 = the equipped item is lost on a failed
     /// sortie, 0 = it survives); unlisted: weapons and frame parts / internals lost, core expansions kept
     pub lost_on_failure: Vec<(String, u32)>,
@@ -48,6 +48,31 @@ pub struct Config {
     /// picked or not; 1..MAX_OCCURRENCES), 0 = no limit like unlisted
     pub max_occurrences: Vec<(String, u32)>,
 }
+
+/// A pool of parts: the shop and the rewards pick a pool by weight (among the pools with a candidate left), then a
+/// part uniformly in it. Weight 0 = its parts are never offered.
+#[derive(Clone, Debug)]
+pub struct Pool {
+    /// section name as written ([pool.NAME]), matched through `name_key`
+    pub name: String,
+    /// text shown on the reward tiles (upper case; default the name)
+    pub label: String,
+    pub weight: u32,
+    /// 0xRRGGBB of the label
+    pub color: u32,
+    /// the reward tiles show the label
+    pub show_name: bool,
+}
+/// Name of the internal pool of the parts [part_rarity] does not list.
+pub const UNLISTED: &str = "unlisted";
+impl Pool {
+    fn new(name: &str) -> Pool { Pool { name: name.to_string(), label: name.to_uppercase(), weight: 0, color: 0xFFFFFF, show_name: true } }
+    /// the unlisted pool, or a pool [rarity] unlisted_pool names without a section: out, grey, no label
+    fn unlisted(name: &str) -> Pool { Pool { color: 0x808080, show_name: false, ..Pool::new(name) } }
+}
+
+/// Pools at most, the unlisted one included (u8 index in lib.rs `Part`, 0xFF = out).
+pub const MAX_POOLS: usize = 200;
 
 pub const MAX_SHOP_SLOTS: u32 = 8;
 /// [max_occurrences] values above this are read as this (4-bit count in the save, offsets OCCUR_*)
@@ -57,8 +82,8 @@ fn defaults() -> Config {
     Config {
         mission_pay_percent: 0, arena_repeat_pay_percent: 0, part_sell_percent: 25, weapon_sell_percent: 25,
         item_charge_percent: 100, prices: Vec::new(), ammo_cost_percent: 100, repair_cost_percent: 100,
-        shop_weapons: 1, shop_parts: 2, parts_per_mission: 1, reward_choices: 3, os_rewards: true, reroll_interval: 1, starting_credits: 100_000, unlisted_tier: 1,
-        common_weight: 60, rare_weight: 30, epic_weight: 10, part_rarity: Vec::new(),
+        shop_weapons: 1, shop_parts: 2, parts_per_mission: 1, reward_choices: 3, os_rewards: true, reroll_interval: 1, starting_credits: 100_000,
+        pools: vec![Pool::unlisted(UNLISTED)], unlisted_pool: 0, part_rarity: Vec::new(),
         lost_on_failure: Vec::new(), max_occurrences: Vec::new(),
     }
 }
@@ -82,6 +107,34 @@ pub fn value(table: &[(String, u32)], ids: &[u32], names: &[String]) -> Option<u
 }
 /// `value` of a 1/0 table.
 pub fn lookup(table: &[(String, u32)], ids: &[u32], names: &[String]) -> Option<bool> { value(table, ids, names).map(|v| v != 0) }
+
+/// Index in `pools` of the pool called `name` (`name_key` match).
+pub fn pool_index(pools: &[Pool], name: &str) -> Option<usize> { pools.iter().position(|p| name_key(&p.name) == name_key(name)) }
+
+/// A setting's value: a number (decimal with `_` separators, or 0x hex) or a string (quoted, or a bare word).
+enum Value { Num(u32), Text(String) }
+fn parse_value(v: &str) -> Option<Value> {
+    if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') { return Some(Value::Text(v[1..v.len() - 1].to_string())); }
+    let n = v.replace('_', "");
+    if let Some(h) = n.strip_prefix("0x").or_else(|| n.strip_prefix("0X")) { return u32::from_str_radix(h, 16).ok().map(Value::Num); }
+    if n.starts_with(|c: char| c.is_ascii_digit()) { return n.parse::<u32>().ok().map(Value::Num); }
+    (!v.is_empty() && !v.contains('"')).then(|| Value::Text(v.to_string()))
+}
+/// A colour: 0xRRGGBB or "#RRGGBB".
+fn parse_color(v: &Value) -> Option<u32> {
+    match v {
+        Value::Num(n) => Some(*n & 0xFF_FFFF),
+        Value::Text(t) => t.trim().strip_prefix('#').filter(|h| h.len() == 6).and_then(|h| u32::from_str_radix(h, 16).ok()),
+    }
+}
+/// A line without its `#` comment (a `#` inside quotes is text: "#RRGGBB").
+fn strip_comment(raw: &str) -> &str {
+    let mut quoted = false;
+    for (i, c) in raw.char_indices() {
+        match c { '"' => quoted = !quoted, '#' if !quoted => return &raw[..i], _ => {} }
+    }
+    raw
+}
 
 /// Path of the settings file: the DLL's own folder.
 fn path() -> std::path::PathBuf {
@@ -114,13 +167,48 @@ pub fn load() {
     let text = text.trim_start_matches('\u{feff}'); // a byte-order mark left by some editors
     let mut c = defaults();
     let mut section = String::new();
+    let mut unlisted_pool = UNLISTED.to_string();
+    // [part_rarity] values as written: pool names are resolved once every [pool.NAME] is read
+    let mut rarity: Vec<(String, Value, usize)> = Vec::new();
     for (n, raw) in text.lines().enumerate() {
-        let line = raw.split('#').next().unwrap_or("").trim();
+        let line = strip_comment(raw).trim();
         if line.is_empty() { continue; }
-        if line.starts_with('[') && line.ends_with(']') { section = line[1..line.len() - 1].trim().to_string(); continue; }
+        if line.starts_with('[') && line.ends_with(']') {
+            section = line[1..line.len() - 1].trim().to_string();
+            // [pool.NAME]: a pool (the unlisted one is already there)
+            if let Some(name) = section.strip_prefix("pool.").map(|s| s.trim().trim_matches('"').trim().to_string()) {
+                if name.is_empty() { logf!("config line {}: [pool.] without a name", n + 1); }
+                else if pool_index(&c.pools, &name).is_some() {
+                    if name_key(&name) != name_key(UNLISTED) { logf!("config line {}: [pool.{}] defined twice, settings merged", n + 1, name); }
+                } else if c.pools.len() >= MAX_POOLS { logf!("config line {}: more than {} pools, [pool.{}] ignored", n + 1, MAX_POOLS, name); }
+                else { c.pools.push(Pool::new(&name)); }
+                section = format!("pool.{}", name);
+            }
+            continue;
+        }
         let Some((k, v)) = line.rsplit_once('=') else { logf!("config line {}: ignored ({})", n + 1, raw); continue };
         let (k, v) = (k.trim().trim_matches('"').trim(), v.trim());
-        let Ok(v) = v.replace('_', "").parse::<u32>() else { logf!("config line {}: {} is not a number", n + 1, v); continue };
+        let Some(val) = parse_value(v) else { logf!("config line {}: {} is not a value", n + 1, v); continue };
+        if let Some(pool) = section.strip_prefix("pool.").and_then(|name| pool_index(&c.pools, name)) {
+            let p = &mut c.pools[pool];
+            match (k, &val) {
+                ("weight", Value::Num(w)) => p.weight = *w,
+                ("show_name", Value::Num(b)) => p.show_name = *b != 0,
+                ("label", Value::Text(t)) => p.label = t.to_uppercase(),
+                ("color", _) => match parse_color(&val) {
+                    Some(rgb) => p.color = rgb,
+                    None => logf!("config line {}: {} is not a colour (\"#RRGGBB\" or 0xRRGGBB)", n + 1, v),
+                },
+                _ => logf!("config line {}: unknown pool setting [{}] {} = {}", n + 1, section, k, v),
+            }
+            continue;
+        }
+        match (section.as_str(), k, &val) {
+            ("rarity", "unlisted_pool", Value::Text(t)) => { unlisted_pool = t.clone(); continue }
+            ("part_rarity", _, _) => { rarity.push((k.to_string(), val, n + 1)); continue }
+            _ => {}
+        }
+        let Value::Num(v) = val else { logf!("config line {}: {} is not a number", n + 1, v); continue };
         match (section.as_str(), k) {
             ("economy", "mission_pay_percent") => c.mission_pay_percent = v,
             ("economy", "arena_repeat_pay_percent") => c.arena_repeat_pay_percent = v,
@@ -137,11 +225,6 @@ pub fn load() {
             ("rewards", "os_rewards") => c.os_rewards = v != 0,
             ("shop", "reroll_interval") => c.reroll_interval = v.clamp(1, 255), // 8-bit counter in the save
             ("economy", "starting_credits") => c.starting_credits = v.min(999_999_999),
-            ("rarity", "unlisted_tier") => c.unlisted_tier = v.min(3),
-            ("rarity", "common_weight") => c.common_weight = v,
-            ("rarity", "rare_weight") => c.rare_weight = v,
-            ("rarity", "epic_weight") => c.epic_weight = v,
-            ("part_rarity", _) => c.part_rarity.push((k.to_string(), v.min(3))),
             ("lost_on_failure", _) => c.lost_on_failure.push((k.to_string(), v.min(1))),
             ("max_occurrences", _) => {
                 if v > MAX_OCCURRENCES { logf!("config line {}: [max_occurrences] {} = {} read as {}", n + 1, k, v, MAX_OCCURRENCES); }
@@ -150,14 +233,33 @@ pub fn load() {
             _ => logf!("config line {}: unknown setting [{}] {}", n + 1, section, k),
         }
     }
+    // the pool of the unlisted parts: created like the unlisted one when no section defines it
+    c.unlisted_pool = pool_index(&c.pools, &unlisted_pool).unwrap_or_else(|| {
+        logf!("config: [rarity] unlisted_pool = {}: no [pool.{}], created (weight 0: its parts are not offered)", unlisted_pool, unlisted_pool);
+        c.pools.push(Pool::unlisted(&unlisted_pool));
+        c.pools.len() - 1
+    });
+    for (k, val, line) in rarity {
+        let pool = match &val {
+            Value::Num(0) => None,
+            Value::Text(t) => match pool_index(&c.pools, t) {
+                Some(i) => Some(i),
+                None => { logf!("config line {}: [part_rarity] {} = {}: no such pool, the part goes to the unlisted pool", line, k, t); Some(c.unlisted_pool) }
+            },
+            Value::Num(x) => { logf!("config line {}: [part_rarity] {} = {}: a pool name or 0 expected, the part goes to the unlisted pool", line, k, x); Some(c.unlisted_pool) }
+        };
+        c.part_rarity.push((k, pool));
+    }
     if c.shop_weapons + c.shop_parts > MAX_SHOP_SLOTS {
         logf!("config: shop_weapons + shop_parts > {}, keeping the first {}", MAX_SHOP_SLOTS, MAX_SHOP_SLOTS);
         c.shop_weapons = c.shop_weapons.min(MAX_SHOP_SLOTS);
         c.shop_parts = MAX_SHOP_SLOTS - c.shop_weapons;
     }
-    logf!("config: ammo cost {}%, repair cost {}%, starting credits {}, shop {} weapon(s) + {} part(s) rerolled every {} mission(s), {} reward(s) per mission, unlisted tier {} weights {}/{}/{}, {} rarity override(s), {} lost-on-failure / {} max-occurrence entr(ies)",
+    logf!("config: ammo cost {}%, repair cost {}%, starting credits {}, shop {} weapon(s) + {} part(s) rerolled every {} mission(s), {} reward(s) per mission, {} part_rarity entr(ies), {} lost-on-failure / {} max-occurrence entr(ies)",
         c.ammo_cost_percent, c.repair_cost_percent, c.starting_credits, c.shop_weapons, c.shop_parts, c.reroll_interval, c.parts_per_mission,
-        c.unlisted_tier, c.common_weight, c.rare_weight, c.epic_weight, c.part_rarity.len(), c.lost_on_failure.len(), c.max_occurrences.len());
+        c.part_rarity.len(), c.lost_on_failure.len(), c.max_occurrences.len());
+    logf!("config pools (unlisted parts -> {}): {}", c.pools[c.unlisted_pool].name, c.pools.iter().map(|p| format!("{} weight {} #{:06X}{}",
+        p.name, p.weight, p.color, if p.show_name { format!(" \"{}\"", p.label) } else { String::new() })).collect::<Vec<_>>().join(", "));
     logf!("config {}: mission pay {}%, arena repeat pay {}%, parts sell {}%, weapons sell {}%, charge {}%, {} price override(s)",
         p.display(), c.mission_pay_percent, c.arena_repeat_pay_percent, c.part_sell_percent,
         c.weapon_sell_percent, c.item_charge_percent, c.prices.len());
