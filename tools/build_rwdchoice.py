@@ -5,7 +5,8 @@ From the vanilla "Pièces obtenues" movie (FFDec -swf2xml), on the parts content
   CategoryName, ItemName): a grid tile;
 - 218 keeps its named children (the game binds them) but loses its decorations, and gets Tile00..Tile11 (sprite 900)
   and "SelIdx" (a copy of the ItemName text field, 901): the DLL writes "selected/count" there;
-- Dialog (274) frame 1 decorations get names (Bg0..Bg3, Line0, Line1) so the AS3 can resize the window.
+- Dialog (274) frame 1 decorations get names (Bg0..Bg3, Line0, Line1) so the AS3 can resize the window (depth 3 is
+  a plain shape: the name does not reach the runtime, the AS3 finds it among the window's shapes).
 Then: ffdec -xml2swf, and -importScript for MainTimeline (layout + highlight, see rwdchoice_MainTimeline.as)."""
 import re, sys
 
