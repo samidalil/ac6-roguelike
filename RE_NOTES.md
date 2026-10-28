@@ -907,16 +907,17 @@ rounds; tools/input_watch.py / input_dump.py to watch them; tools/ptr_scan.py fo
   each call, and the grid's tick takes them: directions move the highlight, confirm closes the page (the class's OK
   does the rest). No XInput, no keyboard polling: the pad, the keyboard, the game's own repeat timing.
 ## Test routine: instant mission clear (2026-10-28)
-`python tools/kill_enemies.py` (game running, in a mission) lists every character's AP block: the player's is
-`[[[[exe+4E0F598]+A5A0]+320]+0]` (AP i32 +278, max +27C), the others share its vtable (+0) and are found by a scan of
-the game's private RW memory (the main heap region is ~2.3 GB, read in 64 MB chunks). `--write --only <block>` sets
-that block's AP to 0 and the game kills it at once (no hit needed); `--write` alone zeroes every non-player block.
+`python tools/kill_enemies.py --max-ap 12300` (game running, in the mission, 0.4 s) zeroes the tester AC's AP and the
+game kills it at once (no hit needed). Characters come from WorldChrMan `[exe+4E0F598]`: its lists `[WCM+0xAB58]`
+(player = entry 0, opposing ACs: tester AC = entry 1), `[WCM+0xAB78]` / `[WCM+0xA760]` (scripted objects) hold ChrIns
+pointers; ChrIns `+0x320` -> modules, `[0]` = AP block (AP i32 +278, max +27C, same class as the player's). Without
+options the script lists them; `--write [--only <block>]` zeroes the listed ones; `--scan` falls back to a full memory
+scan (~45 s; `tools/chr_paths.py` re-finds the lists if an update moves them).
 - "Destruction de l'AC d'essai" (chapter 1, the tester AC): blocks AP 12300 (the AC: zero only this one), 750 and
   99999 (scripted objects, leave them). Zeroing the AC -> mission cleared, results, rewards as usual.
 - Save right before it, in the repo: `saves/ac-mission-available.sl2` (garage, no sortie pending).
   `tools/restore_save.ps1` puts it in place of the dev save (game closed; the current save is kept first).
 - Full cycle: `tools/restore_save.ps1` -> `tools/relaunch.ps1` -> title OK + CONTINUER -> DÉPLOIEMENT -> MISSIONS ->
-  "Destruction de l'AC d'essai" -> briefing -> Déploiement -> OUI -> wait for control -> `kill_enemies.py` (dry run,
-  pick the 12300 block) -> `--write --only <it>`.
+  "Destruction de l'AC d'essai" -> briefing -> Déploiement -> OUI -> wait for control -> `kill_enemies.py --max-ap 12300`.
 - Keep `tools/save_backup.ps1` running while testing; never kill the game mid-sortie (escrow -> failure penalty on the
   next load), restore the pre-sortie backup instead.
