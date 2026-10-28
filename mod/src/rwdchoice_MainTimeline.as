@@ -129,7 +129,7 @@ package _02_GotReward_fla
          var r:Rectangle = new Rectangle(t.x + b.x * t.scaleX, t.y + b.y * t.scaleY, b.width * t.scaleX, b.height * t.scaleY);
          r.inflate(8, 6);
          this.hl.graphics.clear();
-         this.hl.graphics.lineStyle(3, 0xFFE9A0, 1);
+         this.hl.graphics.lineStyle(3, 0xE8EEF2, 0.95);
          this.hl.graphics.beginFill(0xFFFFFF, 0.08);
          this.hl.graphics.drawRect(r.x, r.y, r.width, r.height);
          this.hl.graphics.endFill();
