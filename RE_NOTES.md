@@ -66,7 +66,8 @@ event-flag BITSETS (one bit per EquipmentLineupParam row index, 318 rows), next 
         Single pass (replacements first, then cost, then sales): no loop possible.
      f. equipped parts are never auto-sold (garage auto-sell after a cleared mission too): the AC stays complete.
      g. check that Vente cannot sell equipped parts.
-4. **Pool without repeats (TBOI-style)** — replaces progressive rarity odds.
+4. **Pool without repeats (TBOI-style)** — replaces progressive rarity odds. *(Removed 2026-10-28: duplicates allowed, see "Duplicate parts in the
+   shop".)*
    - Every rolled part (shop offer or mission reward) leaves the pool (bitset "rolled", in the save).
    - Two pools: weapons and other parts (the shop rolls them separately). When one cannot fill its shop slots, take
      what is left, refill that pool with every part not owned and not lost forever, and complete from the refill
@@ -99,7 +100,7 @@ event-flag BITSETS (one bit per EquipmentLineupParam row index, 318 rows), next 
 | Address | What |
 |---|---|
 | `[GameDataMan]` | TGA symbol. `+0x08` = player GameData, `+0x40` = `CSEquipmentLineupData` |
-| `GameData+0x230` | id set used by the NEW-badge predicate (probably "seen in shop") |
+| `GameData+0x230` | player items object (inventory); `exe+46E180` on it -> the table `exe+474060` searches |
 | `exe+434FE0..4352xx` (start = prologue `mov [rsp+8],rcx; push rbp..r15; sub rsp,108`) | `CSEquipmentLineupData` ctor/init: caches all lineup rows into std::maps (MSVC node: `+19 isnil`, `+1C key`), incl. a map keyed by release flag. Reads `eventFlag_forRelease` at `exe+4352D6`. Runs on title-screen transitions and Continue, **not** on mission/arena return. Source file string: `..\..\Source\GameData\CSEquipmentLineupData` |
 | `exe+435B50` / read at `+435B86` | lineup price getter (`mov eax,[rax+4]`) |
 | `exe+435C90` | copies `item[+0x54]` (gaitem id) to `item[0]`, returns &item |
@@ -108,10 +109,10 @@ event-flag BITSETS (one bit per EquipmentLineupParam row index, 318 rows), next 
 | `exe+E88180` | `jmp exe+641901C` (Arxan-relocated body). Fills a stack handle; `[handle+0]` = persistent container |
 | container (`7FF39A7A33F0` last session) | `+0 vtable exe+395CE18`, `+8 refcount`, `+10 vtable`, `+18 begin`, `+20 end`, `+28 cap` |
 | shop list entries | stride **0x118**, 259 entries. `+10 vtable exe+390BA08`, `+20 price`, `+28 shared ptr`, `+50 int`, `+54 gaitem id` (`0x10000000 \| equipId`), `+58 ordinal`, `+60` ptr to a 0x20-stride **stats param row (not the lineup row; shared by the ±0x100 variants)**, `+68/+6C/+70 ints`, `+74 byte` |
-| `exe+E928F0` | per-frame loop: `for i<count: item=src[i]; if filter->Accept(item) push(item)` (`+E929B4 call [rax+10]`) |
-| `exe+E88B10` | Accept trampoline: `jmp [filterObj+8]` |
-| `exe+E89820` | NEW-badge predicate: `+D2F860(+435C90(item)) > 0` — returned 0 for every entry (all seen) |
-| `exe+D2F900` | `1 if +474060(GameData+0x230, &id) < 0` (id not in set) |
+| `exe+E928F0` | per-frame loop: `for i<count: item=src[i]; if filter->Accept(item) push(item)` (`+E929B4 call [rax+10]`; filter = std::function, callable at [r13+0x38]) |
+| `exe+E88B10` | _Do_call of a function-pointer std::function (vtable exe+395BF20): `jmp [callable+8]` |
+| `exe+E89820` | the buy list's OWNERSHIP filter (built at exe+641D108): `+D2F860(+435C90(item)) > 0`, i.e. not owned (the old "NEW-badge" label was wrong; it returned 0 = owned for every entry on the dev save) |
+| `exe+D2F900` | shop "obtainable": `1 if +474060(inventory, &id) < 0` (not owned) else 0. See "Duplicate parts in the shop" |
 | `exe+5F09B0B` / `+5F09B25` | entry copy routine (Arxan region): `[rdi+50..74] = [rbx+50..74]`, then `jmp exe+E838A8`. Writes every entry **every frame** (per-frame projection of a persistent source). Also used stack→stack elsewhere — condition on `RDI == entry addr` |
 
 ## Tests done
@@ -796,6 +797,8 @@ RemoveItemAt, not the Vente path). Not done: real in-mission deaths not replayed
 (same plan / apply code as the kill path). Debug commands: `give <hex item id>`, `lost`.
 
 ## Pool without repeats (2026-10-27, task 4)
+**Superseded (2026-10-28) by "Duplicate parts in the shop": the rolled sets, refills, credits fallback and pool_limit
+are gone.** Kept for the history.
 Two pools (weapons, other parts) over the buyable lineup rows; each row is its own part (left/right weapon versions
 included). Candidates = in the pool, not in `ROWS_ROLLED` (7100..7417), not owned, not in `ROWS_LOST`. Rarity unchanged
 (weighted tier among the tiers that have candidates, uniform within).
@@ -998,3 +1001,45 @@ Consequences for that task:
 - penalty.rs stays correct for weapons/frames; with internals never duplicated, the shared-handle problems above do
   not arise (the starters are only re-granted through `ensure_owned`, which skips owned ones).
 - Still to decide: a lost weapon/frame row goes to ROWS_LOST even when the player keeps another copy.
+
+## Duplicate parts in the shop (2026-10-28, implemented)
+Decision applied: the pool without repeats is gone. Shop offers and rewards draw by rarity among every buyable row;
+weapons and frame parts (head/core/arms/legs) roll even when owned; boosters / generators / FCS ("unique", copies would
+share a handle) never while owned nor once in `ROWS_LOST`. Within one roll the parts stay different; the shop leaves
+out the parts being awarded at that clear (see baselines), rewards leave out the unique parts of the current shop.
+No credits fallback, no `pool_limit`.
+- **Lost forever** (user, 2026-10-28): only boosters / generators / FCS (non-starter) go to `ROWS_LOST` on a failure. A
+  lost weapon / frame part is just removed and may roll again. Old saves' `ROWS_LOST` bits of weapons / frames are
+  ignored (the candidate filter checks `ROWS_LOST` for unique parts only).
+- **The shop's ownership check = one function**, exe+D2F900(`const u32* id`) -> 1 if the id is not in the inventory
+  (exe+474060 < 0), else 0: "how many can you still get". Users (all shop menus): the buy list's filter exe+E89820
+  (via wrapper exe+D2F860; the list filter std::function built at exe+641D108, vtable exe+395BF20, fn ptr at +8, run
+  per entry by exe+E928F0, entry item id at +0x54), the purchase confirmation exe+10A9690 (call at exe+10A96FE), the buy
+  step exe+D669C5 (via D2F860; 0 -> message 231020 "Vous avez acheté toutes les pièces disponibles.", text set up by
+  exe+D685A0), the purchasable quantity exe+D2F480 (call exe+D2F4DF: min(stock, affordable, obtainable) for
+  non-stackables) and the adds exe+D2EC20 / D2ECB0 (calls D2EC51 / D2ECE1: n = min(D2F900, requested) then add).
+  Bypassing only the filter + confirmation made the game charge the price and add nothing (quantity 0): the hook must
+  sit on D2F900 itself.
+- **`dupshop.rs`**: D2F900 hooked at its entry (10-byte prologue to a trampoline). For a shop slot's weapon / frame
+  part it answers `copies owned <= baseline`, the baseline being the copies owned when the slot was rolled (3 bits
+  per slot, flags 7100..7123, written at the reroll / debug `shop`). Listed and bought like any part; once bought the
+  count exceeds the baseline and the slot vanishes like a vanilla purchase (until the next reroll). Every other id
+  gets the game's answer (buy-back and starters keep the vanilla "not owned" rule).
+- **Save format**: flags 7124..7131 = 0xA5 once `dupshop::migrate` cleared the old rolled ranges (7100..7417,
+  7501..7799, 7838..7856), checked every DLL tick (a New Game resets it, the clear runs again on empty flags).
+- **Verified** (isolated profile ac6-roguelike-pool.me3 -> AC6_roguelike_pool.sl2, copies of the dup save and of
+  saves/ac-mission-available.sl2): debug `shop 993388 12FB8CC0 742C4620` (owned XUAN-GE, owned + equipped VE-44A,
+  owned TALBOT) -> XUAN-GE and VE-44A listed, TALBOT tab empty; XUAN-GE bought (366 000 -> 296 000, second entry, own
+  handle 0x08000021), slot gone at once; save + relaunch: XUAN-GE still hidden, VE-44A listed and bought (second
+  entry, handle 0x1800001C). Failure (escrow set in the garage + reload): XUAN-GE (spare copy owned), VE-44A (replaced
+  by its spare copy), VE-46A and TALBOT lost; only TALBOT's row 105 entered `ROWS_LOST`. Real sortie ("Destruction
+  de l'AC d'essai", kill_enemies.py): migration ran, offers rolled, reroll wrote baselines [0, 0, 0]; the forced owned
+  VE-46A picked in the grid became a second copy.
+- **Core expansions (user asked to add them, unique): NOT DONE.** Rows 28..31 (75000000 ASSAULT ARMOR, 75010000 PULSE
+  ARMOR, 75020000 PULSE PROTECTION, 75030000 TERMINAL ARMOR; equipType 0, price 0, flag 0). `give 4788FD0` makes an
+  inventory entry (weapon handle 0x0800001D, "BOUCLIER À IMPULSIONS", unsellable) but Assemblage's EXTENSION slot
+  still lists only (NÉANT), and a read watch on that entry's id saw no read while the list opened: the slot list does
+  not come from the inventory. Vanilla unlocks expansions through OS Tuning (menu flag 3131); that unlock state has to
+  be found before expansions can be rewards.
+- Not changed: buy-back of a sold copy stays hidden while another copy is owned (vanilla rule, `dupshop` only covers
+  shop slots); the reward-choice prune drops unpicked offers by handle (safe: unique parts are never offered owned).

@@ -1,20 +1,12 @@
 //! Reward choice (pick 1 of K): each of a mission's rewards (parts_per_mission) offers `reward_choices` parts. The
 //! offers are rolled and queued at sortie like plain rewards (the game's pending obtained-items list); at the results
 //! screen the game's "Pièces obtenues" opens our grid instead (rewardmenu.rs, one page per reward), and just before the
-//! game commits the pending list the parts not picked are taken out of it. The offers come from their own pool (every
-//! offered part leaves it when the mission is cleared, picked or not) and their own random generator, both saved in
-//! event flags.
+//! game commits the pending list the parts not picked are taken out of it. The offers are drawn by rarity from the
+//! reward candidates (lib.rs `candidates`) with their own random generator, saved in event flags.
 
 use super::*;
 
-// ---- saved state (free flag ranges of blocks 4 / 7, RE_NOTES "Save storage")
-/// "Offered as a reward" row bitset, split over two free ranges (318 rows).
-fn rolled_flag(row: u16) -> u32 {
-    if (row as u32) < o::REWARD_ROLLED_A_LEN { o::REWARD_ROLLED_A + row as u32 } else { o::REWARD_ROLLED_B + row as u32 - o::REWARD_ROLLED_A_LEN }
-}
-unsafe fn rolled(g: &Game, man: usize, row: u16) -> bool { g.get_flag(man, rolled_flag(row)) == Some(true) }
-unsafe fn set_rolled(g: &Game, man: usize, row: u16, v: bool) { g.put_flag(man, rolled_flag(row), v); }
-
+// ---- saved state (free flag range of block 4, RE_NOTES "Save storage")
 unsafe fn load_rng(g: &Game, man: usize) -> Rng {
     let s = g.get_bits(man, o::REWARD_RNG, 32) as u64 | (g.get_bits(man, o::REWARD_RNG + 32, 32) as u64) << 32;
     if s == 0 { Rng::seeded() } else { Rng(s) }
@@ -24,42 +16,25 @@ unsafe fn save_rng(g: &Game, man: usize, r: &Rng) {
     g.put_bits(man, o::REWARD_RNG + 32, 32, (r.0 >> 32) as u32);
 }
 
-/// Roll `n` offers of `k` parts by rarity: not owned, not lost forever, not offered before, each part in one offer
-/// only. A pool that runs dry is refilled once (everything but this roll) and completes from the refill; an offer
-/// still empty after that is left out (the caller pays that reward in credits).
-pub unsafe fn roll(g: &Game, gd: usize, man: usize, pool: &[Part], n: u32, k: usize) -> Vec<Vec<Part>> {
+/// Roll `n` offers of `k` parts by rarity among `cands`, each part in one offer only. An offer left empty (fewer
+/// candidates than offered parts: only with a tiny pool) is left out.
+pub unsafe fn roll(g: &Game, man: usize, cands: &[Part], n: u32, k: usize) -> Vec<Vec<Part>> {
     let mut rng = load_rng(g, man);
-    let owned = g.owned_ids(gd);
-    let lost = g.read_rows(man, o::ROWS_LOST);
     let mut sets: Vec<Vec<Part>> = Vec::new();
     let mut taken: Vec<u16> = Vec::new();
-    let mut refilled = false;
     for _ in 0..n {
         let mut set = Vec::new();
         while set.len() < k {
-            let cands: Vec<Part> = pool.iter().copied().filter(|p| !rolled(g, man, p.idx) && !lost.contains(&p.idx)
-                && !owned.contains(&p.grant_id()) && !taken.contains(&p.idx)).collect();
-            match pick_weighted(&mut rng, &cands) {
-                Some(p) => { taken.push(p.idx); set.push(p); }
-                None if !refilled => {
-                    let mut m = 0;
-                    for p in pool { if rolled(g, man, p.idx) && !taken.contains(&p.idx) { set_rolled(g, man, p.idx, false); m += 1; } }
-                    logf!("reward pool refill: {} part(s) back in", m);
-                    refilled = true;
-                }
-                None => break,
-            }
+            let left: Vec<Part> = cands.iter().copied().filter(|p| !taken.contains(&p.idx)).collect();
+            let Some(p) = pick_weighted(&mut rng, &left) else { break };
+            taken.push(p.idx);
+            set.push(p);
         }
         if set.is_empty() { break; }
         sets.push(set);
     }
     save_rng(g, man, &rng);
     sets
-}
-
-/// Mission cleared: every offered part leaves the reward pool.
-pub unsafe fn mark_offered(g: &Game, man: usize, parts: &[Part]) {
-    for p in parts { set_rolled(g, man, p.idx, true); }
 }
 
 /// The current sortie's offers, by reward: (grant id, pending-list handle, 0 = not found) of each part.

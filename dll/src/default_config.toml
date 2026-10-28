@@ -10,7 +10,6 @@ starting_credits = 100000        # pay of the first mission of a run (Illegal En
 [rewards]
 parts_per_mission = 1            # rewards at the end of each cleared mission (0 to 3)
 reward_choices = 3               # parts offered for each reward, you pick one (1 to 12; 1 = given directly)
-# The offers come from their own pool: every offered part leaves it, picked or not, until it runs dry and refills.
 
 [shop]
 # A part's value is the game's shop price; [prices] gives values to the parts the game prices at 0 (starter
@@ -24,9 +23,8 @@ item_charge_percent = 100        # every part (weapons included) costs this % of
 shop_weapons = 1                 # weapons offered after each cleared mission
 shop_parts = 2                   # other parts offered after each cleared mission (weapons + parts: 8 at most)
 reroll_interval = 1              # cleared missions between shop rerolls (1 = every mission; rewards still come every mission)
-# Every part offered or given leaves its pool (weapons, other parts) until that pool runs dry; then the pool refills
-# with every part you do not own and have not lost for good. A part you own is never offered or given.
-pool_limit = 0                   # testing: each pool keeps only its first N parts (0 = every part)
+# Shop offers and rewards can repeat. Weapons and frame parts (head, core, arms, legs) are offered even when you own
+# them (each copy is its own part); boosters, generators and FCS are not offered while owned or once lost for good.
 
 [rarity]
 # Shop offers and mission rewards are drawn by rarity tier, then uniformly within the tier. Tiers come from

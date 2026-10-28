@@ -33,6 +33,7 @@ pub const FLAG_MARKET: u32 = 3127;
 /// rises when the mission is cleared (results pending), falls ~2 s after the obtained-parts commit
 pub const FLAG_MISSION_CLEARED: u32 = 5074;
 /// result screen up (rises after the commit, falls when the player closes it, back in the garage)
+#[allow(dead_code)]
 pub const FLAG_RESULTS: u32 = 3139;
 
 // --- item manager / give path (RE 2026-09-24, see RE_NOTES "Pending obtained parts list") ---
@@ -58,6 +59,11 @@ pub const FN_GIVE_ITEM: usize = 0x46B1C0;
 /// shop builder's call to the release predicate (`call exe+159ACB0`, 5 bytes) — the hook site
 pub const SHOP_PRED_CALLSITE: usize = 0xE89074;
 pub const FN_SHOP_PRED: usize = 0x159ACB0;
+/// `u32 Obtainable(const u32* id)`: copies of the item the player may still get in the shop = 1 when the id is not
+/// in the inventory (exe+474060 < 0), else 0. Asked by the buy list's ownership filter exe+E89820 (via exe+D2F860),
+/// the purchase confirmation exe+10A96FE, the buy step exe+D669C5, the purchasable quantity exe+D2F4DF and the adds
+/// exe+D2EC51 / D2ECE1.
+pub const FN_SHOP_OBTAINABLE: usize = 0xD2F900;
 /// itemCtx + this = pointer to the EquipmentLineupParam row the shop is testing
 pub const ITEMCTX_ROW: usize = 0x08;
 /// Item-id category tag per lineup equipType (verified from the inventory table, 2026-09-24):
@@ -80,13 +86,18 @@ pub const STATE_FLAG_EXTRA_BASE: u32 = 7900;
 #[allow(dead_code)] // used by the buy-back, lost-forever and pool features
 pub const ROWS_SOLD: u32 = 4100;   // 4100..4417: sold since the last reroll (buy-back)
 pub const ROWS_LOST: u32 = 4550;   // 4550..4867: lost forever (failures)
-#[allow(dead_code)]
-pub const ROWS_ROLLED: u32 = 7100; // 7100..7417: already rolled (pool without repeats)
-// reward choice (choice.rs): the reward pool's "offered" bitset is split (rows 0..298 / 299..317), the reward RNG
-// state 64 bits
-pub const REWARD_ROLLED_A: u32 = 7501;     // 7501..7799
-pub const REWARD_ROLLED_A_LEN: u32 = 299;
-pub const REWARD_ROLLED_B: u32 = 7838;     // 7838..7856
+// Freed when duplicates came in (the "already rolled" sets of the pool without repeats); dupshop::migrate clears
+// them once in older saves. 7100..7131 now hold the shop baselines + the save format.
+pub const OLD_ROWS_ROLLED: u32 = 7100;     // 7100..7417
+pub const OLD_REWARD_ROLLED_A: u32 = 7501; // 7501..7799
+pub const OLD_REWARD_ROLLED_A_LEN: u32 = 299;
+pub const OLD_REWARD_ROLLED_B: u32 = 7838; // 7838..7856
+/// Shop slot k: copies of its part owned when it was rolled (3 bits each, 8 slots: 7100..7123).
+pub const SHOP_BASELINE: u32 = 7100;
+/// 8-bit save format value (7124..7131): SAVE_FORMAT_DUPES once the old rolled sets are cleared.
+pub const SAVE_FORMAT: u32 = 7124;
+pub const SAVE_FORMAT_DUPES: u32 = 0xA5;
+/// reward choice (choice.rs): the reward RNG state, 64 bits
 pub const REWARD_RNG: u32 = 4901;          // 4901..4964
 /// Missions cleared since the last shop reroll (8 bits, LSB first).
 pub const REROLL_COUNTER_BASE: u32 = 7830;
