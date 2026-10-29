@@ -73,6 +73,6 @@ pub unsafe extern "system" fn sale_hook(id: *const u32, handle: u32, n: u32, fla
     let item = *id;
     let orig: FnShopRemove = core::mem::transmute(BASE.load(Relaxed) + o::FN_SHOP_REMOVE);
     let removed = orig(id, handle, n, flag);
-    if removed > 0 { record(item, "Vente"); }
+    if removed > 0 { record(item, "Vente"); event::emit(event::Event::PartSold); }
     removed
 }

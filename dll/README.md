@@ -56,6 +56,9 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `rewardmenu.rs` — the choice grid: the results screen's "Pièces obtenues" call opens our movie instead (one page per
   reward, tiles filled by the game's own part view, each with its pool's label in the pool's colour: `PoolName` text,
   colours in the `SelIdx` state), navigation from the game's menu actions (pad + keyboard).
+- `event.rs` — events (save loaded, sortie, clear, death, commit, failure, shop reroll, pick, sale...) emitted where
+  the mod detects them; chips subscribe with `[on.<event>]` actions (credits, give, level, flag; credits / give applied
+  in the garage on the game thread, listed in a dialog once the garage menu is up).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
   Call hooks share cave pages (`alloc_cave`): one 64 KB allocation slot near the image per page, not per hook.
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, pools:

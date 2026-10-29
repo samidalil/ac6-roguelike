@@ -34,9 +34,15 @@ static mut FAKE: FakeArgs = FakeArgs { vtable: core::ptr::null() };
 
 static OPEN_REQUEST: AtomicBool = AtomicBool::new(false);
 
+/// Text of the requested dialog: a second `show` before it opens adds its text under the first (one dialog).
+static TEXT: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
 /// Show `text` in an OK dialog on the next garage frame.
 pub fn show(text: &str) {
-    msg::set_custom_text(text);
+    let mut t = TEXT.lock().unwrap_or_else(|e| e.into_inner());
+    if OPEN_REQUEST.load(Relaxed) && !t.is_empty() { t.push_str("\n\n"); } else { t.clear(); }
+    t.push_str(text);
+    msg::set_custom_text(&t);
     OPEN_REQUEST.store(true, Relaxed);
 }
 

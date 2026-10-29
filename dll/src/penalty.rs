@@ -233,7 +233,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
     if game.defer_byte(gd) != 0 { return; } // the rest is garage-only work
     dialog::open_pending(base);
     if CLEANUP_REQUEST.swap(false, Relaxed) { cleanup_orphans(&game, gd); }
-    if PENALTY_REQUEST.swap(false, Relaxed) { apply_penalty(&game, ctx, gd); }
+    if PENALTY_REQUEST.swap(false, Relaxed) { apply_penalty(&game, ctx, gd); event::emit(event::Event::MissionFailed); }
     let give = GIVE_REQUEST.swap(0, Relaxed);
     if give != 0 {
         if GIVE_FORCE.swap(false, Relaxed) {
@@ -245,7 +245,9 @@ unsafe extern "system" fn frame_hook(this: usize) {
         } else { logf!("DEBUG: give {:#X}: granted {}", give, ensure_owned(&game, gd, give)); }
     }
     let deficit = AUTOSELL_DEFICIT.swap(0, Relaxed);
-    if deficit < 0 { auto_sell(&game, ctx, gd, deficit); }
+    if deficit < 0 { auto_sell(&game, ctx, gd, deficit); event::emit(event::Event::AutoSell); }
+    event::run_garage(&game, gd); // credits / give queued by event actions
+    event::open_dialog();
 }
 
 // ---------------------------------------------------------------- inventory helpers
@@ -271,6 +273,25 @@ unsafe fn remove_at(game: &Game, gd: usize, index: u32) {
 /// Remove one owned item by id. Returns false if it was not in the inventory.
 unsafe fn remove_item(game: &Game, gd: usize, id: u32) -> bool {
     match find(gd + o::GD_ITEM_MGR, id) { Some(i) => { remove_at(game, gd, i); true } None => false }
+}
+
+/// An inventory item id (tag | equipId) by part name or equipId, among the priced parts.
+pub fn item_by_name(name: &str) -> Option<u32> {
+    let ctx = CTX.get()?;
+    let n = name.trim();
+    if let Ok(id) = n.parse::<u32>() { return ctx.price_of.keys().copied().find(|k| k & 0x0FFF_FFFF == id); }
+    let k = config::name_key(n);
+    ctx.price_of.keys().copied().find(|&id| config::name_key(&part_name(id)) == k)
+}
+
+/// Grant one copy of `id` in the garage (game thread). A booster / generator / FCS (one copy at most) only if not
+/// owned. True when granted.
+pub unsafe fn give_copy(game: &Game, gd: usize, id: u32) -> bool {
+    if matches!(id >> 28, 5 | 6 | 7) { return ensure_owned(game, gd, id); }
+    let mut buf = [0u8; 0x40];
+    let d = game.desc(id, &mut buf);
+    (game.give_item)(gd + o::GD_GIVE_OBJ, d, 1, 1, 1, 1, 1);
+    true
 }
 
 /// Make sure the player owns `id`; grants it directly (garage: no deferral) if missing.

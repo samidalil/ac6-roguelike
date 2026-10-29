@@ -39,25 +39,34 @@ pub struct Chip {
     /// effect value per level (1..CHIP_MAX_LEVEL levels)
     pub values: Vec<i32>,
     effects: Vec<(Target, Mode, i32)>,
+    /// `[on.<event>]` actions (event.rs)
+    pub on: Vec<(event::Event, event::Action)>,
+    /// `unit` shown after the level's value on the tile (default: " %", or nothing for add / sub effects or a chip
+    /// with actions only)
+    unit: Option<String>,
 }
 impl Chip {
     pub fn row(&self) -> u16 { o::CHIP_ROW0 + self.id }
     /// sign of the stat change shown on the tile (the first effect's)
     pub fn sign(&self) -> i32 { self.effects.first().map_or(1, |e| e.2) }
     /// unit shown on the tile after the level's value (the first effect's mode)
-    pub fn unit(&self) -> &'static str { if self.effects.first().is_some_and(|e| e.1 == Mode::Flat) { "" } else { " %" } }
+    pub fn unit(&self) -> String {
+        if let Some(u) = &self.unit { return u.clone(); }
+        if self.effects.is_empty() || self.effects[0].1 == Mode::Flat { String::new() } else { " %".into() }
+    }
 }
 
 static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 5] = [
+const DEFAULTS: [(&str, &str); 6] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
     ("extended_magazines.toml", include_str!("chips/extended_magazines.toml")),
     ("preferred_contract.toml", include_str!("chips/preferred_contract.toml")),
+    ("performance_bonus.toml", include_str!("chips/performance_bonus.toml")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).
@@ -81,14 +90,15 @@ pub fn load() {
         }
     }
     v.sort_by_key(|c| c.id);
-    logf!("chips: {}", v.iter().map(|c| format!("{} {} ({} {:?}, {:?})", c.row(), c.name, c.stat, c.values, c.effects))
+    logf!("chips: {}", v.iter().map(|c| format!("{} {} ({} {:?}, {:?}{})", c.row(), c.name, c.stat, c.values, c.effects,
+        if c.on.is_empty() { String::new() } else { format!(", on {:?}", c.on) }))
         .collect::<Vec<_>>().join(", "));
     let _ = CHIPS.set(v);
 }
 
 fn parse(text: &str) -> Result<Chip, String> {
     use config::Value;
-    let mut c = Chip { id: 0, name: String::new(), stat: String::new(), values: Vec::new(), effects: Vec::new() };
+    let mut c = Chip { id: 0, name: String::new(), stat: String::new(), values: Vec::new(), effects: Vec::new(), on: Vec::new(), unit: None };
     let mut section = String::new();
     for (n, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let line = config::strip_comment(raw).trim();
@@ -101,6 +111,12 @@ fn parse(text: &str) -> Result<Chip, String> {
             ("", "id", Value::Num(id)) if (1..=o::MAX_CHIPS as u32).contains(id) => c.id = *id as u16,
             ("", "name", Value::Text(t)) => c.name = t.clone(),
             ("", "stat", Value::Text(t)) => c.stat = t.clone(),
+            ("", "unit", Value::Text(t)) => c.unit = Some(t.clone()),
+            (s, _, _) if s.starts_with("on.") => {
+                let e = event::event(&s[3..]).ok_or_else(|| format!("line {}: unknown event [{}] ({})", n + 1, s,
+                    event::EVENTS.map(|e| e.0).join(", ")))?;
+                c.on.push((e, event::Action::parse(k, &val).map_err(|m| format!("line {}: {}", n + 1, m))?));
+            }
             ("", "levels", _) => c.values = config::parse_levels(&val, o::CHIP_MAX_LEVEL)
                 .ok_or_else(|| format!("line {}: levels = \"value/value/...\" (1 to {} levels) expected", n + 1, o::CHIP_MAX_LEVEL))?,
             ("effect", _, _) => {

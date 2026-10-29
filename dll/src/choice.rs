@@ -88,6 +88,7 @@ pub unsafe fn prune(mgr: usize) {
         for (j, x) in set.iter().enumerate() {
             let picked = j == pick;
             if picked && x.os != 0 { os::level_up(gd, x.os); }
+            if picked { event::emit(event::Event::Pick); }
             if picked && (x.os == 0 || x.keep) { kept.push(x.id); }
             else if x.handle != 0 { drop.push(x.handle); }
             else if x.os == 0 || x.keep { logf!("WARNING: reward choice: no handle for {:#X}, it stays granted", x.id); }

@@ -1335,8 +1335,8 @@ Goal: new content is files (declarations) plus, when it needs logic, a script; t
   tables at boot).
 - **Scripts**: an embedded Lua (mlua, vendored 5.4) or Rhai, one optional script per content file, handlers per event
   calling the actions.
-- Steps: (1) modifier targets [done, below], (2) events + actions formalized, (3) regulation generator, (4) SpEffect
-  RE + `apply_speffect`, (5) script engine.
+- Steps: (1) modifier targets [done, below], (2) events + actions [done, below], (3) regulation generator, (4)
+  SpEffect RE + `apply_speffect`, (5) script engine.
 
 ## Modifier targets (2026-10-29, implemented; step 1 of the roadmap)
 - `[effect]` keys are targets, values a mode: `"+"` / `"-"` (the level's value in %), `"add"` / `"sub"` (the value
@@ -1386,3 +1386,32 @@ end
 Engine needs for it: the `on_enemy_destroyed` event (RE: a character's death, owner = enemy), `apply_speffect` on the
 player (SpEffect RE, step 4; stacking = one row applied n times or n rows), the regulation builder for the new row
 (step 3), the script host (step 5); the fixed `ap = "-10%"` is a small parser change on top of step 1.
+
+## Events and actions (2026-10-29, implemented; step 2 of the roadmap)
+User decisions (2026-10-29): actions credits, give, level, flag; as many events as the existing detections give.
+- `event.rs`: `emit(Event)` at the points the mod already detects, each chip at level 1+ subscribed with an
+  `[on.<event>]` section runs its actions. Events and where they are emitted:
+  `save_loaded` (flag 1000 rising, live save), `title` (flag 1000 falling), `garage_opened` (`on_garage_open`: save
+  loaded or back from a failed mission), `deployment` (escrow set during the pre-mission talk, flag 5003),
+  `mission_start` (defer 0 -> 1), `death` / `respawn` (player AP 0 / back above 0), `mission_cleared` (5074 rising
+  after a sortie), `results` (rewardmenu results hook, the grid opens), `commit` (defer 1 -> 0, save loaded),
+  `mission_failed` (penalty applied, game thread), `game_over` (dead save at load, unaffordable failure),
+  `shop_reroll` (`reroll`), `pick` (each picked offer at the commit, game thread), `part_sold` (Vente sale hook, game
+  thread), `auto_sell` (frame hook).
+- Actions: `credits = N | "a/b/c" | "value"` (COAM, the chip's level value with "value"), `give = "part name" or
+  equipId` (one copy through the game's give call; a booster / generator / FCS only if not owned), `"level.<row or
+  name>" = "+1"` (os::level_up / level_down, OS Tunings and chips), `"flag.<id>" = 1 / 0`. flag / level act at once;
+  credits / give are queued and applied by the frame hook in the garage (game thread, like the penalty), their lines
+  ("Prime de performance : +4 000 COAM", "Pièce obtenue : ...") shown in one game dialog once the garage menu is up.
+- **Garage menu on screen**: the msg hook counts lookups of its title (cat 200 id 100000 "GARAGE"); it is looked up
+  when the garage menu is created (after a load, and after a mission once the notification and talk are over), not
+  every frame. A dialog opened earlier (the menu system is up during the results -> garage load) is lost.
+- `dialog::show` while a dialog is still requested adds its text under the pending one (one dialog).
+- Chip file keys: `unit` (tile text after the value, default " %" or nothing for add / sub effects and action-only
+  chips). Default chip 9006 "Prime de performance": `[on.mission_cleared] credits = "value"`, 2000/4000/8000, unit
+  " COAM", pool rare, lost on failure.
+- **Verified** (profile ac6-roguelike-osstat.me3): a test chip with flag actions on 9 events + give / level on commit,
+  and 9006 at LV2: log order deployment, mission_start, mission_cleared (credits), shop_reroll, results, pick, commit
+  (flag, give SG-027 ZIMMERMAN, level 9001 0 -> 1); COAM 58 906 -> 62 906 at the commit; after the post-mission talk
+  the dialog "Prime de performance : +4000 COAM" over the garage menu (title lookups 2 -> 3). save_loaded /
+  garage_opened not exercised (levels set after the load).
