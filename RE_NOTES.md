@@ -1457,3 +1457,30 @@ for now (the boot-time edits of [os_tuning], the economy, the menu lock and the 
 - **Verified**: debug `speffect 9405` with AP 3000 -> 8000; a generated row (copy 9405, `maxHpRate` 1.2,
   `effectEndurance` -1) -> player max AP 9080 -> 10896, tester AC unchanged; Nanoréparation LV2: applied 9 s after the
   sortie to the mission character, AP 5000 -> 5240 in about 6 s.
+
+## DLL-boot regulation: fallback path (2026-10-29, feasibility checked once; not implemented)
+The regulation tool (tools/regulation -> mod/regulation.bin) stays the way rows are added. This section keeps a
+switch easy if it ever causes trouble (Smithbox dependency, game update): the DLL would build the same rows once at
+boot instead. Nothing here runs at play time; the check below was a one-off script against a running game.
+- **Where the file lives**: repository slot `[exe+4E27300] + 0x80 + idx*0x48`, res at slot+8, holder `[res+0x80]`:
+  `holder+0x78` u64 file size, `holder+0x80` file pointer (SpEffectParam: index 30, 4123 rows, row size 0x3BC,
+  header byte +0x2D = 0x85, +0x2E = 7, data from +0x182C8, strings at the end, every row name = the same empty string).
+- **Hidden index around the file** (same allocation, not part of the PARAM format): at file-0x10
+  `{u32 file size, u32 row count, u64 ptr (kept as is)}`, and after the file, at `file + align16(size)`, `count`
+  entries `{u32 id, u32 row index}` sorted by id (unsigned), then `{FFFFFFFF, count}`. The row lookup (e.g. the
+  SpEffect one at exe+15CA0A3: `GetParam(repo, 0x1E)` exe+15C8980, then binary search over that index, then the row
+  table's data offset at `file + 0x48 + idx*0x18`) never reads the PARAM row table for the search.
+- **First try crashed** (AV at exe+15CA0D2 reading file-0x10): a bare file without the prefix and index.
+- **Verified swap** (scratchpad spswap.py, at the title screen): new block = prefix (new size, new count, old ptr) +
+  file (header: +0 strings offset, +0x10 same, +0xA row count, +0x30 data start; row table with the new row
+  inserted at its sorted place, offsets shifted; old data + new row appended; strings) + padding to 16 + index +
+  sentinel; `holder+0x78` = new size, `holder+0x80` = new file. Then Continue, garage: debug `speffect 900000081`
+  (new row) -> ret 1 and an active entry whose row pointer is the new row; `speffect 900000082` (absent) -> ret -1;
+  vanilla 9405 -> ret 2; the game kept running. The old block stays allocated (never freed by the game: params load
+  once per boot).
+- **Plan for the DLL**: at boot, once the repository is filled (where `os::apply_values` runs today), for each param
+  with declared rows: read the live file, merge the rows (new ids inserted sorted, existing ids overwritten in place),
+  allocate the block (VirtualAlloc, read/write), write prefix + file + index as above, repoint the holder. Row fields
+  come from the declarations by field name, so the DLL needs the field layout: generate a Rust table from the
+  Smithbox paramdefs at build time (only for the params we declare: SpEffectParam first), or ship small layout files.
+  Once that works, RegBuild and mod/regulation.bin go away (and with them the regulation encryption step).
