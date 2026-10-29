@@ -75,10 +75,24 @@ pub const MSG_CAT_SHOP: u32 = 204;
 /// which builds the shared part-list window 02_010_EquipTop (builder exe+10A6F20) in sell mode 0x23 (Achat = 0x22).
 pub const FN_PTR_FUNCTION_VTABLE: usize = 0x3912780;
 pub const FN_SELL_MENU: usize = 0x10A5C00;
+/// exe+DC4B60(out handle[3], const std::function*): the menu manager makes the job (exe+D74BC0, ctx = manager+0x10)
+/// and opens it over the current menu (exe+D83350); what the generic dialog builder exe+DC1650 calls.
+pub const FN_MENU_JOB_OPEN_ON_TOP: usize = 0xDC4B60;
+/// exe+DC4AE0(job, id) -> 1 while that job is the manager's open child (+0x68/+0x70) or the next one (+0x78/+0x80).
+pub const FN_MENU_JOB_IS_OPEN: usize = 0xDC4AE0;
 /// 02_010_EquipTop window class vtable (Assemblage / Achat / Vente lists); slot 1 = its deleting destructor
 /// exe+10A58C0(this, flags), run when the list closes.
 pub const LIST_WINDOW_VTABLE: usize = 0x39E9F68;
 pub const FN_LIST_WINDOW_DTOR: usize = 0x10A58C0;
+/// Inventory table inserts (inventory cap, 2026-10-30): exe+C2A0F0 / exe+C2A180 (table = item manager + 8, desc ->
+/// index or -1), one per half of the table. Only callers: AddItem exe+474D80 (474E91 / 474EA2) and the commit of the
+/// obtained items exe+4756E0 (4757A4 / 4757AB).
+pub const FN_INV_INSERT_HI: usize = 0xC2A0F0;
+pub const FN_INV_INSERT_LO: usize = 0xC2A180;
+pub const ADD_INSERT_HI_CALLSITE: usize = 0x474E91;
+pub const ADD_INSERT_LO_CALLSITE: usize = 0x474EA2;
+pub const COMMIT_INSERT_HI_CALLSITE: usize = 0x4757A4;
+pub const COMMIT_INSERT_LO_CALLSITE: usize = 0x4757AB;
 /// itemCtx + this = pointer to the EquipmentLineupParam row the shop is testing
 pub const ITEMCTX_ROW: usize = 0x08;
 /// Item-id category tag per lineup equipType (verified from the inventory table, 2026-09-24):

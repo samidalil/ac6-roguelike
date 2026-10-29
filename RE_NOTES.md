@@ -1535,10 +1535,18 @@ boot instead. Nothing here runs at play time; the check below was a one-off scri
   tested). The damage gain itself was not measured.
 
 ## Inventory cap (2026-10-30, implemented)
-User decisions (2026-10-28): every weapon / frame part / internal owned counts, equipped ones included, each copy one
-(core expansions do not); `[inventory] max_parts = 20`; a shop purchase while full is BLOCKED; a reward that goes over
-shows a "full" dialog, then the Vente list opens, again each time it closes while still over (no auto-sell).
+User decisions (2026-10-28 / 30): every weapon / frame part / internal owned counts, equipped ones included, each copy one
+(core expansions do not); `[inventory] max_parts = 20` (at least 11 = the equipped slots that count); a shop purchase
+while full is BLOCKED; ANY part entering the inventory over the cap shows a "full" dialog, then the Vente list, again
+each time it closes while still over (no auto-sell); with several rewards the check runs between the grid pages.
 - **Count** (`cap.rs`): inventory entries (penalty.rs table walk) with tag 0 (not 75xxxxxx), 1, 5, 6, 7.
+- **Single entry point = the table inserts.** AddItem exe+474D80 is NOT the only way in: the commit of the obtained
+  items (exe+4756E0) inserts its elements itself. Both end in **exe+C2A0F0 / exe+C2A180** (one per half of the
+  inventory table; rcx = item manager + 8, rdx = item desc; index or -1); their only callers are AddItem (474E91 /
+  474EA2: give, purchase, starters bought after a failure, chip gives) and the commit (4757A4 / 4757AB). Verified with
+  breakpoints: a debug give hits 474D80 then C2A180 (from 474EA7), the reward commit hits C2A180 from 4757B0 only.
+  Queued (deferred) gives return before the insert. The DLL hooks the 4 call sites: an AddItem insert asks for a check
+  on the next garage frame; a commit insert waits for the garage (below).
 - **Purchase block.** The shop's buy step exe+D66940 calls `exe+D2F860(const u32* id)` (= D2F900 on a copy) at
   exe+D669C5; 0 -> the game's own refusal dialog with message cat 204 id 231020 ("Vous avez acheté toutes les pièces
   disponibles."), before the confirmation and the price check. Hooked at that call site: full -> 0. The message is
@@ -1549,21 +1557,42 @@ shows a "full" dialog, then the Vente list opens, again each time it closes whil
   whose callable is the game's function-pointer wrapper (vtable exe+3912780, pointer at +8) around
   **exe+10A5C00(out RefPtr<MenuJob>, ctx)**. That factory calls the builder exe+10A6F20 with mode 0x23 (the Achat
   factory, around exe+10A5B7A, passes 0x22), which makes the shared part-list window `02_010_EquipTop` (class vtable
-  exe+39E9F68, ctor exe+10A2E60; Assemblage uses it too). The DLL opens Vente like the reward grid opens its menu:
-  a std::function {vtable exe+3912780, exe+10A5C00} -> `exe+DA3410(&job, &f)` -> `exe+DC2A70(&job)`, from the garage
-  game thread. Pushed with the dialog, it opens once the dialog is closed.
+  exe+39E9F68, ctor exe+10A2E60; Assemblage uses it too).
+- **Menu manager: a queue and ONE child slot.** `exe+DA3410(&job, &f)` + `exe+DC2A70(&job)` hands a job to the manager
+  queue (exe+D834E0): it waits until the current modal menu is done (over the reward grid it only opened after the
+  grid). **exe+DC4B60(out handle[3], &f)** (what the generic dialog builder exe+DC1650 calls) makes the job through
+  exe+D74BC0 (ctx = manager+0x10) and opens it at once as the manager's child (exe+D83350; current child +0x68/+0x70,
+  next +0x78/+0x80); **exe+DC4AE0(job, id)** = 1 while that job is the current or next child. Opening a second child
+  closes the first: dialog + Vente opened together replaced each other in a loop (the list close hook re-prompted at
+  every replacement). Now: the dialog first, and Vente (DC4B60 + the function-pointer callable) once DC4AE0 says the
+  dialog is gone (checked only while our dialog is up). Child windows of a menu (Vente's sell confirmation) draw over
+  everything; the Vente list itself draws UNDER the reward grid movie (layer from the menu table flags?, not checked).
 - **Close event.** Vtable slot 1 of the list window (exe+39E9F68+8) is its deleting destructor exe+10A58C0(this,
   flags); the DLL swaps the slot: while over the cap, a closing list window (Vente, or Achat / Assemblage) re-runs the
   check (dialog + Vente again).
-- **When the check runs.** Save load (flag 1000 edge: dialog over the loading screen, then Vente) and after a mission
-  commit. Not AT the commit: menus pushed then are dropped when the results screen is torn down (the dialog box
-  flashed, nothing else). After the commit flag 3139 rises (~4 s) for the post-mission garage sequence (Walter's
-  talk) and falls when the garage menu is back: the commit's check runs on that fall. OpenSession is not called
-  around the tester-AC mission (only at save load), so it is no signal here.
+- **When the check runs.** Save load (flag 1000 edge), any AddItem insert in the garage, a list window closing while
+  over, a grid page after the first (results), and after a mission commit. Not AT the commit: menus pushed then are
+  dropped when the results screen is torn down. After the commit flag 3139 rises (~4 s) for the post-mission garage
+  sequence (Walter's talk) and falls when the garage menu is back: the commit's check runs on that fall (a sortie or a
+  save load clears the wait, in case a commit has no 3139 sequence). OpenSession is not called around the tester-AC
+  mission (only at save load).
+- **Between grid pages.** Rewards are all committed at the end; each page after the first counts the parts picked on
+  the pages before it (+ the inventory) and, over the cap, opens the dialog then Vente over the results. The grid
+  hides itself meanwhile (5th SelIdx field "hidden" -> the movie sets `visible = false`, the grid ignores the menu
+  input: else our dialog's OK confirmed the grid page, and Vente was drawn under it) and comes back when the list
+  closes. The results table shows through behind Vente (cosmetic). The last page's pick is checked after the commit.
+- **Nothing to sell** (counted parts all equipped or priced 0, e.g. the Worm Killer): the dialog says to take parts off
+  the AC in ASSEMBLAGE and sell them; no Vente (it would reopen at once forever); the check runs again when a list
+  window closes. Not reproduced in game (needs an unsellable spare).
 - **Verified in game** (profile ac6-roguelike-cap.me3, copy of saves/ac-mission-available.sl2, 17 parts):
-  max 16 at load -> "17 pièces pour 16 places" -> Vente; Retour without selling -> dialog + Vente again; TURNER sold
-  (buy-back recorded) -> 16/16, Retour -> garage. Max 17: TURNER bought back at 16/17 (-55 000), then at 17/17 the
-  next part refused with the new text, credits unchanged. Tester-AC mission at 17/17, reward picked -> after the talk
-  "18 pièces pour 17 places" -> Vente (new part marked) -> sale -> 17/17, no reopen.
-- Seen on the way: after Vente closes, the vanilla VENTE tutorial sometimes pops up over the garage (cause not checked); breakpoints on per-frame menu functions (exe+DC2A70,
+  max 16 at load -> dialog -> Vente; Retour without selling -> dialog + Vente again; a sale -> 16/16, Retour ->
+  garage. Max 17: buy-back at 16/17 bought, then at 17/17 refused with the new text, credits unchanged. 2 rewards per
+  mission at 17/17: page 2 opens -> dialog over the results (grid hidden) -> Vente -> TURNER sold (+13 750) -> grid
+  back -> reward 2 picked -> after the talk "18 pièces pour 17 places" -> Vente; Retour -> dialog again. Max 18:
+  debug give2 -> 18/18 silent, -> 19/18 dialog, another give with the dialog up -> "20 pièces ... vendez 2 pièces",
+  one OK -> Vente.
+- Not covered: arena rewards (no arena on this save: is there a 3139 sequence after an arena commit?), chip `give`
+  actions (same AddItem path, not run), mouse clicks on the hidden grid's OK while Vente is open, reward_choices = 1
+  without OS offers (no grid: only the after-commit check). After Vente closes, the vanilla VENTE tutorial sometimes
+  pops up (cause not checked; tutorial texts: separate task). Breakpoints on per-frame menu functions (exe+DC2A70,
   exe+D834E0) froze the UI: watch only functions that run once per menu.

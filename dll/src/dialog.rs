@@ -46,10 +46,10 @@ pub fn show(text: &str) {
     OPEN_REQUEST.store(true, Relaxed);
 }
 
-/// Game thread (garage): open the requested dialog. Waits (request kept) until the builder's required global exists:
+/// Game thread (garage): open the requested dialog; returns its job (for exe+DC4AE0, "still open?"). Waits (request kept) until the builder's required global exists:
 /// a penalty applied right after a save load can request the dialog before the garage is fully up.
-pub unsafe fn open_pending(base: usize) {
-    if !OPEN_REQUEST.load(Relaxed) || mem::rd_usize(base + o::DIALOG_REQUIRED_GLOBAL) == 0 { return; }
+pub unsafe fn open_pending(base: usize) -> Option<(usize, usize)> {
+    if !OPEN_REQUEST.load(Relaxed) || mem::rd_usize(base + o::DIALOG_REQUIRED_GLOBAL) == 0 { return None; }
     OPEN_REQUEST.store(false, Relaxed);
     let vt = core::ptr::addr_of_mut!(VTABLE) as *mut usize;
     for i in 0..16 { *vt.add(i) = a_unused as *const () as usize; }
@@ -67,6 +67,8 @@ pub unsafe fn open_pending(base: usize) {
     build(&mut job, core::ptr::addr_of!(FAKE));
     let mut h = [base + o::MENU_JOB_HANDLE_VTABLE, job[1], job[2]];
     let ok = open(&mut h);
+    let opened = (job[1], job[2]);
     reset(&mut job);
-    if ok == 0 { log("dialog: the menu job did not open"); }
+    if ok == 0 { log("dialog: the menu job did not open"); return None; }
+    Some(opened)
 }

@@ -223,6 +223,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
     let game = Game::new(base);
     let Some(gd) = game.game_data_fast() else { return };
     rewardmenu::tick(base);
+    cap::tick_any(gd);
     script::run_queue(); // chip scripts' handlers of the events emitted since the last frame
     event::apply_speffects(base); // SpEffects queued for the player (event actions, scripts, debug)
     if RETIRE_REQUEST.swap(false, Relaxed) && game.defer_byte(gd) == 1 {
@@ -341,6 +342,9 @@ unsafe fn equipped_handles(gd: usize) -> Vec<u32> {
 
 /// Sellable stash: owned, not equipped, priced parts, most expensive first: (price, handle, id).
 /// Handles (not ids) so a second copy of an equipped part counts as stash.
+/// Parts the player can sell right now (unequipped, priced): cap.rs only opens Vente when there is one.
+pub unsafe fn sellable_count(gd: usize) -> usize { CTX.get().map_or(0, |ctx| stash(ctx, gd).len()) }
+
 unsafe fn stash(ctx: &Ctx, gd: usize) -> Vec<(i32, u32, u32)> {
     let mgr = gd + o::GD_ITEM_MGR;
     let equipped = equipped_handles(gd);

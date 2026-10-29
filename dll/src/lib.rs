@@ -1158,7 +1158,7 @@ fn boot() {
                         exit_phase = 1;
                     } else {
                         event::emit(event::Event::SaveLoaded);
-                        penalty::CLEANUP_REQUEST.store(true, Relaxed); cap::CHECK.store(true, Relaxed); run.on_garage_open(man, "save loaded");
+                        penalty::CLEANUP_REQUEST.store(true, Relaxed); cap::AFTER_COMMIT.store(false, Relaxed); cap::CHECK.store(true, Relaxed); run.on_garage_open(man, "save loaded");
                     }
                 }
                 if !loaded && prev_loaded { event::emit(event::Event::Title); }
@@ -1360,7 +1360,7 @@ fn boot() {
                         // The dialog content is built at the mission-clear instant, so the reward must
                         // already be queued by then; check_reward re-queues if the game empties the list.
                         event::emit(event::Event::MissionStart);
-                        log("defer 0->1 (mission active)"); run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_sets.clear(); run.mission_ran = true;
+                        log("defer 0->1 (mission active)"); cap::AFTER_COMMIT.store(false, Relaxed); // a commit without the post-mission sequence (3139) must not block the cap run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_sets.clear(); run.mission_ran = true;
                         alive = false; dead = false; cleared_seen = false;
                         msg::GAME_OVER_TEXT.store(false, Relaxed);
                         // escrow should already be in the save (armed during the pre-mission talk); the game
@@ -1374,7 +1374,6 @@ fn boot() {
                     if p == 1 && d == 0 {
                         if run.reward_handles.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
                         log("defer 1->0 (commit)"); run.reward_handles.clear(); choice::disarm();
-                        cap::AFTER_COMMIT.store(true, Relaxed); // rewards just entered the inventory: checked once the garage is back
                         if run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) { event::emit(event::Event::Commit); }
                         // ignore the flip caused by the game shutting down / exiting to title (save no longer loaded)
                         if !cleared_seen && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {

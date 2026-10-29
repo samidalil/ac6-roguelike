@@ -4,7 +4,7 @@
 //! player to sell, then the Vente list opens, again each time it closes while still over. RE_NOTES "Inventory cap".
 
 use super::*;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 
 static BASE: AtomicUsize = AtomicUsize::new(0);
 /// Over the cap since the last check: a list window closing re-runs the check (dialog + Vente again).
@@ -14,6 +14,12 @@ pub static CHECK: AtomicBool = AtomicBool::new(false);
 /// A mission commit added parts: check once the garage is back (lib.rs: flag 3139 falls when the post-mission sequence,
 /// e.g. Walter's talk, ends). Menus pushed at the commit itself are dropped when the results screen is torn down.
 pub static AFTER_COMMIT: AtomicBool = AtomicBool::new(false);
+/// Results screen: counted parts picked on the grid pages already confirmed, not in the inventory before the commit.
+static PICKED: AtomicU32 = AtomicU32::new(0);
+/// Results screen: check now (a new grid page opened, or a list window closed while over the cap).
+static RESULTS_CHECK: AtomicBool = AtomicBool::new(false);
+/// A list window closed: the reward grid (hidden while Vente was open over it) is shown again.
+static SHOW_GRID: AtomicBool = AtomicBool::new(false);
 
 /// Inventory item ids that count: weapons (tag 0, core expansions 75xxxxxx excluded), frame parts, internals.
 fn counts(item: u32) -> bool {
@@ -33,6 +39,13 @@ pub unsafe fn install(base: usize) {
         Ok(cave) => logf!("inventory cap: buy hook installed: exe+{:X} -> cave {:#X}", o::BUY_OBTAINABLE_CALLSITE, cave),
         Err(e) => logf!("inventory cap: buy hook FAILED: {}", e),
     }
+    // every part entering the inventory: the table inserts, called by AddItem (give, purchase) and by the commit
+    for (site, target, f) in [(o::ADD_INSERT_HI_CALLSITE, o::FN_INV_INSERT_HI, add_insert_hi as *const () as usize),
+                              (o::ADD_INSERT_LO_CALLSITE, o::FN_INV_INSERT_LO, add_insert_lo as *const () as usize),
+                              (o::COMMIT_INSERT_HI_CALLSITE, o::FN_INV_INSERT_HI, commit_insert_hi as *const () as usize),
+                              (o::COMMIT_INSERT_LO_CALLSITE, o::FN_INV_INSERT_LO, commit_insert_lo as *const () as usize)] {
+        if let Err(e) = install_call_hook(base, site, target, f) { logf!("inventory cap: insert hook exe+{:X} FAILED: {}", site, e); }
+    }
     // the list window's deleting destructor (vtable slot 1): Vente (or Achat / Assemblage) closed
     let slot = base + o::LIST_WINDOW_VTABLE + 8;
     if mem::rd_usize(slot) != base + o::FN_LIST_WINDOW_DTOR { logf!("inventory cap: list window vtable slot unexpected ({:#X})", mem::rd_usize(slot)); return; }
@@ -43,9 +56,37 @@ pub unsafe fn install(base: usize) {
 /// A part-list window (Vente, Achat, Assemblage) is destroyed: while over the cap, check again on the next frame.
 unsafe extern "system" fn list_closed_hook(this: usize, flags: u32) -> usize {
     let orig: unsafe extern "system" fn(usize, u32) -> usize = core::mem::transmute(BASE.load(Relaxed) + o::FN_LIST_WINDOW_DTOR);
-    if OVER.load(Relaxed) { CHECK.store(true, Relaxed); }
+    if OVER.load(Relaxed) {
+        let game = Game::new(BASE.load(Relaxed));
+        if game.game_data().is_some_and(|gd| game.defer_byte(gd) != 0) { RESULTS_CHECK.store(true, Relaxed); } else { CHECK.store(true, Relaxed); }
+    }
+    SHOW_GRID.store(true, Relaxed);
     orig(this, flags)
 }
+
+/// The inventory table inserts (exe+C2A0F0 / exe+C2A180: the two halves of the table; index or -1). Their only
+/// callers: AddItem (a give or a purchase: check on the next garage frame) and the commit of the obtained items (check
+/// once the garage is back: menus pushed during the results teardown are dropped).
+type FnInsert = unsafe extern "system" fn(usize, usize, usize, usize) -> i32;
+unsafe fn insert(target: usize, a: usize, b: usize, c: usize, d: usize, commit: bool) -> i32 {
+    let f: FnInsert = core::mem::transmute(BASE.load(Relaxed) + target);
+    let r = f(a, b, c, d);
+    if r >= 0 { if commit { AFTER_COMMIT.store(true, Relaxed); } else { CHECK.store(true, Relaxed); } }
+    r
+}
+unsafe extern "system" fn add_insert_hi(a: usize, b: usize, c: usize, d: usize) -> i32 { insert(o::FN_INV_INSERT_HI, a, b, c, d, false) }
+unsafe extern "system" fn add_insert_lo(a: usize, b: usize, c: usize, d: usize) -> i32 { insert(o::FN_INV_INSERT_LO, a, b, c, d, false) }
+unsafe extern "system" fn commit_insert_hi(a: usize, b: usize, c: usize, d: usize) -> i32 { insert(o::FN_INV_INSERT_HI, a, b, c, d, true) }
+unsafe extern "system" fn commit_insert_lo(a: usize, b: usize, c: usize, d: usize) -> i32 { insert(o::FN_INV_INSERT_LO, a, b, c, d, true) }
+
+/// rewardmenu.rs: grid page `page` opens; `picks` = the parts picked on the pages before it. A page after the first:
+/// check now, with those picks counted (the dialog and Vente open over the results, before this page's pick).
+pub fn page_opened(page: usize, picks: &[u32]) {
+    PICKED.store(picks.iter().filter(|&&id| counts(id)).count() as u32, Relaxed);
+    if page > 0 { RESULTS_CHECK.store(true, Relaxed); }
+}
+/// rewardmenu.rs: the commit (or the clear of a failed sortie): the picks are in the inventory or gone.
+pub fn committed() { PICKED.store(0, Relaxed); }
 
 /// The buy step's "can the player still get this part" call: refused (0) when the inventory is full.
 unsafe extern "system" fn buy_check_hook(id: *const u32) -> i32 {
@@ -70,39 +111,79 @@ pub fn refused_text(category: u32, id: u32) -> Option<usize> {
     Some(TEXT.get_or_init(|| format!("Inventaire plein ({} pièces maximum).\nVendez une pièce pour en acheter une autre.\0", max).encode_utf16().collect()).as_ptr() as usize)
 }
 
-/// Open the Vente list on the next garage frame (after the dialog requested with it, which then stays on top).
+/// Open the Vente list on the next frame.
 pub static OPEN_SELL: AtomicBool = AtomicBool::new(false);
+/// Our "full" dialog while it is open (its job, for exe+DC4AE0): Vente opens once it is closed. The menu manager keeps
+/// one child opened on top (exe+DC4B60): opening Vente while the dialog is up would close the dialog.
+/// (job, id, then open Vente; false = nothing sellable: only show the grid again).
+static DIALOG_JOB: std::sync::Mutex<Option<(usize, usize, bool)>> = std::sync::Mutex::new(None);
 
 /// MSVC std::function: 0x38 bytes of small-object storage + the pointer to the callable (here the storage itself).
 #[repr(C, align(16))]
 struct StdFunction { storage: [usize; 7], callable: usize }
 
-/// Push the garage's Vente list the way its menu entry does: a menu job from a std::function holding the game's
-/// function-pointer callable around the sell-menu factory.
+/// Open the garage's Vente list the way its menu entry does: a std::function holding the game's function-pointer
+/// callable around the sell-menu factory, opened on top of the current menu like the dialog (exe+DC4B60: the job is
+/// made by the menu manager and opened as a child at once, also over the results' reward grid; a job handed to the
+/// manager with exe+DC2A70 waits behind the grid instead).
 unsafe fn open_sell(base: usize) {
     let mut f = StdFunction { storage: [0; 7], callable: 0 };
     f.storage[0] = base + o::FN_PTR_FUNCTION_VTABLE;
     f.storage[1] = base + o::FN_SELL_MENU;
     f.callable = f.storage.as_ptr() as usize;
-    type FnMake = unsafe extern "system" fn(out: *mut usize, f: *const StdFunction) -> *mut usize;
-    type FnPush = unsafe extern "system" fn(job: *mut usize);
-    let make: FnMake = core::mem::transmute(base + o::FN_MENU_JOB_FROM_FACTORY);
-    let push: FnPush = core::mem::transmute(base + o::FN_MENU_JOB_PUSH);
-    let mut job = 0usize;
-    make(&mut job, &f);
-    if job != 0 { push(&mut job); log("inventory cap: Vente opened"); } else { log("inventory cap: Vente job not created"); }
+    type FnOpen = unsafe extern "system" fn(out: *mut [usize; 3], f: *const StdFunction) -> *mut [usize; 3];
+    type FnReset = unsafe extern "system" fn(h: *mut [usize; 3]);
+    let open: FnOpen = core::mem::transmute(base + o::FN_MENU_JOB_OPEN_ON_TOP);
+    let reset: FnReset = core::mem::transmute(base + o::FN_MENU_JOB_RESET);
+    let mut h = [0usize; 3];
+    open(&mut h, &f);
+    logf!("inventory cap: Vente opened (job {:#X})", h[1]);
+    reset(&mut h);
 }
 
-/// Game thread, garage frame: over the cap after a part was added -> the sell dialog, then the Vente list.
-pub unsafe fn tick(gd: usize) {
+/// Over the cap: the dialog, then the Vente list once the dialog is closed.
+unsafe fn prompt(gd: usize, why: &str) {
+    let (n, max) = (part_count(gd) + PICKED.load(Relaxed), config::get().max_parts);
+    OVER.store(n > max, Relaxed);
+    if n <= max { logf!("inventory cap: {} / {} parts ({})", n, max, why); return; }
+    // nothing sellable (only equipped or unsellable parts): no Vente (closing it would reopen it at once); the check
+    // runs again when a list window closes (Assemblage, where parts can be taken off the AC)
+    let stuck = penalty::sellable_count(gd) == 0;
+    logf!("inventory cap: {} / {} parts ({}) -> sell {}{}", n, max, why, n - max, if stuck { ", nothing sellable" } else { "" });
+    let s = if n - max > 1 { "s" } else { "" };
+    dialog::show(&if stuck { format!("INVENTAIRE PLEIN\n\n{} pièces pour {} places et aucune pièce à vendre : retirez {} pièce{} de l'AC dans ASSEMBLAGE, puis vendez-la{} dans VENTE.", n, max, n - max, s, if s.is_empty() { "" } else { "s" }) }
+        else { format!("INVENTAIRE PLEIN\n\n{} pièces pour {} places : vendez {} pièce{} dans VENTE.", n, max, n - max, s) });
+    // over the results: the grid hides (it would take the dialog's OK as its own, and Vente is drawn under it)
+    if Game::new(BASE.load(Relaxed)).defer_byte(gd) != 0 { rewardmenu::hide_grid(BASE.load(Relaxed), true); }
+    let job = dialog::open_pending(BASE.load(Relaxed));
+    match job {
+        Some((j, id)) => if let Ok(mut d) = DIALOG_JOB.lock() { *d = Some((j, id, !stuck)); },
+        None => if stuck { SHOW_GRID.store(true, Relaxed); } else { OPEN_SELL.store(true, Relaxed); },
+    }
+}
+
+/// Game thread, every frame (results included): the Vente list requested last frame, and the results' checks.
+pub unsafe fn tick_any(gd: usize) {
     let base = BASE.load(Relaxed);
     if mem::rd_usize(base + o::DIALOG_REQUIRED_GLOBAL) == 0 { return; }
-    if OPEN_SELL.swap(false, Relaxed) { open_sell(base); }
-    if !CHECK.swap(false, Relaxed) { return; }
-    let (n, max) = (part_count(gd), config::get().max_parts);
-    OVER.store(n > max, Relaxed);
-    if n <= max { logf!("inventory cap: {} / {} parts", n, max); return; }
-    logf!("inventory cap: {} / {} parts -> sell {}", n, max, n - max);
-    dialog::show(&format!("INVENTAIRE PLEIN\n\n{} pièces pour {} places : vendez {} pièce{} dans VENTE.", n, max, n - max, if n - max > 1 { "s" } else { "" }));
-    OPEN_SELL.store(true, Relaxed);
+    // our dialog closed (checked only while one is up): now the Vente list
+    if let Ok(mut d) = DIALOG_JOB.lock() {
+        if let Some((job, id, sell)) = *d {
+            let is_open: unsafe extern "system" fn(usize, usize) -> u8 = core::mem::transmute(base + o::FN_MENU_JOB_IS_OPEN);
+            if is_open(job, id) == 0 { *d = None; if sell { OPEN_SELL.store(true, Relaxed); } else { SHOW_GRID.store(true, Relaxed); } }
+        }
+    }
+    if SHOW_GRID.swap(false, Relaxed) { rewardmenu::hide_grid(base, false); }
+    if OPEN_SELL.swap(false, Relaxed) {
+        open_sell(base);
+    }
+    if RESULTS_CHECK.swap(false, Relaxed) { prompt(gd, "results"); }
+}
+
+/// Game thread, garage frame: a part was added (or a list window closed while over the cap). After a mission commit,
+/// waits for the garage to be back (AFTER_COMMIT, cleared by lib.rs when flag 3139 falls).
+pub unsafe fn tick(gd: usize) {
+    let base = BASE.load(Relaxed);
+    if AFTER_COMMIT.load(Relaxed) || mem::rd_usize(base + o::DIALOG_REQUIRED_GLOBAL) == 0 { return; }
+    if CHECK.swap(false, Relaxed) { prompt(gd, "garage"); }
 }

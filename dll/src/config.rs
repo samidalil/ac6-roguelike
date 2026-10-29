@@ -80,6 +80,8 @@ impl Pool {
 pub const MAX_POOLS: usize = 200;
 
 pub const MAX_SHOP_SLOTS: u32 = 8;
+/// [inventory] max_parts at least the equipped slots that count (4 weapons + 7 frame parts / internals).
+pub const MIN_PARTS: u32 = 11;
 /// [max_occurrences] values above this are read as this (4-bit count in the save, offsets OCCUR_*)
 pub const MAX_OCCURRENCES: u32 = 15;
 
@@ -249,7 +251,7 @@ pub fn load() {
             ("rewards", "os_rewards") => c.os_rewards = v != 0,
             ("shop", "reroll_interval") => c.reroll_interval = v.clamp(1, 255), // 8-bit counter in the save
             ("economy", "starting_credits") => c.starting_credits = v.min(999_999_999),
-            ("inventory", "max_parts") => c.max_parts = v.max(1),
+            ("inventory", "max_parts") => c.max_parts = v.max(MIN_PARTS), // an equipped AC must fit
             ("lost_on_failure", _) => c.lost_on_failure.push((k.to_string(), v.min(1))),
             ("max_occurrences", _) => {
                 if v > MAX_OCCURRENCES { logf!("config line {}: [max_occurrences] {} = {} read as {}", n + 1, k, v, MAX_OCCURRENCES); }
