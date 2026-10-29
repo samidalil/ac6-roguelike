@@ -13,5 +13,6 @@ copy = 6200                    # new row: start from a copy of this row (else ev
 effectEndurance = 12.5
 ```
 
+Chip files (`dll/src/chips/*.toml`) add their `[speffect.<rowId>]` sections as SpEffectParam rows (same keys).
 Param names are the regulation's file names (as in Smithbox). The file is the whole game regulation: rebuild it after
 a game update, or the old data would replace the new.

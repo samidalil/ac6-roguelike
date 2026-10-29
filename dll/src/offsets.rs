@@ -124,6 +124,13 @@ pub const TOTAL_WEIGHT_CALLSITE: usize = 0x850B77;
 pub const GD_ASSEMBLY: usize = 0x230;
 /// Player character modules ([[[WorldChrMan]+WCM_PLAYER]+PLAYER_MODULES] + 8 x k): the EN object.
 pub const CHR_MOD_EN: usize = 0x2A;
+/// SpEffects (RE 2026-10-29, RE_NOTES "SpEffects on the player"): a character's SpEffect manager at chr + 0x308
+/// (vtable SPEFFECT_MGR_VTABLE; +8 active list head, entries {id, param row +8, next +0x38, flags +0x64}, +0x10 owner);
+/// apply = exe+968EA0(manager, id, target chr, source chr, *params [f32; 4], u8, u8, u8) (callers pass 1.0 floats
+/// and 0 flags), the game thread only.
+pub const CHR_SPEFFECT_MGR: usize = 0x308;
+pub const SPEFFECT_MGR_VTABLE: usize = 0x3839EB8;
+pub const FN_APPLY_SPEFFECT: usize = 0x968EA0;
 /// Weapon module of a character (module 0x27 of the player; constructor exe+8FF8AE): vtable, owner character at +8,
 /// WEAPON_SLOTS slots of WEAPON_SLOT_STRIDE from WEAPON_SLOT0 (slot 1 = right arm, then back units): equipId
 /// +0x44, ammunition {loaded, reserve} at +0x88 / +0x8C (-1: no ammunition).

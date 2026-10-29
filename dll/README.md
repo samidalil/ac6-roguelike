@@ -58,7 +58,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   colours in the `SelIdx` state), navigation from the game's menu actions (pad + keyboard).
 - `event.rs` — events (save loaded, sortie, clear, death, commit, failure, shop reroll, pick, sale...) emitted where
   the mod detects them; chips subscribe with `[on.<event>]` actions (credits, give, level, flag; credits / give applied
-  in the garage on the game thread, listed in a dialog once the garage menu is up).
+  in the garage on the game thread, listed in a dialog once the garage menu is up; speffect applies a SpEffectParam
+  row to the player through the game's own call exe+968EA0).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
   Call hooks share cave pages (`alloc_cave`): one 64 KB allocation slot near the image per page, not per hook.
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, pools:

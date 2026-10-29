@@ -223,6 +223,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
     let game = Game::new(base);
     let Some(gd) = game.game_data_fast() else { return };
     rewardmenu::tick(base);
+    event::apply_speffects(base); // SpEffects queued for the player (event actions, debug)
     if RETIRE_REQUEST.swap(false, Relaxed) && game.defer_byte(gd) == 1 {
         let retire: unsafe extern "system" fn() -> u8 = core::mem::transmute(base + o::FN_RETIRE_MISSION);
         retire();

@@ -1,6 +1,7 @@
-// RegBuild <game regulation.bin> <data dir> <out regulation.bin> [<Smithbox AC6 defs dir>]
-// Applies the declarations of every *.toml in the data dir to the game's regulation and writes an encrypted copy
-// (served by me3 from the mod package). Declarations:
+// RegBuild <game regulation.bin> <data dir> <out regulation.bin> <Smithbox AC6 defs dir> [<chips dir>]
+// Applies the declarations of every *.toml in the data dir (and the [speffect.<rowId>] sections of the chip files, as
+// SpEffectParam rows) to the game's regulation and writes an encrypted copy (served by me3 from the mod package).
+// Declarations:
 //   [ParamName.rowId]        a row of a param (file name in the regulation, e.g. EquipParamWeapon)
 //   copy = <rowId>           new row only: start from a copy of this row (else all fields 0)
 //   field = value            Smithbox field name (case ignored) = number or "text"
@@ -18,11 +19,12 @@ class RegBuild
 
     static int Main(string[] a)
     {
-        if (a.Length < 3) { Console.Error.WriteLine("usage: RegBuild <game regulation.bin> <data dir> <out regulation.bin> [<AC6 defs dir>]"); return 2; }
-        string src = a[0], dataDir = a[1], dst = a[2];
-        string defs = a.Length > 3 ? a[3] : Path.Combine(Path.GetDirectoryName(typeof(PARAM).Assembly.Location)!, "Assets", "PARAM", "AC6", "Defs");
+        if (a.Length < 4) { Console.Error.WriteLine("usage: RegBuild <game regulation.bin> <data dir> <out regulation.bin> <AC6 defs dir> [<chips dir>]"); return 2; }
+        string src = a[0], dataDir = a[1], dst = a[2], defs = a[3];
         var decls = new List<Decl>();
-        foreach (var f in Directory.GetFiles(dataDir, "*.toml").OrderBy(x => x)) decls.AddRange(Parse(f));
+        foreach (var f in Directory.GetFiles(dataDir, "*.toml").OrderBy(x => x)) decls.AddRange(Parse(f, false));
+        if (a.Length > 4 && Directory.Exists(a[4]))
+            foreach (var f in Directory.GetFiles(a[4], "*.toml").OrderBy(x => x)) decls.AddRange(Parse(f, true));
         if (decls.Count == 0) { Console.WriteLine("no declarations: nothing to build"); return 0; }
 
         var bnd = SFUtil.DecryptAC6Regulation(src);
@@ -102,10 +104,12 @@ class RegBuild
         _ => throw new FormatException($"field type {t} not supported"),
     };
 
-    /// A tiny TOML subset: [Param.row] sections, key = value (number or "text"), # comments outside quotes.
-    static IEnumerable<Decl> Parse(string path)
+    /// A tiny TOML subset: [Param.row] sections, key = value (number or "text"), # comments outside quotes. A chip file
+    /// (`chip`) only contributes its [speffect.<rowId>] sections (SpEffectParam rows); its other lines are the DLL's.
+    static IEnumerable<Decl> Parse(string path, bool chip)
     {
         Decl cur = null;
+        bool skip = chip;
         var lines = File.ReadAllLines(path);
         for (int n = 0; n < lines.Length; n++)
         {
@@ -114,12 +118,20 @@ class RegBuild
             if (line.StartsWith('[') && line.EndsWith(']'))
             {
                 if (cur != null) yield return cur;
+                cur = null;
                 var s = line[1..^1].Trim().Trim('"');
+                if (chip)
+                {
+                    skip = !s.StartsWith("speffect.", StringComparison.OrdinalIgnoreCase);
+                    if (skip) continue;
+                    s = "SpEffectParam" + s["speffect".Length..];
+                }
                 var dot = s.LastIndexOf('.');
                 if (dot <= 0 || !int.TryParse(s[(dot + 1)..], out var row)) throw new FormatException($"{path}:{n + 1}: [ParamName.rowId] expected, not [{s}]");
                 cur = new Decl(Path.GetFileName(path), n + 1, s[..dot], row, new(StringComparer.OrdinalIgnoreCase));
                 continue;
             }
+            if (skip) continue;
             var eq = line.IndexOf('=');
             if (eq < 0 || cur == null) throw new FormatException($"{path}:{n + 1}: key = value inside a [ParamName.rowId] section expected");
             var k = line[..eq].Trim().Trim('"');

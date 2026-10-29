@@ -60,13 +60,14 @@ static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 6] = [
+const DEFAULTS: [(&str, &str); 7] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
     ("extended_magazines.toml", include_str!("chips/extended_magazines.toml")),
     ("preferred_contract.toml", include_str!("chips/preferred_contract.toml")),
     ("performance_bonus.toml", include_str!("chips/performance_bonus.toml")),
+    ("nanorepair.toml", include_str!("chips/nanorepair.toml")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).
@@ -104,6 +105,8 @@ fn parse(text: &str) -> Result<Chip, String> {
         let line = config::strip_comment(raw).trim();
         if line.is_empty() { continue; }
         if line.starts_with('[') && line.ends_with(']') { section = line[1..line.len() - 1].trim().to_string(); continue; }
+        // [speffect.<row id>]: a SpEffectParam row for tools/regulation (mod/regulation.bin), not read here
+        if section.starts_with("speffect.") { continue; }
         let Some((k, v)) = line.rsplit_once('=') else { return Err(format!("line {}: no `key = value`", n + 1)) };
         let (k, v) = (k.trim().trim_matches('"').trim(), v.trim());
         let val = config::parse_value(v).ok_or_else(|| format!("line {}: {} is not a value", n + 1, v))?;
