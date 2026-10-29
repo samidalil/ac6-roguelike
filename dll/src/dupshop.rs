@@ -1,40 +1,67 @@
-//! Duplicate parts in the shop. Weapons and frame parts can be owned several times, so the shop may roll a part the
-//! player already owns. The shop asks one function how many of an item the player may still get: exe+D2F900(&id) =
-//! 1 when the id is not in the inventory, else 0 (RE_NOTES "Duplicate parts in the shop"). The buy list's ownership
-//! filter, the purchase confirmation, the purchasable quantity and the add itself all go through it, so an owned part
-//! is hidden, refused ("Vous avez acheté toutes les pièces disponibles.") or charged without being added. Hooked at
-//! its entry: a shop slot's part answers 1 while the player owns no more copies of it than when the slot was rolled
-//! (its baseline), so it is listed and bought like any part, and once bought it is hidden until the next reroll.
-//! Every other item gets the game's answer (buy-back, starters, booster / generator / FCS).
+//! The shop's offers. Weapons and frame parts can be owned several times, so the shop may roll a part the player
+//! already owns. The shop asks one function how many of an item the player may still get: exe+D2F900(&id) = 1 when
+//! the id is not in the inventory, else 0 (RE_NOTES "Duplicate parts in the shop"). The buy list's ownership filter,
+//! the purchase confirmation, the purchasable quantity and the add itself all go through it, every list entry of every
+//! frame a shop menu is up.
 //!
-//! Baselines: 3 bits per shop slot in the save (flags SHOP_BASELINE..), written at the reroll, mirrored here.
+//! The shop array answers it without reading the inventory (RE_NOTES "Shop array"): each rolled slot is for sale until
+//! it is bought, each part sold since the reroll (buy-back, ROWS_SOLD) until it is bought back. Only actions change it:
+//! the reroll, a purchase (the purchase's add, exe+D4E00D), a sale (buyback.rs). A copy of the same part coming
+//! from anywhere else (reward, chip) leaves it alone. Starters and unique parts (booster / generator / FCS: copies would
+//! share a handle) keep the game's answer (not owned).
+//!
+//! Save: one "bought" flag per slot (SHOP_BOUGHT), mirrored here.
 
 use super::*;
+use std::sync::atomic::AtomicBool;
 
-const BITS: u32 = 3;
-/// Shop slot -> (grant id, copies owned when rolled); grant id 0 = the game decides.
+/// Shop slot -> grant id (0 = empty, or a part the game decides for).
 static SLOT_ID: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
-static SLOT_BASE: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
+static SLOT_BOUGHT: [AtomicBool; 8] = [const { AtomicBool::new(false) }; 8];
 static TRAMPOLINE: AtomicUsize = AtomicUsize::new(0);
 static GAME_BASE: AtomicUsize = AtomicUsize::new(0);
 
 type FnObtainable = unsafe extern "system" fn(id: *const u32) -> u32;
+type FnAdd = unsafe extern "system" fn(id: *const u32, n: u32) -> u8;
 
-/// Detour of exe+D2F900 (game thread, shop menus: every list entry of every frame the buy list is built, the
-/// purchase steps).
+/// In the array: a weapon or frame part, not a starter.
+fn tracked(item: u32) -> bool {
+    item != 0 && !penalty::unique_tag(item) && !penalty::FRAME_SLOTS.iter().any(|s| s.3 | s.2 == item)
+}
+/// Slot of `item` still for sale.
+fn open_slot(item: u32) -> Option<usize> {
+    (0..SLOT_ID.len()).find(|&k| SLOT_ID[k].load(Relaxed) == item && !SLOT_BOUGHT[k].load(Relaxed))
+}
+
+/// Detour of exe+D2F900 (game thread, shop menus: every list entry of every frame, the purchase steps).
 unsafe extern "system" fn obtainable_hook(id: *const u32) -> u32 {
     let item = *id;
-    if item != 0 {
-        if let Some(k) = SLOT_ID.iter().position(|s| s.load(Relaxed) == item) {
-            let game = Game::new(GAME_BASE.load(Relaxed));
-            if let Some(gd) = game.game_data() {
-                let copies = game.owned_ids(gd).iter().filter(|x| **x == item).count() as u32;
-                return (copies <= SLOT_BASE[k].load(Relaxed)) as u32;
-            }
-        }
+    if tracked(item) {
+        if open_slot(item).is_some() || buyback::sold(item) { return 1; }
+        if SLOT_ID.iter().any(|s| s.load(Relaxed) == item) { return 0; } // its slot was bought
     }
     let orig: FnObtainable = core::mem::transmute(TRAMPOLINE.load(Relaxed));
     orig(id)
+}
+
+/// The shop purchase's add (exe+D4E00D: `D2EC20(&id, n)`): the entry it sold leaves the array once the add went through
+/// (D2EC20 also returns 1 when it added nothing, so what was for sale is noted before).
+unsafe extern "system" fn purchase_hook(id: *const u32, n: u32) -> u8 {
+    let item = *id;
+    let (slot, sold) = if tracked(item) { (open_slot(item), buyback::sold(item)) } else { (None, false) };
+    let add: FnAdd = core::mem::transmute(GAME_BASE.load(Relaxed) + o::FN_ADD_OBTAINABLE);
+    let r = add(id, n);
+    if r != 0 {
+        let game = Game::new(GAME_BASE.load(Relaxed));
+        if let Some(k) = slot {
+            SLOT_BOUGHT[k].store(true, Relaxed);
+            if let Some(man) = game.flag_man() { game.put_flag(man, o::SHOP_BOUGHT + k as u32, true); }
+            logf!("shop: slot {} {} bought", k, penalty::part_name(item));
+        } else if sold {
+            buyback::bought_back(item);
+        }
+    }
+    r
 }
 
 pub unsafe fn install(base: usize) {
@@ -43,40 +70,58 @@ pub unsafe fn install(base: usize) {
     let prologue = [0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20];
     match rewardmenu::install_entry_hook(base, o::FN_SHOP_OBTAINABLE, &prologue, obtainable_hook as *const () as usize) {
         Ok(t) => { TRAMPOLINE.store(t, Relaxed); logf!("shop ownership hook installed: exe+{:X}", o::FN_SHOP_OBTAINABLE); }
-        Err(e) => logf!("shop ownership hook exe+{:X} FAILED: {} (owned parts never sold)", o::FN_SHOP_OBTAINABLE, e),
+        Err(e) => { logf!("shop ownership hook exe+{:X} FAILED: {} (owned parts never sold)", o::FN_SHOP_OBTAINABLE, e); return; }
+    }
+    match install_call_hook(base, o::PURCHASE_ADD_CALLSITE, o::FN_ADD_OBTAINABLE, purchase_hook as *const () as usize) {
+        Ok(cave) => logf!("shop purchase hook installed: exe+{:X} -> cave {:#X}", o::PURCHASE_ADD_CALLSITE, cave),
+        Err(e) => logf!("shop purchase hook FAILED: {} (bought slots stay for sale)", e),
     }
 }
 
-/// Mirror <- the shop slots (`parts[k]` = slot k, None = empty) and their saved baselines. Only weapons and frame
-/// parts get the bypass.
+/// Mirror <- the shop slots (`parts[k]` = slot k, None = empty) and their saved "bought" flags. Saves from before the
+/// array kept per slot the copies owned at the roll: bought = more copies owned now (one inventory read, once).
 pub unsafe fn load(game: &Game, man: usize, parts: &[Option<Part>]) {
+    let old = game.get_bits(man, o::SAVE_FORMAT, 8) == o::SAVE_FORMAT_DUPES;
+    let owned = if old { game.game_data().map(|gd| game.owned_ids(gd)).unwrap_or_default() } else { Vec::new() };
+    let mut bought = Vec::new();
     for k in 0..SLOT_ID.len() {
-        let p = parts.get(k).copied().flatten().filter(|p| !p.unique());
-        SLOT_ID[k].store(p.map(|p| p.grant_id()).unwrap_or(0), Relaxed);
-        SLOT_BASE[k].store(game.get_bits(man, o::SHOP_BASELINE + BITS * k as u32, BITS), Relaxed);
+        let p = parts.get(k).copied().flatten().filter(|p| tracked(p.grant_id()));
+        let id = p.map(|p| p.grant_id()).unwrap_or(0);
+        SLOT_ID[k].store(id, Relaxed);
+        let b = if old {
+            let base = game.get_bits(man, o::SHOP_BASELINE_OLD + BASELINE_BITS * k as u32, BASELINE_BITS);
+            id != 0 && owned.iter().filter(|x| **x == id).count() as u32 > base
+        } else { game.get_flag(man, o::SHOP_BOUGHT + k as u32) == Some(true) };
+        SLOT_BOUGHT[k].store(b, Relaxed);
+        if b { bought.push(k); }
+    }
+    if old {
+        for i in 0..BASELINE_BITS * SLOT_ID.len() as u32 { game.put_flag(man, o::SHOP_BASELINE_OLD + i, false); }
+        for (k, b) in SLOT_BOUGHT.iter().enumerate() { game.put_flag(man, o::SHOP_BOUGHT + k as u32, b.load(Relaxed)); }
+        game.put_bits(man, o::SAVE_FORMAT, 8, o::SAVE_FORMAT_SHOP_ARRAY);
+        logf!("save format: shop baselines -> bought slots {:?}", bought);
+    } else if !bought.is_empty() {
+        logf!("shop: bought slots {:?}", bought);
     }
 }
 
-/// Reroll: each slot's baseline = copies of its part owned now (7 at most), saved; then the mirror.
-pub unsafe fn write(game: &Game, gd: usize, man: usize, parts: &[Option<Part>]) {
-    let owned = game.owned_ids(gd);
-    let mut v = Vec::new();
-    for k in 0..SLOT_ID.len() {
-        let n = parts.get(k).copied().flatten().map(|p| owned.iter().filter(|x| **x == p.grant_id()).count()).unwrap_or(0);
-        game.put_bits(man, o::SHOP_BASELINE + BITS * k as u32, BITS, n.min(7) as u32);
-        if k < parts.len() { v.push(n); }
-    }
-    logf!("shop baselines (copies owned per slot) {:?}", v);
+/// Reroll: every slot for sale again; then the mirror.
+pub unsafe fn write(game: &Game, man: usize, parts: &[Option<Part>]) {
+    for k in 0..SLOT_ID.len() as u32 { game.put_flag(man, o::SHOP_BOUGHT + k, false); }
     load(game, man, parts);
 }
 
-/// Saves from before duplicates kept the "already rolled" bitsets where the baselines now live: clear those ranges
-/// once, then mark the save (8-bit format value). The shops of those saves only hold unowned parts: baseline 0.
+/// 3 bits per slot in the saves before the array (copies owned when the slot was rolled).
+const BASELINE_BITS: u32 = 3;
+
+/// Saves from before duplicates kept the "already rolled" bitsets where the shop flags now live: clear those ranges
+/// once, then mark the save (8-bit format value). Saves with baselines (SAVE_FORMAT_DUPES) are converted by `load`.
 pub unsafe fn migrate(game: &Game, man: usize) {
-    if game.get_bits(man, o::SAVE_FORMAT, 8) == o::SAVE_FORMAT_DUPES { return; }
+    let f = game.get_bits(man, o::SAVE_FORMAT, 8);
+    if f == o::SAVE_FORMAT_DUPES || f == o::SAVE_FORMAT_SHOP_ARRAY { return; }
     for i in 0..o::ROW_COUNT as u32 { game.put_flag(man, o::OLD_ROWS_ROLLED + i, false); }
     for i in 0..o::OLD_REWARD_ROLLED_A_LEN { game.put_flag(man, o::OLD_REWARD_ROLLED_A + i, false); }
     for i in 0..(o::ROW_COUNT as u32 - o::OLD_REWARD_ROLLED_A_LEN) { game.put_flag(man, o::OLD_REWARD_ROLLED_B + i, false); }
-    game.put_bits(man, o::SAVE_FORMAT, 8, o::SAVE_FORMAT_DUPES);
+    game.put_bits(man, o::SAVE_FORMAT, 8, o::SAVE_FORMAT_SHOP_ARRAY);
     log("save format: old rolled-part sets cleared (duplicates allowed)");
 }

@@ -1042,6 +1042,8 @@ No credits fallback, no `pool_limit`.
   by its spare copy), VE-46A and TALBOT lost; only TALBOT's row 105 entered `ROWS_LOST`. Real sortie ("Destruction
   de l'AC d'essai", kill_enemies.py): migration ran, offers rolled, reroll wrote baselines [0, 0, 0]; the forced owned
   VE-46A picked in the grid became a second copy.
+- **Superseded (2026-10-30) by "Shop array"**: the baselines are gone (a copy from a reward hid the slot, and the
+  inventory scan on every call made the shop menus lag).
 - **Core expansions (user asked to add them):** done, see "OS Tuning rewards" below.
 - Not changed: buy-back of a sold copy stays hidden while another copy is owned (vanilla rule, `dupshop` only covers
   shop slots); the reward-choice prune drops unpicked offers by handle (safe: unique parts are never offered owned).
@@ -1716,3 +1718,32 @@ part the game asks about, on every frame (the game queries D2F900 per list entry
 MAGASIN already does). Same build with only that hook off: MAGASIN 27% waits / 58% game code, VENTE + tutorial 33% /
 50%, like the idle garage. Not from the inventory cap; since PR #8. Fix: a shop array built at the reroll / load and
 updated by the buy and sell actions, read by the hooks (no inventory read per call).
+
+## Shop array (2026-10-30)
+**Why.** The ownership hook (exe+D2F900, asked per list entry per frame while a shop menu is up, MAGASIN included)
+rebuilt the owned-id list (VirtualQuery per 4 KB page) for every shop-slot part: the main thread spent 99% of the MAGASIN
+frames waiting in it (thread sampling, scratchpad sampler.py / stackwait.py); same build with that hook off: like the
+idle garage. And "copies owned <= baseline" hid a rolled slot as soon as a copy came from anywhere else (reward, chip),
+and offered a bought slot again once a copy was sold.
+**Now.** The shop is an array changed only by actions; the hooks read it.
+- Entries: each rolled slot (for sale until bought; flag SHOP_BOUGHT 7100 + slot, mirror in dupshop.rs) and each part
+  sold since the reroll (ROWS_SOLD, for sale until bought back). Weapons and frame parts only; starters (always
+  listed by shop_pred) and unique parts (booster / generator / FCS) keep the game's answer (not owned).
+- Ownership hook: open slot or sold row -> 1; bought slot -> 0; anything else -> the game's function.
+- Purchase: the Achat purchase's add is `call exe+D2EC20(&id, n)` at **exe+D4E00D** (exe+D4DFE0(transaction): id by
+  exe+435C90, count +0x78; found with a hardware breakpoint on D2EC20 during a purchase: return exe+D4E012, stack
+  D663AD ... from the buy step exe+D66940's jobs). Call-site hook: what the purchase consumes (open slot first, else the
+  sold row) is noted before the call, marked after it returns 1 (D2EC20 also returns 1 when it added nothing). exe+10A47D3
+  (another D2EC20 caller in the list window code) is not the purchase. D2EC20's other callers are give paths.
+- Sale: buyback.rs as before (adds the row). Reroll: every slot for sale, buy-back cleared.
+- AC6 arm weapons have one id per side (HML-G2/P19MLT-04: 0x99F610 right, 0xE64150 left): a roll can hold both sides
+  as two slots, each bought separately.
+- Save format 0xA6 (7124..7131). 0xA5 saves (baselines, 3 bits per slot 7100..7123) are converted once at load: bought
+  = copies owned > baseline (one inventory read), then the old bits cleared, the bought flags written. Older saves:
+  the old rolled ranges cleared as before.
+- **Verified** (profile ac6-roguelike-cap.me3, save ac-mission-available, COAM set to 500 000): MAGASIN 53% / ACHAT 69%
+  main-thread waits, none in the DLL (the game's own frame wait exe+24AA9F6, as in the idle garage); HML-G2 right
+  bought -> "slot 1 bought", tab empty; left side = slot 0, bought separately; flags kept after a relaunch ("bought
+  slots [1]"); core CS-5000 MAIN DISH (slot 3) given with debug `give` -> still for sale; HML-G2 right sold in VENTE ->
+  back in ACHAT -> bought -> "bought back", hidden; AC6_roguelike_excl.sl2 (0xA5, empty shop) converted ("bought slots
+  []"). Not seen: a 0xA5 save with a bought slot (AC6_roguelike_dup.sl2 predates the format marker).

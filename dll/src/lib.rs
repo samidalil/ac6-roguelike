@@ -963,7 +963,7 @@ impl Run {
         let idx: Vec<u16> = sel.iter().map(|p| p.idx).collect();
         self.mark_offered(man, &sel, "shop");
         self.game.write_state(man, &idx);
-        dupshop::write(&self.game, gd, man, &self.slot_parts(&idx));
+        dupshop::write(&self.game, man, &self.slot_parts(&idx));
         buyback::clear(&self.game, man);
         self.apply_state(man, &idx, "reroll at mission end");
     }
@@ -1285,7 +1285,7 @@ fn boot() {
                             let idx: Vec<u16> = ids.iter().filter_map(|id| run.pool.iter().find(|p| p.grant_id() == *id).map(|p| p.idx)).take(config::MAX_SHOP_SLOTS as usize).collect();
                             logf!("DEBUG: shop {:X?} -> rows {:?}", ids, idx);
                             run.game.write_state(man, &idx);
-                            dupshop::write(&run.game, gd, man, &run.slot_parts(&idx));
+                            dupshop::write(&run.game, man, &run.slot_parts(&idx));
                             run.apply_state(man, &idx, "DEBUG shop"); prev_state = None;
                             run.game.request_save();
                         }
