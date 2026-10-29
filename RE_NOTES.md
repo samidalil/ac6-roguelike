@@ -1589,6 +1589,14 @@ each time it closes while still over (no auto-sell); with several rewards the ch
 - **VENTE tutorial.** The first Vente of a save queues 02_Tutorial_Modal; with Vente opened by the DLL (a child) it
   shows after the list closes. Its seen state is saved (no event flag 0..9999 changes; after a save + relaunch the
   tutorial and the "!" badge are gone): at most once per save.
+  Showing it OVER a DLL-opened Vente: not found (2026-10-30). Tried: Vente through the manager queue in the garage
+  (DA3410 + DC2A70) instead of the child: the tutorial still waits until the list closes, then shows over the garage
+  (a Vente queued after it then waits behind it). The vanilla VENTE entry creates the tutorial through none of
+  exe+D74BC0 / DC4B60 / DA3410 / DC2A70 (only the Vente job passes D74BC0). Hardware breakpoints on DA3410 / DC2A70
+  and plain entry hooks on them froze the garage menus (no hit logged): avoid. Static: "02_Tutorial_Modal" is
+  looked up by name in the menu manager's window map (+0xA0) at exe+13DCA60, in exe+13DC9B0 = "no tutorial now"
+  (manager busy state exe+CD2880 -> mask from exe+CD24D0, or the modal already open), called from a per-frame fade
+  update at exe+13DBFE9; the code that opens the modal is not found.
 - **Nothing to sell** (counted parts all equipped or priced 0, e.g. the Worm Killer): the dialog says to take parts off
   the AC in ASSEMBLAGE and sell them; no Vente (it would reopen at once forever); the check runs again when a list
   window closes. Not reproduced in game (needs an unsellable spare).
@@ -1603,3 +1611,11 @@ each time it closes while still over (no auto-sell); with several rewards the ch
   actions (same AddItem path, not run), mouse clicks on the hidden grid's OK while Vente is open, reward_choices = 1
   without OS offers (no grid: only the after-commit check). Tutorial texts: separate task. Breakpoints on per-frame menu functions (exe+DC2A70,
   exe+D834E0) froze the UI: watch only functions that run once per menu.
+
+## Hook memory reserved at load (2026-10-30, fix)
+Some launches logged "shop hook FAILED: no near page for the cave -- aborting" (2 of 4 in a row) and ran without the
+mod. The game's heaps fill nearly all of +-1.75 GB around the image (VirtualQueryEx in such a launch: 281 free 64 KB
+slots left in that range), and the hooks are installed ~10 s after load. Now DllMain reserves 1 MB of RWX memory
+within rel32 reach before the game allocates (`alloc_near`, below the image then above), and every cave / trampoline
+page comes from it (`alloc_near_page`, then the old scan as a fallback); the shop predicate hook, which had its own
+below-only scan, uses `alloc_cave` too. Verified: 3 launches in a row, every hook inside the block (0x13FF00000).
