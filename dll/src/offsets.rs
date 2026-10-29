@@ -139,21 +139,9 @@ pub const STATE_FLAG_EXTRA_BASE: u32 = 7900;
 #[allow(dead_code)] // used by the buy-back, lost-forever and pool features
 pub const ROWS_SOLD: u32 = 4100;   // 4100..4417: sold since the last reroll (buy-back)
 pub const ROWS_LOST: u32 = 4550;   // 4550..4867: never offered again (lost forever, or offered [max_occurrences] times)
-// Freed when duplicates came in (the "already rolled" sets of the pool without repeats); dupshop::migrate clears
-// them once in older saves. 7100..7131 now hold the shop's bought slots + the save format.
-pub const OLD_ROWS_ROLLED: u32 = 7100;     // 7100..7417
-pub const OLD_REWARD_ROLLED_A: u32 = 7501; // 7501..7799
-pub const OLD_REWARD_ROLLED_A_LEN: u32 = 299;
-pub const OLD_REWARD_ROLLED_B: u32 = 7838; // 7838..7856
-/// Shop slot k bought since the reroll (1 flag each, 8 slots: 7100..7107; dupshop.rs).
+/// Shop slot k bought since the reroll (1 flag each, 8 slots: 7100..7107; dupshop.rs). Block 7 (7100..7131 free: old
+/// saves from before the shop array may hold other bits there; not converted).
 pub const SHOP_BOUGHT: u32 = 7100;
-/// Saves before the shop array: shop slot k = copies of its part owned when it was rolled (3 bits each, 7100..7123).
-pub const SHOP_BASELINE_OLD: u32 = 7100;
-/// 8-bit save format value (7124..7131): SAVE_FORMAT_DUPES once the old rolled sets were cleared (baselines),
-/// SAVE_FORMAT_SHOP_ARRAY with the bought flags.
-pub const SAVE_FORMAT: u32 = 7124;
-pub const SAVE_FORMAT_DUPES: u32 = 0xA5;
-pub const SAVE_FORMAT_SHOP_ARRAY: u32 = 0xA6;
 /// [max_occurrences] OS Tunings offered their max number of times this run (1 bit per OS_TUNINGS entry: 4418..4434;
 /// lineup parts use ROWS_LOST, chips CHIP_GONE). Block 4 was verified to hold only ROWS_SOLD / ROWS_LOST / REWARD_RNG bits several
 /// missions in.
@@ -166,8 +154,7 @@ pub const CHIP_GONE: u32 = 4504;
 pub const MAX_CHIPS: u16 = 32;
 /// [os_tuning]-style row of chip id k (used as its key in [part_rarity], [lost_on_failure], [max_occurrences]).
 pub const CHIP_ROW0: u16 = 9000;
-/// Chip scripts' saved byte (script.rs `store`): SCRIPT_STORE_BITS per chip id, LSB first, 7132..7387 (block 7, part
-/// of the old rolled sets freed by dupshop::migrate, which clears them once before the save format is set).
+/// Chip scripts' saved byte (script.rs `store`): SCRIPT_STORE_BITS per chip id, LSB first, 7132..7387 (block 7).
 pub const SCRIPT_STORE: u32 = 7132;
 pub const SCRIPT_STORE_BITS: u32 = 8;
 pub const CHIP_MAX_LEVEL: usize = 3;

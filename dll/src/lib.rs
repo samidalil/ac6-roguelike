@@ -1097,7 +1097,6 @@ fn boot() {
 
             // (1) persisted shop state (flags) -> chosen ids. Handles Continue / New Game / our own writes.
             if let Some(man) = run.game.flag_man() {
-                dupshop::migrate(&run.game, man);
                 let st = run.game.read_state(man);
                 if prev_state.as_ref() != Some(&st) {
                     match &st {

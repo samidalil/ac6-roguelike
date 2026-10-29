@@ -78,50 +78,21 @@ pub unsafe fn install(base: usize) {
     }
 }
 
-/// Mirror <- the shop slots (`parts[k]` = slot k, None = empty) and their saved "bought" flags. Saves from before the
-/// array kept per slot the copies owned at the roll: bought = more copies owned now (one inventory read, once).
+/// Mirror <- the shop slots (`parts[k]` = slot k, None = empty) and their saved "bought" flags.
 pub unsafe fn load(game: &Game, man: usize, parts: &[Option<Part>]) {
-    let old = game.get_bits(man, o::SAVE_FORMAT, 8) == o::SAVE_FORMAT_DUPES;
-    let owned = if old { game.game_data().map(|gd| game.owned_ids(gd)).unwrap_or_default() } else { Vec::new() };
     let mut bought = Vec::new();
     for k in 0..SLOT_ID.len() {
-        let p = parts.get(k).copied().flatten().filter(|p| tracked(p.grant_id()));
-        let id = p.map(|p| p.grant_id()).unwrap_or(0);
+        let id = parts.get(k).copied().flatten().map(|p| p.grant_id()).filter(|&id| tracked(id)).unwrap_or(0);
         SLOT_ID[k].store(id, Relaxed);
-        let b = if old {
-            let base = game.get_bits(man, o::SHOP_BASELINE_OLD + BASELINE_BITS * k as u32, BASELINE_BITS);
-            id != 0 && owned.iter().filter(|x| **x == id).count() as u32 > base
-        } else { game.get_flag(man, o::SHOP_BOUGHT + k as u32) == Some(true) };
+        let b = id != 0 && game.get_flag(man, o::SHOP_BOUGHT + k as u32) == Some(true);
         SLOT_BOUGHT[k].store(b, Relaxed);
         if b { bought.push(k); }
     }
-    if old {
-        for i in 0..BASELINE_BITS * SLOT_ID.len() as u32 { game.put_flag(man, o::SHOP_BASELINE_OLD + i, false); }
-        for (k, b) in SLOT_BOUGHT.iter().enumerate() { game.put_flag(man, o::SHOP_BOUGHT + k as u32, b.load(Relaxed)); }
-        game.put_bits(man, o::SAVE_FORMAT, 8, o::SAVE_FORMAT_SHOP_ARRAY);
-        logf!("save format: shop baselines -> bought slots {:?}", bought);
-    } else if !bought.is_empty() {
-        logf!("shop: bought slots {:?}", bought);
-    }
+    if !bought.is_empty() { logf!("shop: bought slots {:?}", bought); }
 }
 
 /// Reroll: every slot for sale again; then the mirror.
 pub unsafe fn write(game: &Game, man: usize, parts: &[Option<Part>]) {
     for k in 0..SLOT_ID.len() as u32 { game.put_flag(man, o::SHOP_BOUGHT + k, false); }
     load(game, man, parts);
-}
-
-/// 3 bits per slot in the saves before the array (copies owned when the slot was rolled).
-const BASELINE_BITS: u32 = 3;
-
-/// Saves from before duplicates kept the "already rolled" bitsets where the shop flags now live: clear those ranges
-/// once, then mark the save (8-bit format value). Saves with baselines (SAVE_FORMAT_DUPES) are converted by `load`.
-pub unsafe fn migrate(game: &Game, man: usize) {
-    let f = game.get_bits(man, o::SAVE_FORMAT, 8);
-    if f == o::SAVE_FORMAT_DUPES || f == o::SAVE_FORMAT_SHOP_ARRAY { return; }
-    for i in 0..o::ROW_COUNT as u32 { game.put_flag(man, o::OLD_ROWS_ROLLED + i, false); }
-    for i in 0..o::OLD_REWARD_ROLLED_A_LEN { game.put_flag(man, o::OLD_REWARD_ROLLED_A + i, false); }
-    for i in 0..(o::ROW_COUNT as u32 - o::OLD_REWARD_ROLLED_A_LEN) { game.put_flag(man, o::OLD_REWARD_ROLLED_B + i, false); }
-    game.put_bits(man, o::SAVE_FORMAT, 8, o::SAVE_FORMAT_SHOP_ARRAY);
-    log("save format: old rolled-part sets cleared (duplicates allowed)");
 }

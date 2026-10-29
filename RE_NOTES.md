@@ -1738,12 +1738,18 @@ and offered a bought slot again once a copy was sold.
 - Sale: buyback.rs as before (adds the row). Reroll: every slot for sale, buy-back cleared.
 - AC6 arm weapons have one id per side (HML-G2/P19MLT-04: 0x99F610 right, 0xE64150 left): a roll can hold both sides
   as two slots, each bought separately.
-- Save format 0xA6 (7124..7131). 0xA5 saves (baselines, 3 bits per slot 7100..7123) are converted once at load: bought
-  = copies owned > baseline (one inventory read), then the old bits cleared, the bought flags written. Older saves:
-  the old rolled ranges cleared as before.
+- No save conversion (user: the mod has no players yet): the save format byte and dupshop::migrate are gone; old saves
+  may hold other bits in 7100..7131.
+- **Saved with the game's own save.** The flags are written right after the purchase's add / the sale's removal; the
+  game saves after both: killed without any manual save and reloaded -> inventory, credits, bought slots and buy-back
+  all back as they were.
+- **Duplicates:** a sale adds its row whatever is still owned (a copy kept or equipped): the sold copy is offered
+  back. One flag per row: selling two copies of the same part offers one back.
+- **Starters** keep the game's answer (listed while not owned): CC-2000 ORBITER unequipped (MAIN DISH installed in
+  ASSEMBLAGE), sold -> listed in ACHAT at 170 000; owning one copy (even equipped) hides it.
 - **Verified** (profile ac6-roguelike-cap.me3, save ac-mission-available, COAM set to 500 000): MAGASIN 53% / ACHAT 69%
   main-thread waits, none in the DLL (the game's own frame wait exe+24AA9F6, as in the idle garage); HML-G2 right
   bought -> "slot 1 bought", tab empty; left side = slot 0, bought separately; flags kept after a relaunch ("bought
   slots [1]"); core CS-5000 MAIN DISH (slot 3) given with debug `give` -> still for sale; HML-G2 right sold in VENTE ->
-  back in ACHAT -> bought -> "bought back", hidden; AC6_roguelike_excl.sl2 (0xA5, empty shop) converted ("bought slots
-  []"). Not seen: a 0xA5 save with a bought slot (AC6_roguelike_dup.sl2 predates the format marker).
+  back in ACHAT -> bought -> "bought back", hidden; second MAIN DISH bought from its slot, one sold while the other stays
+  equipped -> offered back (buy-back).
