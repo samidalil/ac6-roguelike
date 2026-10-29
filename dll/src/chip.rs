@@ -1,19 +1,34 @@
 //! Our own OS chips: one file per chip in `chips/` next to the DLL (the defaults in dll/src/chips/ are written when
 //! the folder is missing). A chip is offered and leveled like an OS Tuning (os.rs: reward grid, [part_rarity],
 //! [lost_on_failure], [max_occurrences] by its row 9000 + id or its name); its level is saved in event flags
-//! (CHIP_LEVELS). Effects are declarative and typed (`[effect]` stat = "+" / "-": the level's value in %), read from
-//! the levels when used (like the game's OS Tunings) and applied to the player's AC only through hooks on its stat code
-//! (the part params are not touched, so Assemblage shows the parts' own stats): max AP, EN capacity and total weight
-//! (recomputed by the game every frame), and each weapon's ammunition when the game fills it (mission load). RE_NOTES
-//! "OS Tuning values and own OS chips". Script hooks (SpEffect...) come later; resupply is not covered yet.
+//! (CHIP_LEVELS). Effects are declarative: `[effect]` modifier target = "+" / "-" (the level's value in %) or "add" /
+//! "sub" (the value itself), read from the levels when the target is used (like the game's OS Tunings). Targets are
+//! the engine's lookup points (`Target`, `modify`): the player's AC through hooks on its stat code (max AP, EN capacity
+//! and total weight, recomputed by the game every frame; each weapon's ammunition when the game fills it; the part
+//! params are not touched, so Assemblage shows the parts' own stats), and the mod's own rolls (pool weights, rewards
+//! per mission, parts per reward, shop size). RE_NOTES "OS Tuning values and own OS chips" and "Modifier targets".
+//! Script hooks (SpEffect...) come later; resupply is not covered yet.
 
 use super::*;
 use std::sync::OnceLock;
 
-/// Effect types a chip file can use (`[effect]` keys).
+/// Modifier targets: the values the engine looks up through `modify` where it uses them (`[effect]` keys). Pool
+/// weights are `pool.<NAME>.weight` ([pool.NAME] sections).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Stat { Ap, EnCapacity, Weight, Ammo }
-const STATS: [(&str, Stat); 4] = [("ap", Stat::Ap), ("en_capacity", Stat::EnCapacity), ("weight", Stat::Weight), ("ammo", Stat::Ammo)];
+pub enum Target { Ap, EnCapacity, Weight, Ammo, PoolWeight(u8), RewardCount, RewardChoices, ShopWeapons, ShopParts }
+const TARGETS: [(&str, Target); 8] = [("ap", Target::Ap), ("en_capacity", Target::EnCapacity), ("weight", Target::Weight),
+    ("ammo", Target::Ammo), ("reward.count", Target::RewardCount), ("reward.choices", Target::RewardChoices),
+    ("shop.weapons", Target::ShopWeapons), ("shop.parts", Target::ShopParts)];
+fn target(key: &str) -> Option<Target> {
+    if let Some(name) = key.strip_prefix("pool.").and_then(|r| r.strip_suffix(".weight")) {
+        return config::pool_index(&config::get().pools, name).map(|i| Target::PoolWeight(i as u8));
+    }
+    TARGETS.iter().find(|t| t.0.eq_ignore_ascii_case(key)).map(|t| t.1)
+}
+
+/// How an effect applies the level's value: in % of the target, or added as is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Mode { Percent, Flat }
 
 pub struct Chip {
     /// 1..MAX_CHIPS: its save slot and row (CHIP_ROW0 + id)
@@ -23,23 +38,35 @@ pub struct Chip {
     pub stat: String,
     /// effect value per level (1..CHIP_MAX_LEVEL levels)
     pub values: Vec<i32>,
-    effects: Vec<(Stat, i32)>,
+    effects: Vec<(Target, Mode, i32)>,
+    /// `[on.<event>]` actions (event.rs)
+    pub on: Vec<(event::Event, event::Action)>,
+    /// `unit` shown after the level's value on the tile (default: " %", or nothing for add / sub effects or a chip
+    /// with actions only)
+    unit: Option<String>,
 }
 impl Chip {
     pub fn row(&self) -> u16 { o::CHIP_ROW0 + self.id }
     /// sign of the stat change shown on the tile (the first effect's)
-    pub fn sign(&self) -> i32 { self.effects.first().map_or(1, |e| e.1) }
+    pub fn sign(&self) -> i32 { self.effects.first().map_or(1, |e| e.2) }
+    /// unit shown on the tile after the level's value (the first effect's mode)
+    pub fn unit(&self) -> String {
+        if let Some(u) = &self.unit { return u.clone(); }
+        if self.effects.is_empty() || self.effects[0].1 == Mode::Flat { String::new() } else { " %".into() }
+    }
 }
 
 static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 4] = [
+const DEFAULTS: [(&str, &str); 6] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
     ("extended_magazines.toml", include_str!("chips/extended_magazines.toml")),
+    ("preferred_contract.toml", include_str!("chips/preferred_contract.toml")),
+    ("performance_bonus.toml", include_str!("chips/performance_bonus.toml")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).
@@ -63,14 +90,15 @@ pub fn load() {
         }
     }
     v.sort_by_key(|c| c.id);
-    logf!("chips: {}", v.iter().map(|c| format!("{} {} ({} {:?}, {:?})", c.row(), c.name, c.stat, c.values, c.effects))
+    logf!("chips: {}", v.iter().map(|c| format!("{} {} ({} {:?}, {:?}{})", c.row(), c.name, c.stat, c.values, c.effects,
+        if c.on.is_empty() { String::new() } else { format!(", on {:?}", c.on) }))
         .collect::<Vec<_>>().join(", "));
     let _ = CHIPS.set(v);
 }
 
 fn parse(text: &str) -> Result<Chip, String> {
     use config::Value;
-    let mut c = Chip { id: 0, name: String::new(), stat: String::new(), values: Vec::new(), effects: Vec::new() };
+    let mut c = Chip { id: 0, name: String::new(), stat: String::new(), values: Vec::new(), effects: Vec::new(), on: Vec::new(), unit: None };
     let mut section = String::new();
     for (n, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let line = config::strip_comment(raw).trim();
@@ -83,14 +111,23 @@ fn parse(text: &str) -> Result<Chip, String> {
             ("", "id", Value::Num(id)) if (1..=o::MAX_CHIPS as u32).contains(id) => c.id = *id as u16,
             ("", "name", Value::Text(t)) => c.name = t.clone(),
             ("", "stat", Value::Text(t)) => c.stat = t.clone(),
+            ("", "unit", Value::Text(t)) => c.unit = Some(t.clone()),
+            (s, _, _) if s.starts_with("on.") => {
+                let e = event::event(&s[3..]).ok_or_else(|| format!("line {}: unknown event [{}] ({})", n + 1, s,
+                    event::EVENTS.map(|e| e.0).join(", ")))?;
+                c.on.push((e, event::Action::parse(k, &val).map_err(|m| format!("line {}: {}", n + 1, m))?));
+            }
             ("", "levels", _) => c.values = config::parse_levels(&val, o::CHIP_MAX_LEVEL)
                 .ok_or_else(|| format!("line {}: levels = \"value/value/...\" (1 to {} levels) expected", n + 1, o::CHIP_MAX_LEVEL))?,
             ("effect", _, _) => {
-                let sign = match &val { Value::Text(t) if t.trim() == "+" => 1, Value::Text(t) if t.trim() == "-" => -1, Value::Num(1) => 1,
-                    _ => return Err(format!("line {}: {} = \"+\" or \"-\" expected", n + 1, k)) };
-                let &(_, stat) = STATS.iter().find(|s| s.0.eq_ignore_ascii_case(k))
-                    .ok_or_else(|| format!("line {}: unknown effect {} ({})", n + 1, k, STATS.map(|s| s.0).join(", ")))?;
-                c.effects.push((stat, sign));
+                let (mode, sign) = match &val {
+                    Value::Text(t) if t.trim() == "+" => (Mode::Percent, 1), Value::Text(t) if t.trim() == "-" => (Mode::Percent, -1),
+                    Value::Text(t) if t.trim().eq_ignore_ascii_case("add") => (Mode::Flat, 1),
+                    Value::Text(t) if t.trim().eq_ignore_ascii_case("sub") => (Mode::Flat, -1),
+                    _ => return Err(format!("line {}: {} = \"+\", \"-\", \"add\" or \"sub\" expected", n + 1, k)) };
+                let t = target(k).ok_or_else(|| format!("line {}: unknown target {} ({}, pool.<NAME>.weight)", n + 1, k,
+                    TARGETS.map(|t| t.0).join(", ")))?;
+                c.effects.push((t, mode, sign));
             }
             _ => return Err(format!("line {}: unknown setting [{}] {} = {}", n + 1, section, k, v)),
         }
@@ -125,24 +162,35 @@ pub unsafe fn set_gone(g: &Game, man: usize, row: u16) { if let Some(c) = chip(r
 /// Effect value of a chip at a level (0: none).
 pub fn value(row: u16, lv: i32) -> i32 { chip(row).and_then(|c| c.values.get((lv - 1).max(0) as usize).copied()).filter(|_| lv > 0).unwrap_or(0) }
 
-// ---- effects
-/// Change in % of a stat from the chip levels, read from the save's flags when the hook needs it (several chips on one
-/// stat add up), the way the game reads its own OS Tuning levels when it uses them: nothing to refresh on a pick, a
-/// failure, Continue or New Game. 0 without a save.
-unsafe fn pct(base: usize, s: Stat) -> i32 {
+// ---- modifiers
+/// Changes of a target from the chip levels (in %, and flat), read from the save's flags when the target is used
+/// (several chips on one target add up), the way the game reads its own OS Tuning levels when it uses them: nothing to
+/// refresh on a pick, a failure, Continue or New Game. (0, 0) without a save.
+unsafe fn changes(base: usize, t: Target) -> (i32, i32) {
+    if !chips().iter().any(|c| c.effects.iter().any(|e| e.0 == t)) { return (0, 0); }
     let man = mem::rd_usize(base + o::EVENTFLAGMAN_GLOBAL);
-    if man == 0 { return 0; }
+    if man == 0 { return (0, 0); }
     let g = Game::new(base);
-    let mut p = 0;
-    for c in chips().iter().filter(|c| c.effects.iter().any(|e| e.0 == s)) {
+    let (mut pct, mut flat) = (0, 0);
+    for c in chips().iter().filter(|c| c.effects.iter().any(|e| e.0 == t)) {
         let lv = g.get_bits(man, level_flag(c), o::CHIP_LEVEL_BITS) as usize;
         if lv == 0 { continue; }
         let v = c.values[lv.min(c.values.len()) - 1];
-        for &(st, sign) in &c.effects { if st == s { p += sign * v; } }
+        for &(et, mode, sign) in &c.effects {
+            if et != t { continue; }
+            match mode { Mode::Percent => pct += sign * v, Mode::Flat => flat += sign * v }
+        }
     }
-    p
+    (pct, flat)
 }
-fn scaled(v: f64, p: i32) -> f64 { v * (100 + p).max(0) as f64 / 100.0 }
+/// A target's value after the chips: `v` x (100 + the % changes) / 100 + the flat changes, never below 0.
+pub unsafe fn modify(t: Target, v: f64) -> f64 {
+    let (pct, flat) = changes(mem::module_base(), t);
+    if pct == 0 && flat == 0 { return v; }
+    (v * (100 + pct).max(0) as f64 / 100.0 + flat as f64).max(0.0)
+}
+/// `modify` for a count, rounded and kept within `lo..=hi`.
+pub unsafe fn modify_count(t: Target, v: u32, lo: u32, hi: u32) -> u32 { (modify(t, v as f64).round() as u32).clamp(lo, hi) }
 
 /// The player's character modules (WorldChrMan player -> +0x320), 0 when there is no player character.
 unsafe fn player_modules(base: usize) -> usize {
@@ -160,7 +208,7 @@ unsafe fn player_module(base: usize, k: usize) -> usize {
 /// Max AP setter (every frame, every character): the player's AP block gets the AP chips' %.
 unsafe extern "system" fn set_max_ap_hook(block: usize, value: i32) -> u64 {
     let base = mem::module_base();
-    let v = if block != 0 && block == player_module(base, 0) { scaled(value as f64, pct(base, Stat::Ap)).round() as i32 } else { value };
+    let v = if block != 0 && block == player_module(base, 0) { modify(Target::Ap, value as f64).round() as i32 } else { value };
     let orig: unsafe extern "system" fn(usize, i32) -> u64 = core::mem::transmute(base + o::FN_SET_MAX_AP);
     orig(block, v)
 }
@@ -169,7 +217,7 @@ unsafe extern "system" fn en_capacity_hook(en: usize) -> f32 {
     let base = mem::module_base();
     let orig: unsafe extern "system" fn(usize) -> f32 = core::mem::transmute(base + o::FN_EN_CAPACITY);
     let v = orig(en);
-    if en != 0 && en == player_module(base, o::CHR_MOD_EN) { scaled(v as f64, pct(base, Stat::EnCapacity)) as f32 } else { v }
+    if en != 0 && en == player_module(base, o::CHR_MOD_EN) { modify(Target::EnCapacity, v as f64) as f32 } else { v }
 }
 /// Total weight of an assembly (every frame, for a character's movement): the player's gets the weight chips' %.
 unsafe extern "system" fn total_weight_hook(assembly: usize) -> f32 {
@@ -179,7 +227,7 @@ unsafe extern "system" fn total_weight_hook(assembly: usize) -> f32 {
     if assembly == 0 { return v; }
     let gdm = mem::rd_usize(base + o::GAMEDATAMAN_GLOBAL);
     let gd = if gdm == 0 { 0 } else { mem::rd_usize(gdm + o::GDM_PLAYER_GAMEDATA) };
-    if gd != 0 && assembly == gd + o::GD_ASSEMBLY { scaled(v as f64, pct(base, Stat::Weight)) as f32 } else { v }
+    if gd != 0 && assembly == gd + o::GD_ASSEMBLY { modify(Target::Weight, v as f64).max(1.0) as f32 } else { v }
 }
 
 /// Boot: the stat hooks (call sites of the game's per-frame stat code). Not installed without chips.
@@ -224,11 +272,11 @@ unsafe fn add_ammo(ammo: usize, rounds: i32) -> u64 {
     let player = if wcm == 0 { 0 } else { mem::rd_usize(wcm + o::WCM_PLAYER) };
     let (id, loaded, reserve) = (mem::rd_u32(slot + o::SLOT_ID), mem::rd_i32(slot + o::SLOT_LOADED), mem::rd_i32(slot + o::SLOT_RESERVE));
     if player == 0 || mem::rd_usize(module + o::WEAPONS_OWNER) != player { return r; }
-    let p = pct(base, Stat::Ammo);
-    if p == 0 { return r; }
+    let full = modify(Target::Ammo, 1e6);
+    if full == 1e6 { return r; }
     let Some(&total) = AMMO.get().and_then(|t| t.get(&id)) else { return r };
     if reserve < 0 || loaded < 0 || loaded + reserve != total { return r; }
-    let new = (scaled(total as f64, p).round() as i32 - loaded).max(0);
+    let new = (modify(Target::Ammo, total as f64).round() as i32 - loaded).max(0);
     mem::wr_i32(slot + o::SLOT_RESERVE, new);
     // the game refills the weapons many times while a mission opens (each refill is raised again): one log per slot
     static LOGGED: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
@@ -236,7 +284,7 @@ unsafe fn add_ammo(ammo: usize, rounds: i32) -> u64 {
     if !logged.contains(&slot) {
         if logged.len() >= 64 { logged.clear(); }
         logged.push(slot);
-        logf!("chips: weapon {} ammunition {} -> {} ({:+}%)", id, total, loaded + new, p);
+        logf!("chips: weapon {} ammunition {} -> {}", id, total, loaded + new);
     }
     r
 }

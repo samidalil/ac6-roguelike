@@ -7,7 +7,10 @@ stat = "PB"                    # stat shown on the tile with the level's value: 
 levels = "5/10/15"             # effect value per level, in % (1 to 3 levels)
 
 [effect]
-# What the chip changes on YOUR AC only (enemies are not affected; Assemblage still shows the parts' own stats):
-# effect = "+" (raised by the level's %) or "-" (lowered). Effects: ap (max AP), en_capacity (EN capacity),
-# weight (total weight), ammo (every weapon's total ammunition, at mission start and after a resupply).
+# target = "+" (raised by the level's value in %), "-" (lowered by it), "add" (the value itself added) or "sub".
+# Targets on YOUR AC only (enemies are not affected; Assemblage still shows the parts' own stats): ap (max AP),
+# en_capacity (EN capacity), weight (total weight), ammo (every weapon's total ammunition, filled at mission start).
+# Targets of the run: pool.<NAME>.weight (odds of a [pool.NAME] in the shop and the rewards), reward.count (rewards
+# per mission, 0 to 3), reward.choices (parts offered per reward, 1 to 12), shop.weapons / shop.parts (shop size,
+# 8 slots at most). Several chips on one target add up.
 ap = "+"

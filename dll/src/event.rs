@@ -1,0 +1,166 @@
+//! Events and actions (step 2 of RE_NOTES "Modular chips: architecture and roadmap"). The engine emits an event at the
+//! points the mod already detects (save load, sortie, clear, death, commit, failure, shop reroll, pick, sale...);
+//! content subscribes with `[on.<event>]` sections in its files (chips for now, scripts later) whose actions run for
+//! each chip at level 1 or more. `flag` and `level` act at once (flag writes); `credits` and `give` are queued for the
+//! game thread in the garage (penalty.rs frame hook), then listed in a game dialog.
+
+use super::*;
+use std::sync::Mutex;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Event {
+    SaveLoaded, Title, GarageOpened, Deployment, MissionStart, Death, Respawn, MissionCleared, Results, Commit,
+    MissionFailed, GameOver, ShopReroll, Pick, PartSold, AutoSell,
+}
+pub const EVENTS: [(&str, Event); 16] = [
+    ("save_loaded", Event::SaveLoaded), ("title", Event::Title), ("garage_opened", Event::GarageOpened),
+    ("deployment", Event::Deployment), ("mission_start", Event::MissionStart), ("death", Event::Death),
+    ("respawn", Event::Respawn), ("mission_cleared", Event::MissionCleared), ("results", Event::Results),
+    ("commit", Event::Commit), ("mission_failed", Event::MissionFailed), ("game_over", Event::GameOver),
+    ("shop_reroll", Event::ShopReroll), ("pick", Event::Pick), ("part_sold", Event::PartSold), ("auto_sell", Event::AutoSell),
+];
+pub fn event(name: &str) -> Option<Event> { EVENTS.iter().find(|e| e.0.eq_ignore_ascii_case(name)).map(|e| e.1) }
+fn name(e: Event) -> &'static str { EVENTS.iter().find(|x| x.1 == e).map_or("?", |x| x.0) }
+
+/// An amount: fixed, one value per chip level, or the chip's own level value (`"value"`).
+#[derive(Clone, Debug)]
+pub enum Amount { Fixed(i32), PerLevel(Vec<i32>), Value }
+impl Amount {
+    pub fn parse(v: &config::Value) -> Option<Amount> {
+        match v {
+            config::Value::Num(n) => Some(Amount::Fixed(*n as i32)),
+            config::Value::Text(t) if t.trim().eq_ignore_ascii_case("value") => Some(Amount::Value),
+            config::Value::Text(t) => {
+                let v: Vec<i32> = t.split('/').map(|x| x.trim().trim_start_matches('+').parse::<i32>().ok()).collect::<Option<_>>()?;
+                match v.len() { 0 => None, 1 => Some(Amount::Fixed(v[0])), _ => Some(Amount::PerLevel(v)) }
+            }
+        }
+    }
+    fn at(&self, values: &[i32], lv: i32) -> i32 {
+        let k = (lv.max(1) - 1) as usize;
+        match self {
+            Amount::Fixed(n) => *n,
+            Amount::PerLevel(v) => v[k.min(v.len() - 1)],
+            Amount::Value => values.get(k.min(values.len().saturating_sub(1))).copied().unwrap_or(0),
+        }
+    }
+}
+
+/// What an `[on.<event>]` line does.
+#[derive(Clone, Debug)]
+pub enum Action {
+    /// `credits = N`: COAM added (or taken when negative), in the garage
+    Credits(Amount),
+    /// `give = "part name"` (or equipId): one copy granted in the garage (a booster / generator / FCS only if not owned)
+    Give(String),
+    /// `"level.<row or name>" = "+1"`: OS Tuning or chip level change
+    Level(String, Amount),
+    /// `"flag.<id>" = 1 / 0`: event flag set / cleared
+    Flag(u32, bool),
+}
+impl Action {
+    /// An `[on.<event>]` line: key and value.
+    pub fn parse(key: &str, v: &config::Value) -> Result<Action, String> {
+        let k = key.trim();
+        if k.eq_ignore_ascii_case("credits") { return Amount::parse(v).map(Action::Credits).ok_or("credits = number, \"a/b/c\" or \"value\"".into()); }
+        if k.eq_ignore_ascii_case("give") {
+            return match v { config::Value::Text(t) => Ok(Action::Give(t.clone())), config::Value::Num(n) => Ok(Action::Give(n.to_string())) };
+        }
+        if let Some(r) = k.strip_prefix("level.") { return Amount::parse(v).map(|a| Action::Level(r.to_string(), a)).ok_or("level.<row> = \"+1\"".into()); }
+        if let Some(f) = k.strip_prefix("flag.") {
+            let id = f.parse::<u32>().map_err(|_| format!("flag.<id>: {} is not a flag id", f))?;
+            return match v { config::Value::Num(n) => Ok(Action::Flag(id, *n != 0)), _ => Err("flag.<id> = 1 or 0".into()) };
+        }
+        Err(format!("unknown action {} (credits, give, level.<row>, flag.<id>)", k))
+    }
+}
+
+/// Garage work queued by `credits` / `give`: (COAM change, item names to give, dialog lines).
+struct Garage { credits: i64, give: Vec<String>, lines: Vec<String> }
+static GARAGE: Mutex<Garage> = Mutex::new(Garage { credits: 0, give: Vec::new(), lines: Vec::new() });
+/// Dialog lines of applied actions, and the garage title count when they were queued: shown once the garage menu
+/// is on screen again (after a mission the garage plays its notification and talk first).
+static DIALOG: Mutex<(Vec<String>, u64)> = Mutex::new((Vec::new(), 0));
+
+/// The engine reached `e`: run the actions of every chip at level 1+ subscribed to it.
+pub fn emit(e: Event) {
+    let subs: Vec<&chip::Chip> = chip::chips().iter().filter(|c| c.on.iter().any(|h| h.0 == e)).collect();
+    if subs.is_empty() { return; }
+    let base = mem::module_base();
+    let g = unsafe { Game::new(base) };
+    let Some(man) = (unsafe { g.flag_man() }) else { return };
+    for c in subs {
+        let lv = unsafe { chip::level(c.row()) }.unwrap_or(0);
+        if lv == 0 { continue; }
+        for (_, a) in c.on.iter().filter(|h| h.0 == e) {
+            logf!("event {}: chip {} (LV {}) -> {:?}", name(e), c.name, lv, a);
+            unsafe { run(&g, man, c, lv, a) };
+        }
+    }
+}
+
+unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action) {
+    match a {
+        Action::Credits(n) => {
+            let v = n.at(&c.values, lv);
+            let mut q = GARAGE.lock().unwrap_or_else(|e| e.into_inner());
+            q.credits += v as i64;
+            q.lines.push(format!("{} : {}{} COAM", c.name, if v < 0 { "-" } else { "+" }, penalty::money(v.abs() as i64)));
+        }
+        Action::Give(name) => {
+            let mut q = GARAGE.lock().unwrap_or_else(|e| e.into_inner());
+            q.give.push(name.clone());
+        }
+        Action::Level(target, n) => {
+            let Some(row) = row_of(target) else { logf!("event: {}: no OS Tuning or chip {}", c.name, target); return };
+            let d = n.at(&c.values, lv);
+            let Some(gd) = g.game_data_fast() else { return };
+            for _ in 0..d.abs() { if d > 0 { os::level_up(gd, row); } else { os::level_down(gd, row); } }
+        }
+        Action::Flag(id, v) => { g.put_flag(man, *id, *v); }
+    }
+}
+
+/// An OS Tuning / chip row by number or name.
+fn row_of(t: &str) -> Option<u16> {
+    if let Ok(r) = t.trim().parse::<u16>() { return os::tuning(r).map(|x| x.row); }
+    let k = config::name_key(t);
+    os::tunings().iter().find(|x| config::name_key(&os::name(x.row)) == k).map(|x| x.row)
+}
+
+/// Game thread, garage (penalty.rs frame hook): apply the queued COAM change and gifts; their dialog lines wait for
+/// the garage menu (`open_dialog`).
+pub unsafe fn run_garage(game: &Game, gd: usize) {
+    let (credits, give, mut lines) = {
+        let mut q = GARAGE.lock().unwrap_or_else(|e| e.into_inner());
+        if q.credits == 0 && q.give.is_empty() && q.lines.is_empty() { return; }
+        (core::mem::take(&mut q.credits), core::mem::take(&mut q.give), core::mem::take(&mut q.lines))
+    };
+    if credits != 0 {
+        let now = mem::rd_i32(gd + o::GD_COAM) as i64;
+        let v = (now + credits).clamp(0, 999_999_999);
+        mem::wr_i32(gd + o::GD_COAM, v as i32);
+        logf!("event actions: COAM {} -> {}", now, v);
+    }
+    for name in give {
+        match penalty::item_by_name(&name) {
+            Some(id) => { let given = penalty::give_copy(game, gd, id); logf!("event actions: give {} ({:#X}): {}", name, id, given);
+                if given { lines.push(format!("Pièce obtenue : {}", penalty::part_name(id))); } }
+            None => logf!("event actions: give {}: no such part", name),
+        }
+    }
+    if !lines.is_empty() {
+        let mut d = DIALOG.lock().unwrap_or_else(|e| e.into_inner());
+        if d.0.is_empty() { d.1 = msg::GARAGE_TITLE_SEEN.load(Relaxed); }
+        logf!("event actions: dialog waits for the garage menu (title lookups so far {})", d.1);
+        d.0.extend(lines);
+    }
+}
+
+/// Game thread, garage: the queued dialog, once the garage title was looked up since the lines were queued.
+pub fn open_dialog() {
+    let mut d = DIALOG.lock().unwrap_or_else(|e| e.into_inner());
+    if d.0.is_empty() || msg::GARAGE_TITLE_SEEN.load(Relaxed) <= d.1 { return; }
+    logf!("event actions: dialog shown (garage title lookups {})", msg::GARAGE_TITLE_SEEN.load(Relaxed));
+    dialog::show(&core::mem::take(&mut d.0).join("\n"));
+}

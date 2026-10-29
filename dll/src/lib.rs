@@ -63,6 +63,7 @@ mod choice;
 mod dupshop;
 mod os;
 mod chip;
+mod event;
 mod occur;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
@@ -129,8 +130,11 @@ impl Part {
     fn pool_label(&self) -> Option<(String, u32)> { self.pool().filter(|p| p.show_name).map(|p| (p.label.clone(), p.color)) }
 }
 
-/// [pool.NAME] weight of a pool (0 for POOL_OUT).
-fn pool_weight(pool: u8) -> u32 { config::get().pools.get(pool as usize).map_or(0, |p| p.weight) }
+/// [pool.NAME] weight of a pool (0 for POOL_OUT), after the chips' `pool.<NAME>.weight` modifiers.
+fn pool_weight(pool: u8) -> u32 {
+    let w = config::get().pools.get(pool as usize).map_or(0, |p| p.weight);
+    unsafe { chip::modify(chip::Target::PoolWeight(pool), w as f64).round() as u32 }
+}
 
 /// Every row a roguelike shop may offer: priced, not a mission reward, weapon / frame / internal, plus the OS Tunings
 /// (rewards only) unless [rewards] os_rewards = 0. Each gets its pool from [part_rarity] (OS Tunings by OsReinforce
@@ -783,7 +787,10 @@ impl Run {
         let owned = self.game.owned_ids(gd);
         let mut taken: Vec<u16> = self.reward_parts.iter().map(|p| p.idx).collect();
         let mut out = Vec::new();
-        for (count, weapon) in [(cfg.shop_weapons, true), (cfg.shop_parts, false)] {
+        // shop size after the chips' shop.weapons / shop.parts modifiers, MAX_SHOP_SLOTS at most
+        let weapons = chip::modify_count(chip::Target::ShopWeapons, cfg.shop_weapons, 0, config::MAX_SHOP_SLOTS);
+        let parts = chip::modify_count(chip::Target::ShopParts, cfg.shop_parts, 0, config::MAX_SHOP_SLOTS - weapons);
+        for (count, weapon) in [(weapons, true), (parts, false)] {
             for n in 0..count {
                 let cands = self.candidates(gd, man, &owned, Some(weapon), &taken);
                 let Some(p) = pick_weighted(&mut self.rng, &cands) else {
@@ -877,14 +884,17 @@ impl Run {
     /// (choice.rs).
     unsafe fn roll_rewards(&mut self, gd: usize, man: usize, why: &str) {
         let cfg = config::get();
-        if cfg.reward_choices > 1 {
+        // rewards per mission (0..3) and parts per reward (1..12) after the chips' reward.count / reward.choices
+        let count = chip::modify_count(chip::Target::RewardCount, cfg.parts_per_mission, 0, 3);
+        let choices = chip::modify_count(chip::Target::RewardChoices, cfg.reward_choices, 1, 12);
+        if choices > 1 {
             let cands = self.reward_candidates(gd, man, &[]);
-            self.reward_sets = choice::roll(&self.game, man, &cands, cfg.parts_per_mission, cfg.reward_choices as usize);
+            self.reward_sets = choice::roll(&self.game, man, &cands, count, choices as usize);
             self.reward_parts = self.reward_sets.iter().flatten().copied().collect();
             logf!("{}: reward offers {:?}", why, self.reward_sets.iter().map(|s| s.iter().map(|p| p.idx).collect::<Vec<_>>()).collect::<Vec<_>>());
             return;
         }
-        for _ in 0..cfg.parts_per_mission {
+        for _ in 0..count {
             let taken: Vec<u16> = self.reward_parts.iter().map(|p| p.idx).collect();
             let cands = self.reward_candidates(gd, man, &taken);
             match pick_weighted(&mut self.rng, &cands) {
@@ -907,6 +917,7 @@ impl Run {
     /// The garage just opened (save loaded, or back from a mission). A set escrow flag means the last sortie
     /// was not cleared: death, quit or the game killed mid-mission.
     unsafe fn on_garage_open(&mut self, man: usize, why: &str) {
+        event::emit(event::Event::GarageOpened);
         if self.game.get_flag(man, o::FLAG_ESCROW) == Some(true) {
             logf!("garage opened ({}): escrow flag set -> PENALTY queued for the game thread", why);
             penalty::PENALTY_REQUEST.store(true, Relaxed);
@@ -938,6 +949,7 @@ impl Run {
     }
 
     unsafe fn reroll(&mut self, gd: usize, man: usize) {
+        event::emit(event::Event::ShopReroll);
         let sel = self.pick_shop(gd, man);
         if sel.is_empty() { log("mission end: nothing left to offer"); }
         let idx: Vec<u16> = sel.iter().map(|p| p.idx).collect();
@@ -1121,6 +1133,7 @@ fn boot() {
                     penalty::arm(gd, "deployment talk");
                     let m = run.game.request_save();
                     logf!("deployment talk: escrow flag SET + save requested (mask before {:?})", m);
+                        event::emit(event::Event::Deployment);
                     escrow_save_pending = true;
                 }
                 prev_talk = talk;
@@ -1137,11 +1150,14 @@ fn boot() {
                     if run.game.get_flag(man, o::FLAG_RUN_OVER) == Some(true) || broke.map_or(false, |v| v < 0) {
                         logf!("save loaded: this run is OVER (flag {:?}, projected failure balance {:?}) -> back to the title",
                               run.game.get_flag(man, o::FLAG_RUN_OVER), broke);
+                        event::emit(event::Event::GameOver);
                         exit_phase = 1;
                     } else {
+                        event::emit(event::Event::SaveLoaded);
                         penalty::CLEANUP_REQUEST.store(true, Relaxed); run.on_garage_open(man, "save loaded");
                     }
                 }
+                if !loaded && prev_loaded { event::emit(event::Event::Title); }
                 prev_loaded = loaded;
 
                 if penalty::RETIRED.swap(0, Relaxed) > 0 { log("death: mission retired automatically (back to the garage)"); }
@@ -1231,6 +1247,16 @@ fn boot() {
                             }
                         }
                         "save" => logf!("DEBUG: save requested (mask before {:?})", run.game.request_save()),
+                        c if c.starts_with("odds") => {
+                            // `odds [N]`: N weighted picks among the reward candidates (pool weights after the chips)
+                            let n: usize = c[4..].trim().parse().unwrap_or(10000);
+                            let cands = run.reward_candidates(gd, man, &[]);
+                            let mut count = vec![0usize; config::get().pools.len()];
+                            for _ in 0..n { if let Some(p) = pick_weighted(&mut run.rng, &cands) { count[p.pool as usize] += 1; } }
+                            logf!("DEBUG: odds over {} picks: {}", n, config::get().pools.iter().enumerate().filter(|(i, _)| count[*i] > 0)
+                                .map(|(i, p)| format!("{} {:.1}% (weight {})", p.name, 100.0 * count[i] as f64 / n as f64, pool_weight(i as u8)))
+                                .collect::<Vec<_>>().join(", "));
+                        }
                         "reward" => {
                             // a sortie's reward roll, without granting
                             run.reward_parts.clear(); run.reward_sets.clear();
@@ -1322,6 +1348,7 @@ fn boot() {
                         // mission start (sortie): the game is idle here, the give call returns at once.
                         // The dialog content is built at the mission-clear instant, so the reward must
                         // already be queued by then; check_reward re-queues if the game empties the list.
+                        event::emit(event::Event::MissionStart);
                         log("defer 0->1 (mission active)"); run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_sets.clear(); run.mission_ran = true;
                         alive = false; dead = false; cleared_seen = false;
                         msg::GAME_OVER_TEXT.store(false, Relaxed);
@@ -1336,12 +1363,14 @@ fn boot() {
                     if p == 1 && d == 0 {
                         if run.reward_handles.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
                         log("defer 1->0 (commit)"); run.reward_handles.clear(); choice::disarm();
+                        if run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) { event::emit(event::Event::Commit); }
                         // ignore the flip caused by the game shutting down / exiting to title (save no longer loaded)
                         if !cleared_seen && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {
                             logf!("mission FAILED ({})", if dead { "death" } else { "quit" });
                             match penalty::failure_balance(gd) {
                                 Some(v) if v < 0 => {
                                     logf!("failure balance {} < 0: GAME OVER -> back to the title", v);
+                                    event::emit(event::Event::GameOver);
                                     // the session-end save was queued at the death (begin_game_over_exit): wait for it
                                     exit_phase = 1;
                                 }
@@ -1355,9 +1384,10 @@ fn boot() {
                 // death: AP reaches 0 during a mission (charged once; re-armed on respawn after Retry)
                 if d == 1 && !cleared_seen {
                     if let Some((ap, max, chr)) = run.game.player_ap() {
-                        if ap > 0 { if dead { logf!("respawned (AP {}/{})", ap, max); } alive = true; dead = false; alive_chr = chr; }
+                        if ap > 0 { if dead { logf!("respawned (AP {}/{})", ap, max); event::emit(event::Event::Respawn); } alive = true; dead = false; alive_chr = chr; }
                         else if alive && !dead && chr == alive_chr {
                             dead = true; alive = false;
+                            event::emit(event::Event::Death);
                             match penalty::failure_balance(gd) {
                                 Some(v) if v < 0 => {
                                     logf!("DEATH (AP 0): projected balance after the penalty {} < 0 -> GAME OVER", v);
@@ -1380,6 +1410,7 @@ fn boot() {
                     if run.mission_ran { let parts = run.reward_parts.clone(); run.mark_offered(man, &parts, "mission rewards"); }
                     // Reroll NOW: the game autosaves at the commit (~10 s later), so the new shop state
                     // (direct flag writes, no game call) is included in that save.
+                    if run.mission_ran { event::emit(event::Event::MissionCleared); }
                     if run.mission_ran {
                         log("mission cleared -> reroll (before the commit autosave)");
                         run.on_mission_end(gd, man); prev_state = None; run.mission_ran = false;

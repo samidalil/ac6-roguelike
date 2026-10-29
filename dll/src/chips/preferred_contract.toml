@@ -1,0 +1,9 @@
+# Preferred contract: epic parts come up more often, in the shop and as rewards (see reinforced_plating.toml for the
+# format).
+id = 5
+name = "Contrat préférentiel"
+stat = "Chance épique"
+levels = "25/50/100"
+
+[effect]
+"pool.epic.weight" = "+"

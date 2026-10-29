@@ -220,6 +220,8 @@ pub const OSR_ACS_SUBROWS: [u16; 2] = [1011, 1012];
 /// list): PULSE ARMOR, always taken out of the list at the commit.
 pub const OS_CARRIER_ITEM: u32 = 75010000;
 pub const MSG_CAT_OS_NAME: u32 = 200;
+/// (category, id) of the garage menu's title "GARAGE"
+pub const MSG_GARAGE_TITLE: (u32, u32) = (200, 100000);
 /// garage menu titles / unlock notification titles (73) and texts (74)
 pub const MSG_CAT_MENU_TITLE: u32 = 73;
 pub const MSG_CAT_MENU_TEXT: u32 = 74;

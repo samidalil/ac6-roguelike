@@ -312,6 +312,7 @@ unsafe extern "system" fn results_parts_hook(out: *mut usize, ctx: usize, list: 
     let ids: Vec<u32> = if n > 0 && n < 256 { core::slice::from_raw_parts(l.begin, n).to_vec() } else { Vec::new() };
     if let Some(pages) = choice::pages(&ids) {
         logf!("results: parts list {:X?} -> reward choice grid", ids);
+        event::emit(event::Event::Results);
         set_pages(pages);
         return build(base, out, ctx);
     }

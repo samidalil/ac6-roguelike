@@ -32,9 +32,11 @@ HOW IT PLAYS
   (+1 000 / +2 000 AP per kit), access speed 1 (+100 %): fewer levels, same max as the base game ([os_tuning]).
 - OS chips of our own, offered like the OS Tunings (3 levels each): Blindage renforcé (AP +5/10/15 %), Générateur
   surcadencé (EN capacity +10/20/30 %), Alliages légers (weight -5/10/15 %), Chargeurs étendus (ammunition
-  +20/40/60 %). They change your AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and
-  ammunition show on the mission HUD. A failed sortie takes one level of each. The ammunition bonus applies when the
-  mission starts, not to resupplies.
+  +20/40/60 %), Contrat préférentiel (epic parts +25/50/100 % more often, shop and rewards), Prime de performance
+  (+2 000 / 4 000 / 8 000 credits after each cleared mission, shown in the garage). The AC chips change your
+  AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
+  HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
+  resupplies.
 - A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
   so you can buy it back.
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
@@ -74,8 +76,12 @@ and keeps the game's values.
 
 OS CHIPS
 The chips folder (created next to the DLL on first launch) holds one file per chip: its id (1 to 32), name, the stat
-named on the reward tile, its values per level and its effects (ap, en_capacity, weight, ammo = "+" or "-"). Add a
-file for a new chip, delete one to remove it; in the settings a chip is known by its row (9000 + id) or its name.
+named on the reward tile, its values per level and its effects: a target = "+" / "-" (the level's value in %) or
+"add" / "sub" (the value itself). Targets: ap, en_capacity, weight, ammo (your AC), pool.<NAME>.weight (odds of a
+pool), reward.count, reward.choices, shop.weapons, shop.parts. A chip can also react to events with [on.<event>]
+sections (mission_cleared, commit, death, shop_reroll, pick...; the list is in the default chip files): credits,
+give = "part", "level.<row>" = "+1", "flag.<id>" = 1. Add a file for a new chip, delete one to remove it; in the
+settings a chip is known by its row (9000 + id) or its name.
 Delete the folder to get the default chips back.
 
 LOG

@@ -34,7 +34,12 @@ pub fn set_custom_text(text: &str) {
     if let Ok(mut c) = CUSTOM.lock() { *c = w; }
 }
 
+/// Lookups of the garage menu's title ("GARAGE"): the garage menu is on screen (event.rs waits for one before its
+/// dialog, the post-mission notification and talk being over).
+pub static GARAGE_TITLE_SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 unsafe extern "system" fn msg_lookup(repo: usize, version: u32, category: u32, id: u32) -> usize {
+    if (category, id) == o::MSG_GARAGE_TITLE { GARAGE_TITLE_SEEN.fetch_add(1, Relaxed); }
     if GAME_OVER_TEXT.load(Relaxed) && MISSION_FAILED_TEXTS.contains(&(category, id)) {
         return GAME_OVER_W.as_ptr() as usize;
     }
