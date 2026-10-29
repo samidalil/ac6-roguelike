@@ -1266,7 +1266,8 @@ that Assemblage does not show it for now. Resupply ("Ravitaillement") and the in
   4440 + 2 (id-1), used up 4504 + id-1, block 4), `name`, `stat`, `levels` (1..3 values in %), `[effect]` ap /
   en_capacity / weight / ammo = "+"/"-". They are os.rs tunings with `chip = true` (pool, grid tile "Name : PB +5 %",
   level up at the commit, one level lost on failure, occur.rs rank 17 + id-1). Effects: the DLL loop turns the levels
-  into a % per stat (`chip::update`, flag reads only) read by the hooks:
+  into a % per stat (`chip::refresh`: on a level change at the commit / failure, and when a save's flags load (flag
+  1000 rising, Continue and New Game); reset at the title) read by the hooks:
   - **max AP**: exe+82AEC0 (rcx = AP block, edx = value; clamps, writes +0x27C, clamps the current) is called every
     frame for every character from 7 call sites; hooked, the value is scaled when rcx is the player's module 0
     ([[[WorldChrMan]+A5A0]+320]+0). A write to +0x27C is undone the next frame.

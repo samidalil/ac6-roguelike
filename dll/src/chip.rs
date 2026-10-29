@@ -1,11 +1,11 @@
 //! Our own OS chips: one file per chip in `chips/` next to the DLL (the defaults in dll/src/chips/ are written when
 //! the folder is missing). A chip is offered and leveled like an OS Tuning (os.rs: reward grid, [part_rarity],
 //! [lost_on_failure], [max_occurrences] by its row 9000 + id or its name); its level is saved in event flags
-//! (CHIP_LEVELS). Effects are declarative and typed (`[effect]` stat = "+" / "-": the level's value in %), applied to
-//! the player's AC only through hooks on the game's per-frame stat code (the part params are not touched, so
-//! Assemblage shows the parts' own stats): max AP, EN capacity and total weight (per-frame stat code), and each
-//! weapon's ammunition when the game sets the weapon on a slot (mission load). RE_NOTES "Own OS chips". Script hooks
-//! (SpEffect...) come later; resupply is not covered yet.
+//! (CHIP_LEVELS). Effects are declarative and typed (`[effect]` stat = "+" / "-": the level's value in %), recomputed
+//! when a level changes or a save is loaded, and applied to the player's AC only through hooks on the game's stat code
+//! (the part params are not touched, so Assemblage shows the parts' own stats): max AP, EN capacity and total weight
+//! (recomputed by the game every frame), and each weapon's ammunition when the game fills it (mission load). RE_NOTES
+//! "OS Tuning values and own OS chips". Script hooks (SpEffect...) come later; resupply is not covered yet.
 
 use super::*;
 use std::sync::atomic::AtomicI32;
@@ -113,10 +113,11 @@ pub unsafe fn level(row: u16) -> Option<i32> {
     let (g, man) = flags()?;
     Some(g.get_bits(man, level_flag(c), o::CHIP_LEVEL_BITS) as i32)
 }
-/// New level (0..max) of a chip (flag writes only: the DLL loop picks the new effect up on its next tick).
+/// New level (0..max) of a chip (pick at the commit, loss on a failure), and the effects from the new levels.
 pub unsafe fn set_level(row: u16, lv: i32) -> bool {
     let (Some(c), Some((g, man))) = (chip(row), flags()) else { return false };
     g.put_bits(man, level_flag(c), o::CHIP_LEVEL_BITS, lv.clamp(0, c.values.len() as i32) as u32);
+    refresh(&g, man);
     true
 }
 /// [max_occurrences] used up (CHIP_GONE + id - 1).
@@ -132,8 +133,9 @@ static PCT: [AtomicI32; 4] = [const { AtomicI32::new(0) }; 4];
 fn pct(s: Stat) -> i32 { PCT[s as usize].load(Relaxed) }
 fn scaled(v: f64, p: i32) -> f64 { v * (100 + p).max(0) as f64 / 100.0 }
 
-/// DLL loop, every tick: the % of each stat from the chip levels (several chips on one stat add up). Logs changes.
-pub unsafe fn update(g: &Game, man: usize) {
+/// The % of each stat from the chip levels (several chips on one stat add up), when the levels can have changed: a
+/// level set here, a save's flags loaded (Continue, New Game). Logs changes.
+pub unsafe fn refresh(g: &Game, man: usize) {
     let mut p = [0i32; 4];
     for c in chips() {
         let lv = g.get_bits(man, level_flag(c), o::CHIP_LEVEL_BITS) as i32;
@@ -145,6 +147,8 @@ pub unsafe fn update(g: &Game, man: usize) {
         logf!("chips: effects now {}", STATS.iter().map(|(n, s)| format!("{} {:+}%", n, p[*s as usize])).collect::<Vec<_>>().join(", "));
     }
 }
+/// Back to the title (no save loaded): no effect until the next save's levels are read.
+pub fn clear() { for a in &PCT { a.store(0, Relaxed); } }
 
 /// The player's character modules (WorldChrMan player -> +0x320), 0 when there is no player character.
 unsafe fn player_modules(base: usize) -> usize {
