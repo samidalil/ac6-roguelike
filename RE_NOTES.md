@@ -1602,9 +1602,18 @@ each time it closes while still over (no auto-sell); with several rewards the ch
     exe+D3FABE calls exe+16C48B0(out, &jobRef, parent ctx = rbp+0x7B0): a 0x58-byte host component (vtable
     exe+3B3A100) made by exe+16C2DF0(host, &jobRef, ctx), which stores the job at host+0x10; then exe+16C3510(host,
     ...) attaches it. A DLL Vente sits in the manager's "next" slot, and the tutorial only shows once it is gone.
-  - Next experiment: build the Vente job with the garage's component context and host it with 16C48B0 + 16C3510
-    like exe+D3FA..; the garage's context address is in that frame only (find it from the garage job, vtable
-    exe+3B3A0D8, at manager_sub+0x68).
+  - Hosting, read further (2026-10-30): exe+16C48B0(out, &job, &callback) = new 0x58-byte host {vtable exe+3B3A100,
+    refcount, job +0x10, std::function copy +0x18} (16C2DF0 builds it; the 3rd argument is a callback, not a parent);
+    16C3510 only copies a reference. The garage then composes it into its own task chain (exe+D5B260 / A63060 /
+    16C3560 -> the garage's next state): the host runs because the garage job updates it. The manager's slots hold
+    tasks updated by exe+D5B440 (update returns the successor): +0x68 current child (the garage, itself in a host,
+    vtable exe+3B3A0D8), +0x78 next child, +0xE0 (the tutorial while shown), +0x278 / +0x280. Opening is
+    exe+D83BA0(slot, out handle, &flags, &job) (D83350 = it on +0x78). Test: Vente opened with D83BA0 in +0x278 ->
+    its list was built, nothing shown, the game crashed seconds later. A raw job written into +0x278 was dropped.
+  - Conclusion: the vanilla context is the garage job's own task chain; it cannot be reproduced outside the garage
+    (nothing to host the task over the results screen). Given up (user's call: replicate or give up); the other route
+    would be moving the reward choice to the garage. The AC model missing in Vente over the results has the same root:
+    the garage scene (3D AC) does not exist on the results screen.
   - Correction: the "frozen garage menus" seen with breakpoints / entry hooks on exe+DA3410 / DC2A70 were most likely
     Enter presses the garage did not take (it later needed 2-3 presses without any hook).
   - Debug used: `menustate` (mask + busy, removed), window-map write watch, garage-job diff (tools: scratchpad).
