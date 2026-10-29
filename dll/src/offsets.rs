@@ -80,6 +80,17 @@ pub const FN_SELL_MENU: usize = 0x10A5C00;
 pub const FN_MENU_JOB_OPEN_ON_TOP: usize = 0xDC4B60;
 /// exe+DC4AE0(job, id) -> 1 while that job is the manager's open child (+0x68/+0x70) or the next one (+0x78/+0x80).
 pub const FN_MENU_JOB_IS_OPEN: usize = 0xDC4AE0;
+/// UTF-16 "02_010_EquipTop": the name the part-list window class (ctor exe+10A2E60) builds its window with; the menu
+/// table entry {flags, name} of 02_OnlineArena_MatchLog (id 0x64, online only) preloads the cap's own sell movie.
+pub const EQUIP_TOP_MOVIE_NAME: usize = 0x3901B60;
+pub const MENU_TABLE_SELL_ENTRY: usize = 0x4E28CF0 + 0x64 * 16 + 8;
+/// The VENTE factory's screen id (RE_NOTES "Screen ids and the first-time menu tutorials"): `mov edx, 0x23;
+/// call exe+CD74F0(u16* out, id)` at exe+10A5EBE (ACHAT's 0x22 at exe+10A5B59). The cap's screen gets 0x80 instead:
+/// no MenuBehaviorParam row (switch exe+15A5BF0 default: no tutorial request, no help) and outside the manager's
+/// per-screen state array (every writer skips ids >= 0x63).
+pub const SELL_SCREEN_ID_CALLSITE: usize = 0x10A5EBE;
+pub const FN_STORE_SCREEN_ID: usize = 0xCD74F0;
+pub const CAP_SCREEN_ID: u16 = 0x80;
 /// 02_010_EquipTop window class vtable (Assemblage / Achat / Vente lists); slot 1 = its deleting destructor
 /// exe+10A58C0(this, flags), run when the list closes.
 pub const LIST_WINDOW_VTABLE: usize = 0x39E9F68;

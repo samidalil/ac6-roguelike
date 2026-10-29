@@ -1640,3 +1640,65 @@ slots left in that range), and the hooks are installed ~10 s after load. Now Dll
 within rel32 reach before the game allocates (`alloc_near`, below the image then above), and every cave / trampoline
 page comes from it (`alloc_near_page`, then the old scan as a fallback); the shop predicate hook, which had its own
 below-only scan, uses `alloc_cave` too. Verified: 3 launches in a row, every hook inside the block (0x13FF00000).
+
+## Screen ids and the first-time menu tutorials (2026-10-30)
+How the VENTE tutorial (TutorialParam 2002010, "Le menu VENTE permet...") is queued, followed in game and statically:
+- **Screen id.** Each garage entry's factory passes a screen id to the screen builder: ACHAT 0x22, VENTE 0x23 (VENTE
+  factory exe+10A5C00 -> builder exe+10A6F20, id in r8w, captured in the closure that creates the window on the job's
+  first update, ~1 frame later). The part-list window object (vtable exe+39E9F78; Achat, Vente and Assemblage share
+  the class and the movie 02_010_EquipTop) keeps it at +0x180 (0xFFFF = ask the window, vt+0x48 -> exe+C8B790).
+  Readers seen with a read watch over a whole vanilla Vente (browse, category, sale, close): the window opening
+  exe+C85841/C85864, its update exe+C8631E/C86376/C86388 (`manager+0x30[id] |= 7`: per-screen state array, 0x63
+  entries, also read by exe+D84740 for ids 0x48/0x53/0x61) and its close exe+C87DF1/C879FC (state cleared).
+- **Screen id -> MenuBehaviorParam row.** exe+15A5BF0 is a hard-coded switch: 0x20-0x25 -> rows 1000-1005 (0x22 ->
+  1002 ACHAT, 0x23 -> 1003 VENTE), 0x26-0x2D -> 2000-2007, 0x2E -> 3000, 0x2F-0x32 -> 4000-4003, 0x34-0x3D and 0x52 ->
+  5000-5011; 0x33 and 0x3E-0x51 -> no row. MenuBehaviorParam {s32 tutorialID, u8 enableHelpMenu}: 1003 -> 2002010.
+- **Request.** At opening exe+C85720 reads the row's tutorialID (exe+15A6160) and makes a request object
+  exe+1286640(id) = {vtable exe+3A63190, refcount, id +0x10, done byte +0x14 (exe+12876C0: already seen)}, kept on
+  the window at +0x4D8. Every frame the window's update (exe+C86219) calls exe+1286710(request) -> exe+1287710(id)
+  -> exe+12881F0 -> exe+1287730 (conditions) -> exe+D83A20(manager_sub, id, callback).
+- **The gate = the manager's "next" child slot.** exe+D83A20 -> exe+D87500 asks exe+D860D0(manager_sub):
+  `[manager_sub+0x78] == 0`. If a menu job sits in the "next" child slot, the request goes to a pending list at
+  manager_sub+0x208 (exe+D87E10) and opens once the slot is free. The vanilla Vente is hosted by the garage menu (its
+  "current" child +0x68): the slot is free, the tutorial opens over it at once. The cap's Vente (and our dialogs) are
+  opened as the manager's child (exe+DC4B60 -> +0x78): the tutorial waits until they close.
+- The custom sell screen (menu/02_010_equipcap.gfx, own movie) does not change any of this: the tutorial comes from
+  the screen id, not from the movie.
+- **The cap's screen gets its own id (2026-10-30).** The VENTE factory stores its id with `mov edx,0x23; call
+  exe+CD74F0(u16* out, id)` at exe+10A5EBE. A call-site hook stores 0x80 instead while the cap opens its screen (flag
+  around exe+DC4B60, which runs the factory synchronously): no MenuBehaviorParam row (switch default) -> no tutorial
+  request, no help menu row, and outside the per-screen state array (its writers skip ids >= 0x63). Verified on a fresh
+  save: our window screen id 0x80, request +0x4D8 = 0, no tutorial on or after it; the vanilla VENTE still shows its
+  tutorial (closed with Tab, not Enter / Esc) and its AC specs.
+- Don't open the cap's screen (debug `vente`) over a vanilla VENTE whose tutorial is up: the tutorial stays drawn
+  without input (our screen holds the "next" slot) and nothing closes it; the game had to be killed.
+
+## Cap sell screen: own movie (2026-10-30)
+- **Movie.** menu/02_010_equipcap.gfx = the vanilla 02_010_EquipTop rebuilt by tools/build_equipcap.ps1: FFDec
+  -swf2xml, tools/build_equipcap.py removes every main-timeline tag at depth 38 (PlayerModelView, the 3D AC view, 7
+  tags) and depth 90 (DetailStatusView, the AC specs slot, 27 tags: placement + animation moves), -xml2swf, then
+  -importScript of mod/src/equipcap_MainTimeline.as (opaque backdrop). Category tabs, list, part info and part stats
+  stay (the game binds those names).
+- **Used only by the cap:** the window class's name string exe+3901B60 ("02_010_EquipTop", UTF-16) is rewritten in
+  place to "02_010_EquipCap" (same length) while the cap opens its screen and written back 60 frames later; the movie
+  is registered at boot in the menu table entry of 02_OnlineArena_MatchLog (exe+4E28CF0 + 0x64 * 16 + 8, online only).
+- **The AC specs are not in the list movie.** They are separate menu windows (02_050_DetailStatus_Player and its
+  _2P / _3P / 02_DetailStatus_Player_AssemInfo variants) that the game places on DetailStatusView/AdjustPosTop/
+  Status_Player (string exe+39EAFD8). Owner: two "status display" objects (vtable exe+39EC750, ctor exe+10B10F0, 0x5D0
+  bytes, built with each list screen from exe+FE7E7A, flag = window name == "02_010_EquipTop") sharing a panels object
+  at +0x308 (selected panel = its byte 0; panel components at +0x258 / +0x9D0 / +0x1148 / +0x18C0; exe+10AB900(panels,
+  on) names the 4 movies or none). Hiding or moving DetailStatusView from AS3 left the panel on screen; removing the
+  placeholder from the movie removes it (the game finds no slot and draws no panel). Vanilla screens all keep it.
+- **GFX = Scaleform (SWF):** binary tags (shapes, sprites, text fields, PlaceObject placements per frame with depth and
+  name, AS3 bytecode). FFDec converts to XML and back and replaces AS3 classes; the reward grid (build_rwdchoice) and
+  this screen are both built that way.
+
+## Shop menus lag: the ownership hook (2026-10-30)
+With the DLL, the garage's MAGASIN submenu and the shop screens lagged (not without it). Thread sampling (suspend each
+game thread, read RIP and the stack, scratchpad sampler.py / stackwait.py): idle garage main thread 46% in waits,
+MAGASIN open 99%, every wait in ac6_roguelike.dll: exe+D2F860 -> D2F900 (our entry hook, dupshop::obtainable_hook)
+-> Game::owned_ids -> mem::is_readable -> VirtualQuery, once per 4 KB page of the inventory table, for every shop-slot
+part the game asks about, on every frame (the game queries D2F900 per list entry per frame while a shop menu is up;
+MAGASIN already does). Same build with only that hook off: MAGASIN 27% waits / 58% game code, VENTE + tutorial 33% /
+50%, like the idle garage. Not from the inventory cap; since PR #8. Fix: a shop array built at the reroll / load and
+updated by the buy and sell actions, read by the hooks (no inventory read per call).

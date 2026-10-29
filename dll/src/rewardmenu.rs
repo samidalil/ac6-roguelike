@@ -126,7 +126,7 @@ static mut CHOICE_NAME_W: [u16; 13] = [0; 13];
 /// Frames left before the vanilla movie name is written back (0 = nothing pending).
 static RESTORE_IN: AtomicU32 = AtomicU32::new(0);
 
-unsafe fn write_wide(at: usize, s: &str) {
+pub unsafe fn write_wide(at: usize, s: &str) {
     let w: Vec<u16> = s.encode_utf16().collect();
     let mut old = 0u32;
     VirtualProtect(at as *mut c_void, w.len() * 2, PAGE_EXECUTE_READWRITE, &mut old);

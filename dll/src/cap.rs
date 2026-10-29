@@ -5,7 +5,7 @@
 //! over. RE_NOTES "Inventory cap".
 
 use super::*;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 
 static BASE: AtomicUsize = AtomicUsize::new(0);
 /// Over the cap since the last check: a list window closing re-runs the check (dialog + Vente again).
@@ -41,11 +41,24 @@ pub unsafe fn install(base: usize) {
                               (o::COMMIT_INSERT_LO_CALLSITE, o::FN_INV_INSERT_LO, commit_insert_lo as *const () as usize)] {
         if let Err(e) = install_call_hook(base, site, target, f) { logf!("inventory cap: insert hook exe+{:X} FAILED: {}", site, e); }
     }
+    // the VENTE factory's screen id: ours while the cap opens its screen
+    match install_call_hook(base, o::SELL_SCREEN_ID_CALLSITE, o::FN_STORE_SCREEN_ID, screen_id_hook as *const () as usize) {
+        Ok(cave) => logf!("inventory cap: screen id hook installed: exe+{:X} -> cave {:#X}", o::SELL_SCREEN_ID_CALLSITE, cave),
+        Err(e) => logf!("inventory cap: screen id hook FAILED: {}", e),
+    }
     // the list window's deleting destructor (vtable slot 1): Vente (or Achat / Assemblage) closed
     let slot = base + o::LIST_WINDOW_VTABLE + 8;
     if mem::rd_usize(slot) != base + o::FN_LIST_WINDOW_DTOR { logf!("inventory cap: list window vtable slot unexpected ({:#X})", mem::rd_usize(slot)); return; }
     let f = list_closed_hook as *const () as usize;
     if write_code(slot, &f.to_le_bytes()) { log("inventory cap: list window close hook installed"); }
+}
+
+/// The cap is opening its sell screen (set around exe+DC4B60, which runs the VENTE factory synchronously).
+static OPENING: AtomicBool = AtomicBool::new(false);
+/// exe+CD74F0(out, id) in the VENTE factory: stores the screen id; the cap's screen gets its own (no tutorial).
+unsafe extern "system" fn screen_id_hook(out: *mut u16, id: u32) -> *mut u16 {
+    *out = if OPENING.load(Relaxed) { o::CAP_SCREEN_ID } else { id as u16 };
+    out
 }
 
 /// A part-list window (Vente, Achat, Assemblage) is destroyed: while over the cap, check again on the next frame.
@@ -93,6 +106,30 @@ pub fn refused_text(category: u32, id: u32) -> Option<usize> {
     Some(TEXT.get_or_init(|| format!("Inventaire plein ({} pièces maximum).\nVendez une pièce pour en acheter une autre.\0", max).encode_utf16().collect()).as_ptr() as usize)
 }
 
+// ---- the cap's sell screen: its own movie (RE_NOTES "Cap sell screen: own movie")
+/// Movie names (same length: the class's string is patched in place).
+const VANILLA_MOVIE: &str = "02_010_EquipTop";
+const SELL_MOVIE: &str = "02_010_EquipCap";
+static mut SELL_NAME_W: [u16; 16] = [0; 16];
+/// Frames left before the vanilla window name is written back (0 = nothing pending).
+static MOVIE_RESTORE_IN: AtomicU32 = AtomicU32::new(0);
+/// Boot: make the game preload our movie, under the menu table entry of 02_OnlineArena_MatchLog (online only).
+pub unsafe fn register_movie(base: usize) {
+    let names = core::ptr::addr_of_mut!(SELL_NAME_W) as *mut u16;
+    for (k, c) in SELL_MOVIE.encode_utf16().enumerate() { *names.add(k) = c; }
+    let entry = base + o::MENU_TABLE_SELL_ENTRY;
+    let old = mem::rd_usize(entry);
+    core::ptr::write_unaligned(entry as *mut usize, names as usize);
+    logf!("inventory cap: sell movie {} registered in menu table entry exe+{:X} (was {:#X})", SELL_MOVIE, o::MENU_TABLE_SELL_ENTRY, old);
+}
+/// Game thread, every frame: the vanilla window name back once our window is built.
+pub unsafe fn tick_any() {
+    let left = MOVIE_RESTORE_IN.load(Relaxed);
+    if left == 0 { return; }
+    MOVIE_RESTORE_IN.store(left - 1, Relaxed);
+    if left == 1 { rewardmenu::write_wide(BASE.load(Relaxed) + o::EQUIP_TOP_MOVIE_NAME, VANILLA_MOVIE); log("inventory cap: vanilla list movie name restored"); }
+}
+
 /// Open the Vente list on the next frame.
 pub static OPEN_SELL: AtomicBool = AtomicBool::new(false);
 /// Our "full" dialog while it is open (its job, for exe+DC4AE0): Vente opens once it is closed. The menu manager keeps
@@ -107,6 +144,9 @@ struct StdFunction { storage: [usize; 7], callable: usize }
 /// callable around the sell-menu factory, opened on top of the current menu like the dialog (exe+DC4B60: the job is
 /// made by the menu manager and opened as its child at once).
 unsafe fn open_sell(base: usize) {
+    // our movie (menu/02_010_equipcap.gfx: no 3D AC view, no AC specs) for this window; vanilla name back a second later
+    rewardmenu::write_wide(base + o::EQUIP_TOP_MOVIE_NAME, SELL_MOVIE);
+    MOVIE_RESTORE_IN.store(60, Relaxed);
     let mut f = StdFunction { storage: [0; 7], callable: 0 };
     f.storage[0] = base + o::FN_PTR_FUNCTION_VTABLE;
     f.storage[1] = base + o::FN_SELL_MENU;
@@ -116,8 +156,11 @@ unsafe fn open_sell(base: usize) {
     let open: FnOpen = core::mem::transmute(base + o::FN_MENU_JOB_OPEN_ON_TOP);
     let reset: FnReset = core::mem::transmute(base + o::FN_MENU_JOB_RESET);
     let mut h = [0usize; 3];
+    OPENING.store(true, Relaxed);
     open(&mut h, &f);
+    OPENING.store(false, Relaxed);
     logf!("inventory cap: Vente opened (job {:#X})", h[1]);
+    // the window is built (not opened yet): its screen id picks the menu behaviour row and so the first-time tutorial
     reset(&mut h);
 }
 
