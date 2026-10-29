@@ -221,7 +221,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
     orig(this);
     let Some(ctx) = CTX.get() else { return };
     let game = Game::new(base);
-    let Some(gd) = game.game_data() else { return };
+    let Some(gd) = game.game_data_fast() else { return };
     rewardmenu::tick(base);
     if RETIRE_REQUEST.swap(false, Relaxed) && game.defer_byte(gd) == 1 {
         let retire: unsafe extern "system" fn() -> u8 = core::mem::transmute(base + o::FN_RETIRE_MISSION);

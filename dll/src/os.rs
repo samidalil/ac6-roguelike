@@ -70,26 +70,12 @@ fn levels_for(van: &Levels, values: &[i32]) -> Levels {
     (n as u8, l)
 }
 
-/// Stamp of OsReinforce at the last `apply_values`.
-static VALUES_STAMP: std::sync::Mutex<(usize, usize)> = std::sync::Mutex::new((0, 0));
-
-/// DLL loop, every tick: `apply_values` when OsReinforce was reloaded (its stamp changed); else two pointer reads.
-pub unsafe fn update_values(base: usize) -> usize {
-    if config::get().os_tuning.is_empty() { return 0; }
-    let Some(i) = param_index_cached(base, "OsReinforce") else { return 0 };
-    let stamp = param_stamp(base, i);
-    if *VALUES_STAMP.lock().unwrap_or_else(|e| e.into_inner()) == stamp { return 0; }
-    let n = apply_values(base);
-    *VALUES_STAMP.lock().unwrap_or_else(|e| e.into_inner()) = stamp;
-    n
-}
-
-/// [os_tuning]: write the configured values into the live OsReinforce rows (ACS also into its sub-rows). Idempotent,
-/// re-applied with the economy (the params can be reloaded). Returns the fields changed.
+/// [os_tuning]: write the configured values into the live OsReinforce rows (ACS also into its sub-rows), once at boot
+/// from `init` (the params are loaded once per game start). Returns the fields changed.
 pub unsafe fn apply_values(base: usize) -> usize {
     let cfg = config::get();
     if cfg.os_tuning.is_empty() { return 0; }
-    let Some(f) = param_index_cached(base, "OsReinforce").and_then(|i| param_file(base, i)) else { return 0 };
+    let Some(f) = param_index(base, "OsReinforce").and_then(|i| param_file(base, i)) else { return 0 };
     let rows = param_rows(f);
     let mut van = VANILLA.lock().unwrap_or_else(|e| e.into_inner());
     for &(id, r) in &rows { if !van.iter().any(|x| x.0 == id) { van.push((id, read_levels(r))); } }
@@ -197,8 +183,8 @@ pub unsafe fn label(gd: usize, row: u16) -> (String, String) {
     (name, format!("{}  LV {}/{}", menu, next, t.map_or(next, |t| t.max)))
 }
 
-/// Keep the vanilla OS Tuning menu locked: its UnlockParam_MenuCommand row checks a flag nothing sets. Idempotent
-/// (re-applied with the economy, the params can be reloaded). Returns true when it changed the row.
+/// Keep the vanilla OS Tuning menu locked: its UnlockParam_MenuCommand row checks a flag nothing sets. Applied once at
+/// boot (the params are loaded once per game start). Returns true when it changed the row.
 pub unsafe fn lock_menu(base: usize) -> bool {
     let Some(f) = param_index(base, "UnlockParam_MenuCommand").and_then(|i| param_file(base, i)) else { return false };
     let Some((_, r)) = param_rows(f).into_iter().find(|x| x.0 == o::MENU_ROW_OS_TUNING) else { return false };
@@ -210,8 +196,9 @@ pub unsafe fn lock_menu(base: usize) -> bool {
 
 /// Silence the OS Tuning lines (2 and 3) of ALLMIND's message granting OS Tuning + Arena: their TalkParam rows get
 /// msgId and voiceId -1, and the player goes from line 1 straight to line 4 (one voiced row per line). The rows stay:
-/// the message's line count is not taken from them (removing rows made it play the next message's lines). Idempotent
-/// like `lock_menu`: a row 913001011 still showing the OS line means a fresh param. True when it changed the rows.
+/// the message's line count is not taken from them (removing rows made it play the next message's lines). Applied once
+/// at boot like `lock_menu`; a row 913001011 still showing the OS line means an untouched param. True when it changed
+/// the rows.
 pub unsafe fn cut_allmind_talk(base: usize) -> bool {
     let Some(f) = param_index(base, "TalkParam").and_then(|i| param_file(base, i)) else { return false };
     let rows = param_rows(f);

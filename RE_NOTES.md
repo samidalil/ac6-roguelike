@@ -1257,9 +1257,8 @@ that Assemblage does not show it for now. Resupply ("Ravitaillement") and the in
 - `[os_tuning] row = "a/b/c"` (os.rs `apply_values`): levels k < n get the values (cost: the game's, or the last one >
   0), levels above repeat the last value with cost 0 (a save above the new max keeps the max effect), maxLevel = n; text
   = the game's text of the level with the same value (repair kits) else the level's own. ACS (1010) also writes its
-  sub-rows 1011/1012 (1013 = coral, all 0, left alone). os.rs `init` applies it before reading the max levels; the DLL
-  loop re-applies it when the param's stamp changes (`param_stamp`: [res+0x80] holder / [holder+0x80] file read without
-  VirtualQuery; one run showed the repository on another OsReinforce copy in the mission than in the garage). Shipped:
+  sub-rows 1011/1012 (1013 = coral, all 0, left alone). os.rs `init` applies it once at boot, before reading the max
+  levels (the params load once per game start: section "Param edits applied once" below). Shipped:
   10/20/30/1010 = 6/12/15, 40/50 = 10/15, 2020 = 2/4, 3010 = 100. Boot log: `[os_tuning] wrote N field(s)`, max levels.
 - **Own chips** (chip.rs, `chips/*.toml` next to the DLL, defaults in dll/src/chips/ written when the folder is
   missing): `id` 1..32 (row 9000 + id in [part_rarity] / [lost_on_failure] / [max_occurrences]; level 2 bits at flags
@@ -1304,3 +1303,22 @@ that Assemblage does not show it for now. Resupply ("Ravitaillement") and the in
   pre-mission talk (double Tab from OUI until the sortie). Garage -> reward grid about 1 min. The "deployment talk" log
   line comes when the mission menu opens, not at the talk. `tools/live_param.py` dumps a live param with its Smithbox
   definition.
+
+## Param edits applied once; frame hook without VirtualQuery (2026-10-29, implemented)
+User decision (2026-10-29): the param edits are applied once at boot, with no re-apply check.
+- **The game loads its params once per start.** Write watches (trace.rs) on the param repository pointers of
+  OsReinforce (`[res+0x80]` holder and `[holder+0x80]` file), MissionParam and TalkParam (`res` = `[repo + 0x80 + index
+  x 0x48 + 8]`, repo `[exe+4E27300]`), armed in the garage: no write through garage -> tester mission -> results ->
+  garage, then system menu -> Retour à l'écran-titre -> Continue. The OsReinforce data sits at one of two addresses
+  (0x7FF4F92xxxxx or 0x7FF4D3Exxxxx) depending on the launch: that, not a reload, is the "other copy" seen in the OS
+  Tuning values work. The only reload the game could do is an online regulation download (title: "Version
+  réglementation 1.09.1"), not reproducible offline: the edits would then be lost until the next start.
+- Removed: the 5 s re-apply of the economy, the OS Tuning menu lock and the ALLMIND line cut, and the per-tick
+  `[os_tuning]` stamp check (`param_stamp`, `param_index_cached`). The 5 s flag page cache refresh stays.
+- `penalty::frame_hook` (game thread, every frame) used `game_data()` (3 VirtualQuery) before checking for work: now
+  `game_data_fast()`, raw reads of GameDataMan (lives as long as the game) and its player GameData pointer (0 until a
+  save is loaded).
+- **Verified** (profile ac6-roguelike-osstat.me3, copy of saves/ac-mission-available.sl2): boot log `[os_tuning] wrote
+  75 field(s)`, `economy: 220 reward fields scaled at boot`, menu locked, ALLMIND lines silenced; after a full mission
+  OsReinforce row 10 still 6/12 (max 3), 2020 2/4 (max 2); reward grid pages, picks and commit through the frame hook;
+  a failure (escrow + relaunch) applied its penalty and opened the loss dialog.
