@@ -1589,14 +1589,25 @@ each time it closes while still over (no auto-sell); with several rewards the ch
 - **VENTE tutorial.** The first Vente of a save queues 02_Tutorial_Modal; with Vente opened by the DLL (a child) it
   shows after the list closes. Its seen state is saved (no event flag 0..9999 changes; after a save + relaunch the
   tutorial and the "!" badge are gone): at most once per save.
-  Showing it OVER a DLL-opened Vente: not found (2026-10-30). Tried: Vente through the manager queue in the garage
-  (DA3410 + DC2A70) instead of the child: the tutorial still waits until the list closes, then shows over the garage
-  (a Vente queued after it then waits behind it). The vanilla VENTE entry creates the tutorial through none of
-  exe+D74BC0 / DC4B60 / DA3410 / DC2A70 (only the Vente job passes D74BC0). Hardware breakpoints on DA3410 / DC2A70
-  and plain entry hooks on them froze the garage menus (no hit logged): avoid. Static: "02_Tutorial_Modal" is
-  looked up by name in the menu manager's window map (+0xA0) at exe+13DCA60, in exe+13DC9B0 = "no tutorial now"
-  (manager busy state exe+CD2880 -> mask from exe+CD24D0, or the modal already open), called from a per-frame fade
-  update at exe+13DBFE9; the code that opens the modal is not found.
+  Showing it OVER a DLL-opened Vente (2026-10-30, not done; where it stands):
+  - The tutorial window is created (window map insert, rsi -> {flags 0x1_00000012, "02_Tutorial_Modal"}) from the
+    menu manager's update of its component list manager_sub+0xE0 (exe+D8461D, every frame) -> ... exe+D61E74 /
+    D622EB (the same window creation as Vente's). Write watch on the window map size manager+0xA8 found it.
+  - NOT the gate: the manager state mask exe+CD24D0 / "busy" exe+CD2880 (0x800008 / 1 in the idle garage, with the
+    vanilla Vente and with ours alike), the job queue (manager_sub+0x1C0 deque, size +0x1E8: empty in every case),
+    the child slots' update (exe+D840DD / D84118 update +0x78 and +0x68 every frame).
+  - The difference: the vanilla Vente is NOT a manager child ("next" slot +0x78/+0x80 empty while it is open, and
+    while its tutorial is up): it is hosted inside the garage menu job (the "current" child +0x68). The garage
+    builds the Vente job (same factory, ctx = its own component stack, e.g. 7FF397D7B160, not manager+0x10), then
+    exe+D3FABE calls exe+16C48B0(out, &jobRef, parent ctx = rbp+0x7B0): a 0x58-byte host component (vtable
+    exe+3B3A100) made by exe+16C2DF0(host, &jobRef, ctx), which stores the job at host+0x10; then exe+16C3510(host,
+    ...) attaches it. A DLL Vente sits in the manager's "next" slot, and the tutorial only shows once it is gone.
+  - Next experiment: build the Vente job with the garage's component context and host it with 16C48B0 + 16C3510
+    like exe+D3FA..; the garage's context address is in that frame only (find it from the garage job, vtable
+    exe+3B3A0D8, at manager_sub+0x68).
+  - Correction: the "frozen garage menus" seen with breakpoints / entry hooks on exe+DA3410 / DC2A70 were most likely
+    Enter presses the garage did not take (it later needed 2-3 presses without any hook).
+  - Debug used: `menustate` (mask + busy, removed), window-map write watch, garage-job diff (tools: scratchpad).
 - **Nothing to sell** (counted parts all equipped or priced 0, e.g. the Worm Killer): the dialog says to take parts off
   the AC in ASSEMBLAGE and sell them; no Vente (it would reopen at once forever); the check runs again when a list
   window closes. Not reproduced in game (needs an unsellable spare).
