@@ -26,7 +26,8 @@ Run from this folder with the game running (`PYTHONIOENCODING=utf-8 python <scri
 - `live_param.py --list | <Param> [rows] [--def <Smithbox def>] [--fields substr...]` — rows of a live param from the
   game's param repository, decoded with the Smithbox definition (`paramdef.py`), e.g.
   `live_param.py OsReinforce --def OsReinforceParam`.
-- `title_to_garage.py` then `garage_to_mission_success.py [--no-results]` — title screen -> garage menu, then garage ->
+- `title_to_garage.py` then `garage_to_mission_success.py [--no-results] [--no-kill]` (--no-kill: stop in the
+  mission with the tester AC alive) — title screen -> garage menu, then garage ->
   "Destruction de l'AC d'essai" (mission briefing and pre-mission talk skipped with a double Tab) -> tester AC killed (`kill_enemies.py --max-ap 12300`) -> results closed -> reward grid
   open (or the commit when nothing is offered). Menu clicks once each screen is up (pixel probes with timeouts, the game
   kept in front), the DLL log for load / sortie / clear / results; shared helpers in `menu_drive.py`. With

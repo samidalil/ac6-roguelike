@@ -1,0 +1,18 @@
+# Salvage: each enemy destroyed repairs your AC (a SpEffect row per level, applied by salvage.lua).
+id = 9
+name = "Récupération"
+stat = "Réparation par ennemi"
+unit = " PB"
+levels = "300/600/1000"
+
+[speffect.900000091]
+copy = 9405                # a repair kit row: instant
+changeHpPoint = -300       # AP restored (negative = repair)
+
+[speffect.900000092]
+copy = 9405
+changeHpPoint = -600
+
+[speffect.900000093]
+copy = 9405
+changeHpPoint = -1000

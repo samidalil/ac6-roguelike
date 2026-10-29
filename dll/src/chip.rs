@@ -7,7 +7,7 @@
 //! and total weight, recomputed by the game every frame; each weapon's ammunition when the game fills it; the part
 //! params are not touched, so Assemblage shows the parts' own stats), and the mod's own rolls (pool weights, rewards
 //! per mission, parts per reward, shop size). RE_NOTES "OS Tuning values and own OS chips" and "Modifier targets".
-//! Script hooks (SpEffect...) come later; resupply is not covered yet.
+//! A chip may also have a Lua script next to its file (chips/<name>.lua, script.rs); resupply is not covered yet.
 
 use super::*;
 use std::sync::OnceLock;
@@ -44,6 +44,11 @@ pub struct Chip {
     /// `unit` shown after the level's value on the tile (default: " %", or nothing for add / sub effects or a chip
     /// with actions only)
     unit: Option<String>,
+    /// chips/<name>.lua next to the chip file: (file name, source), and the events it has an `on_<event>` for
+    pub script: Option<(String, String)>,
+    pub script_on: Vec<event::Event>,
+    /// `unsafe = true`: the script gets the `unsafe` table (raw memory)
+    pub unsafe_api: bool,
 }
 impl Chip {
     pub fn row(&self) -> u16 { o::CHIP_ROW0 + self.id }
@@ -60,7 +65,7 @@ static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 7] = [
+const DEFAULTS: [(&str, &str); 13] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
@@ -68,6 +73,12 @@ const DEFAULTS: [(&str, &str); 7] = [
     ("preferred_contract.toml", include_str!("chips/preferred_contract.toml")),
     ("performance_bonus.toml", include_str!("chips/performance_bonus.toml")),
     ("nanorepair.toml", include_str!("chips/nanorepair.toml")),
+    ("streak_bonus.toml", include_str!("chips/streak_bonus.toml")),
+    ("streak_bonus.lua", include_str!("chips/streak_bonus.lua")),
+    ("salvage.toml", include_str!("chips/salvage.toml")),
+    ("salvage.lua", include_str!("chips/salvage.lua")),
+    ("last_stand.toml", include_str!("chips/last_stand.toml")),
+    ("last_stand.lua", include_str!("chips/last_stand.lua")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).
@@ -84,22 +95,37 @@ pub fn load() {
     let mut v: Vec<Chip> = Vec::new();
     for f in files {
         let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        match std::fs::read_to_string(&f).map_err(|e| e.to_string()).and_then(|t| parse(&t)) {
+        match std::fs::read_to_string(&f).map_err(|e| e.to_string()).and_then(|t| parse(&t)).map(|c| with_script(c, &f)) {
             Ok(c) if v.iter().any(|x| x.id == c.id) => logf!("chips: {}: id {} already used, left out", name, c.id),
             Ok(c) => v.push(c),
             Err(e) => logf!("chips: {}: {}, left out", name, e),
         }
     }
     v.sort_by_key(|c| c.id);
-    logf!("chips: {}", v.iter().map(|c| format!("{} {} ({} {:?}, {:?}{})", c.row(), c.name, c.stat, c.values, c.effects,
-        if c.on.is_empty() { String::new() } else { format!(", on {:?}", c.on) }))
+    logf!("chips: {}", v.iter().map(|c| format!("{} {} ({} {:?}, {:?}{}{})", c.row(), c.name, c.stat, c.values, c.effects,
+        if c.on.is_empty() { String::new() } else { format!(", on {:?}", c.on) },
+        if c.script.is_none() { String::new() } else { format!(", script on {:?}", c.script_on) }))
         .collect::<Vec<_>>().join(", "));
     let _ = CHIPS.set(v);
 }
 
+/// The chip's script (chips/<name>.lua), if any, and the events it handles (`on_<event>` names in the source).
+fn with_script(mut c: Chip, toml: &std::path::Path) -> Chip {
+    let lua = toml.with_extension("lua");
+    let Ok(src) = std::fs::read_to_string(&lua) else { return c };
+    let ident = |ch: char| ch.is_ascii_alphanumeric() || ch == '_';
+    c.script_on = event::EVENTS.iter().filter(|(n, _)| {
+        let f = format!("on_{}", n);
+        src.match_indices(&f).any(|(i, _)| !src[..i].ends_with(ident) && !src[i + f.len()..].starts_with(ident))
+    }).map(|e| e.1).collect();
+    c.script = Some((lua.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), src));
+    c
+}
+
 fn parse(text: &str) -> Result<Chip, String> {
     use config::Value;
-    let mut c = Chip { id: 0, name: String::new(), stat: String::new(), values: Vec::new(), effects: Vec::new(), on: Vec::new(), unit: None };
+    let mut c = Chip { id: 0, name: String::new(), stat: String::new(), values: Vec::new(), effects: Vec::new(), on: Vec::new(),
+        unit: None, script: None, script_on: Vec::new(), unsafe_api: false };
     let mut section = String::new();
     for (n, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let line = config::strip_comment(raw).trim();
@@ -115,6 +141,8 @@ fn parse(text: &str) -> Result<Chip, String> {
             ("", "name", Value::Text(t)) => c.name = t.clone(),
             ("", "stat", Value::Text(t)) => c.stat = t.clone(),
             ("", "unit", Value::Text(t)) => c.unit = Some(t.clone()),
+            ("", "unsafe", Value::Text(t)) if t == "true" || t == "false" => c.unsafe_api = t == "true",
+            ("", "unsafe", Value::Num(n)) => c.unsafe_api = *n != 0,
             (s, _, _) if s.starts_with("on.") => {
                 let e = event::event(&s[3..]).ok_or_else(|| format!("line {}: unknown event [{}] ({})", n + 1, s,
                     event::EVENTS.map(|e| e.0).join(", ")))?;
@@ -152,10 +180,13 @@ pub unsafe fn level(row: u16) -> Option<i32> {
     let (g, man) = flags()?;
     Some(g.get_bits(man, level_flag(c), o::CHIP_LEVEL_BITS) as i32)
 }
-/// New level (0..max) of a chip (pick at the commit, loss on a failure).
+/// New level (0..max) of a chip (pick at the commit, loss on a failure). At 0 its script's saved byte is cleared too
+/// (a chip picked again starts afresh).
 pub unsafe fn set_level(row: u16, lv: i32) -> bool {
     let (Some(c), Some((g, man))) = (chip(row), flags()) else { return false };
-    g.put_bits(man, level_flag(c), o::CHIP_LEVEL_BITS, lv.clamp(0, c.values.len() as i32) as u32);
+    let lv = lv.clamp(0, c.values.len() as i32);
+    g.put_bits(man, level_flag(c), o::CHIP_LEVEL_BITS, lv as u32);
+    if lv == 0 { g.put_bits(man, o::SCRIPT_STORE + (c.id as u32 - 1) * o::SCRIPT_STORE_BITS, o::SCRIPT_STORE_BITS, 0); }
     true
 }
 /// [max_occurrences] used up (CHIP_GONE + id - 1).

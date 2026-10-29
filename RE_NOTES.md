@@ -1336,7 +1336,7 @@ Goal: new content is files (declarations) plus, when it needs logic, a script; t
 - **Scripts**: an embedded Lua (mlua, vendored 5.4) or Rhai, one optional script per content file, handlers per event
   calling the actions.
 - Steps: (1) modifier targets [done, below], (2) events + actions [done, below], (3) regulation generator [done,
-  below], (4) SpEffect RE + `speffect` action [done, below], (5) script engine.
+  below], (4) SpEffect RE + `speffect` action [done, below], (5) script engine [done, below].
 
 ## Modifier targets (2026-10-29, implemented; step 1 of the roadmap)
 - `[effect]` keys are targets, values a mode: `"+"` / `"-"` (the level's value in %), `"add"` / `"sub"` (the value
@@ -1484,3 +1484,52 @@ boot instead. Nothing here runs at play time; the check below was a one-off scri
   come from the declarations by field name, so the DLL needs the field layout: generate a Rust table from the
   Smithbox paramdefs at build time (only for the params we declare: SpEffectParam first), or ship small layout files.
   Once that works, RegBuild and mod/regulation.bin go away (and with them the regulation encryption step).
+
+## Chip scripts: Lua engine (2026-10-29, implemented; step 5 of the roadmap)
+- **Design (user)**: Lua 5.4 (mlua 0.10, vendored, in the DLL); a chip's script is a separate file next to its .toml
+  (chips/<name>.lua); safe API for every script, raw memory only in an `unsafe` context (`unsafe = true` in the chip
+  file gives the script the `unsafe` table).
+- **Runtime** (script.rs): one Lua state on the game thread, built at the first call (penalty.rs frame hook,
+  `script::run_queue` before the SpEffects). Libraries: table, string, math, utf8 (no io / os / package / debug;
+  dofile / loadfile / load / require / collectgarbage / print removed). Each chip runs in its own environment table
+  (globals through `__index`); its `on_<event>(e)` functions are found at load by name (chip.rs `script_on`) and queued
+  by `event::emit_with` with the chip's level at the event (`e.level`, `e.value`, event fields), then run the next
+  frame. A call is stopped after 2 000 000 instructions (count hook); any error is logged
+  (`script <chip>: on_x failed: ...`) and the game goes on.
+- **API**: `log(...)`; `chip` (.id, .name, .values, level(), value()); `store.get()/set(v)`: one byte per chip saved
+  with the run (flags 7132 + 8 x (id - 1), cleared when the chip falls to level 0); `game` (ap(), max_ap(), coam(),
+  in_mission(), flag(id), level(row or name)); actions = the declarative ones: credits(n), give(name), speffect(row),
+  add_level(row or name, n), set_flag(id, bool) (a `speffect` from `mission_start` waits for the mission's AC);
+  `unsafe` (base, player(), readable(addr, n), read_/write_ u8 u16 i32 u32 u64 f32; an unmapped address reads nil and
+  is not written).
+- **panic = "unwind"** in the release profile: mlua raises Lua errors (any script error, the instruction budget) by
+  unwinding; with "abort" the first script error killed the game (fast fail c0000409 in the DLL; reproduced in a test
+  crate: nil index, error(), an error from Rust and the budget stop all abort; with unwind all four come back as
+  errors).
+- **mission_failed** is now emitted before the penalty (the chips it takes were installed during the failed mission).
+- **Verified in game** (osstat save, tester AC mission): the three default scripted chips below; the unsafe API (base,
+  player pointer, a bad read = nil); an endless loop stopped ("stopped after 2000000 instructions") with the game
+  running.
+
+## Enemy destroyed event (2026-10-29)
+- Every character's update (exe+756370, every frame) compares its AP ratio with the last frame's (AP block +0x388
+  ratio, +0x38C AP) and calls **exe+1714F00(chr)** at **exe+7563FF** when the ratio moved by more than 10 % or the AP
+  changed and is below 10; the last-frame values are written after the call. A destroyed character always goes
+  through it once (AP > 0 -> 0, also when the AP is zeroed from outside). The DLL hooks that call: AP 0 now, above 0
+  last frame, not the player -> `enemy_destroyed` (`e.max_ap`). Installed only when a chip uses the event.
+- Dead ends: the per-frame readers of AP +0x278 (exe+706AFC, exe+82B73A "alive" checks, the HUD gauge writer
+  exe+730109 = AP block +0xE8 segment count), module 0x2B's ring of animation events (id 250 queued at the death,
+  generic TAE event code exe+A69DA3), a diff of the ChrIns itself (no change within 1 s of the death).
+
+## Scripted default chips (2026-10-29)
+- 9008 **Prime de série** (streak_bonus.lua): every 3rd mission cleared in a row pays 10 000 / 20 000 / 40 000 COAM;
+  a failed mission resets the streak (store byte). Verified: streak 1/3 after a clear; streak at 2 + a clear -> "Prime
+  de série : +10 000 COAM" dialog, COAM 58 906 -> 68 906, streak 0; a failure with the chip lost -> "streak reset" and
+  the byte cleared.
+- 9009 **Récupération** (salvage.lua): each enemy destroyed applies row 900000091..093 (copy of 9405,
+  `changeHpPoint` -300 / -600 / -1000). Verified: tester AC zeroed with the player at 5000 AP -> one "enemy destroyed"
+  and AP 5300.
+- 9010 **Dernier recours** (last_stand.lua): at mission_start applies row 900000101..103 (`effectEndurance` -1,
+  `conditionHp` 30, the four `*AttackPowerRate` 1.1 / 1.2 / 1.3). The game evaluates the condition itself: the active
+  entry's state (+0x60) is 1 above 30 % AP and 4 at 30 % or below, switching both ways (AP 9080 / 2000 / 5000 / 2700
+  tested). The damage gain itself was not measured.

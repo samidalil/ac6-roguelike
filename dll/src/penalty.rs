@@ -223,7 +223,8 @@ unsafe extern "system" fn frame_hook(this: usize) {
     let game = Game::new(base);
     let Some(gd) = game.game_data_fast() else { return };
     rewardmenu::tick(base);
-    event::apply_speffects(base); // SpEffects queued for the player (event actions, debug)
+    script::run_queue(); // chip scripts' handlers of the events emitted since the last frame
+    event::apply_speffects(base); // SpEffects queued for the player (event actions, scripts, debug)
     if RETIRE_REQUEST.swap(false, Relaxed) && game.defer_byte(gd) == 1 {
         let retire: unsafe extern "system" fn() -> u8 = core::mem::transmute(base + o::FN_RETIRE_MISSION);
         retire();
@@ -234,7 +235,8 @@ unsafe extern "system" fn frame_hook(this: usize) {
     if game.defer_byte(gd) != 0 { return; } // the rest is garage-only work
     dialog::open_pending(base);
     if CLEANUP_REQUEST.swap(false, Relaxed) { cleanup_orphans(&game, gd); }
-    if PENALTY_REQUEST.swap(false, Relaxed) { apply_penalty(&game, ctx, gd); event::emit(event::Event::MissionFailed); }
+    // mission_failed first: the chips lost by the penalty were still installed during the failed mission
+    if PENALTY_REQUEST.swap(false, Relaxed) { event::emit(event::Event::MissionFailed); apply_penalty(&game, ctx, gd); }
     let give = GIVE_REQUEST.swap(0, Relaxed);
     if give != 0 {
         if GIVE_FORCE.swap(false, Relaxed) {

@@ -91,6 +91,9 @@ color = "#FFC23D"
 9005 = 1    # Contrat préférentiel
 9006 = 1    # Prime de performance
 9007 = 1    # Nanoréparation
+9008 = 1    # Prime de série
+9009 = 1    # Récupération
+9010 = 1    # Dernier recours
 
 [os_tuning]
 # Effect of each OS Tuning level, by OsReinforce row: "value/value/..." (1 to 5 levels; their count is the tuning's
@@ -369,6 +372,9 @@ color = "#FFC23D"
 9005 = epic      # Contrat préférentiel (epic parts more often)
 9006 = rare      # Prime de performance (credits after each cleared mission)
 9007 = epic      # Nanoréparation (AP repaired every second in missions)
+9008 = rare      # Prime de série (credits every 3rd mission cleared in a row)
+9009 = rare      # Récupération (AP repaired per enemy destroyed)
+9010 = epic      # Dernier recours (damage below 30 % AP)
 
 [prices]
 # Value of a part: equipId = price, or "part name" = price (spacing and case do not matter; a name also matches

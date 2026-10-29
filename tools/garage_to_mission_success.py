@@ -1,4 +1,4 @@
-"""garage_to_mission_success.py [--no-results]: from the garage menu (as title_to_garage.py leaves it) to "Destruction de
+"""garage_to_mission_success.py [--no-results] [--no-kill]: from the garage menu (as title_to_garage.py leaves it) to "Destruction de
 l'AC d'essai" cleared and its reward grid open. Menu clicks, each one once the screen it needs is up (pixel probes,
 each with a timeout); the DLL log for the sortie, the clear and the results. The mission is the 2nd row of
 saves/ac-mission-available.sl2 and is gone from the list once cleared: restore the save before each run.
@@ -6,7 +6,8 @@ saves/ac-mission-available.sl2 and is gone from the list once cleared: restore t
   double Tab while menu_drive.on_briefing sees it) -> mission menu -> Déploiement -> OUI -> the pre-mission talk (double
   Tab until the sortie) -> sortie (log "defer 0->1") -> tools/kill_enemies.py --max-ap 12300
   (the tester AC) -> mission cleared (log "5074 rose") -> Fermer on the results screen -> the reward grid (log "results:"), or the
-  commit when there is no part to show (log "defer 1->0"). --no-results stops at the clear."""
+  commit when there is no part to show (log "defer 1->0"). --no-results stops at the clear, --no-kill in the mission with the
+tester AC alive."""
 import os, subprocess, sys, time
 from menu_drive import *
 
@@ -43,6 +44,7 @@ def main():
     kill = [sys.executable, os.path.join(HERE, "kill_enemies.py")]
     if not until(lambda: "AP 12300/12300" in subprocess.run(kill, capture_output=True, text=True).stdout, 60, 1, False):
         sys.exit("tester AC not found")
+    if "--no-kill" in sys.argv: step("in the mission, tester AC alive"); return
     time.sleep(2)
     mark = log_size()
     if "AP 0 ->" not in subprocess.run(kill + ["--max-ap", "12300"], capture_output=True, text=True).stdout:

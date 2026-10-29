@@ -1,7 +1,7 @@
 //! Events and actions (step 2 of RE_NOTES "Modular chips: architecture and roadmap"). The engine emits an event at the
 //! points the mod already detects (save load, sortie, clear, death, commit, failure, shop reroll, pick, sale...);
-//! content subscribes with `[on.<event>]` sections in its files (chips for now, scripts later) whose actions run for
-//! each chip at level 1 or more. `flag` and `level` act at once (flag writes); `credits` and `give` are queued for the
+//! content subscribes with `[on.<event>]` sections in its files and `on_<event>` functions in its scripts (script.rs),
+//! which run for each chip at level 1 or more. `flag` and `level` act at once (flag writes); `credits` and `give` are queued for the
 //! game thread in the garage (penalty.rs frame hook), then listed in a game dialog.
 
 use super::*;
@@ -10,17 +10,18 @@ use std::sync::Mutex;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     SaveLoaded, Title, GarageOpened, Deployment, MissionStart, Death, Respawn, MissionCleared, Results, Commit,
-    MissionFailed, GameOver, ShopReroll, Pick, PartSold, AutoSell,
+    MissionFailed, GameOver, ShopReroll, Pick, PartSold, AutoSell, EnemyDestroyed,
 }
-pub const EVENTS: [(&str, Event); 16] = [
+pub const EVENTS: [(&str, Event); 17] = [
     ("save_loaded", Event::SaveLoaded), ("title", Event::Title), ("garage_opened", Event::GarageOpened),
     ("deployment", Event::Deployment), ("mission_start", Event::MissionStart), ("death", Event::Death),
     ("respawn", Event::Respawn), ("mission_cleared", Event::MissionCleared), ("results", Event::Results),
     ("commit", Event::Commit), ("mission_failed", Event::MissionFailed), ("game_over", Event::GameOver),
     ("shop_reroll", Event::ShopReroll), ("pick", Event::Pick), ("part_sold", Event::PartSold), ("auto_sell", Event::AutoSell),
+    ("enemy_destroyed", Event::EnemyDestroyed),
 ];
 pub fn event(name: &str) -> Option<Event> { EVENTS.iter().find(|e| e.0.eq_ignore_ascii_case(name)).map(|e| e.1) }
-fn name(e: Event) -> &'static str { EVENTS.iter().find(|x| x.1 == e).map_or("?", |x| x.0) }
+pub fn name(e: Event) -> &'static str { EVENTS.iter().find(|x| x.1 == e).map_or("?", |x| x.0) }
 
 /// An amount: fixed, one value per chip level, or the chip's own level value (`"value"`).
 #[derive(Clone, Debug)]
@@ -88,9 +89,11 @@ static GARAGE: Mutex<Garage> = Mutex::new(Garage { credits: 0, give: Vec::new(),
 /// is on screen again (after a mission the garage plays its notification and talk first).
 static DIALOG: Mutex<(Vec<String>, u64)> = Mutex::new((Vec::new(), 0));
 
-/// The engine reached `e`: run the actions of every chip at level 1+ subscribed to it.
-pub fn emit(e: Event) {
-    let subs: Vec<&chip::Chip> = chip::chips().iter().filter(|c| c.on.iter().any(|h| h.0 == e)).collect();
+/// The engine reached `e`: run the actions of every chip at level 1+ subscribed to it, and queue its script's handler.
+pub fn emit(e: Event) { emit_with(e, &[]) }
+/// `emit` with fields for the scripts' event table (`e.<name>`).
+pub fn emit_with(e: Event, data: &[(&'static str, f64)]) {
+    let subs: Vec<&chip::Chip> = chip::chips().iter().filter(|c| c.on.iter().any(|h| h.0 == e) || c.script_on.contains(&e)).collect();
     if subs.is_empty() { return; }
     let base = mem::module_base();
     let g = unsafe { Game::new(base) };
@@ -102,7 +105,18 @@ pub fn emit(e: Event) {
             logf!("event {}: chip {} (LV {}) -> {:?}", name(e), c.name, lv, a);
             unsafe { run(&g, man, c, lv, a, e) };
         }
+        if c.script_on.contains(&e) {
+            let not = if e == Event::MissionStart { unsafe { player_chr(base) } } else { 0 };
+            script::queue(c.id, e, lv, not, data);
+        }
     }
+}
+
+/// A script's action (script.rs, game thread): `run` for the chip at `lv` on event `e`.
+pub unsafe fn act(c: &chip::Chip, lv: i32, a: &Action, e: Event) {
+    let g = Game::new(mem::module_base());
+    let Some(man) = g.flag_man() else { return };
+    run(&g, man, c, lv, a, e);
 }
 
 unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action, e: Event) {
@@ -132,9 +146,10 @@ unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action, e: Even
 /// player character still exists: a mission SpEffect waits for the mission's.
 static SPEFFECTS: Mutex<Vec<(i32, usize)>> = Mutex::new(Vec::new());
 pub fn queue_speffect(id: i32, next_character: bool) {
-    let not = if next_character { unsafe { player_chr(mem::module_base()) } } else { 0 };
-    SPEFFECTS.lock().unwrap_or_else(|e| e.into_inner()).push((id, not));
+    push_speffect(id, if next_character { unsafe { player_chr(mem::module_base()) } } else { 0 });
 }
+/// A SpEffect for the player, not for the character `not` (0: any).
+pub fn push_speffect(id: i32, not: usize) { SPEFFECTS.lock().unwrap_or_else(|e| e.into_inner()).push((id, not)); }
 unsafe fn player_chr(base: usize) -> usize {
     let wcm = mem::rd_usize(base + o::WORLDCHRMAN_GLOBAL);
     if wcm == 0 { 0 } else { mem::rd_usize(wcm + o::WCM_PLAYER) }
@@ -160,8 +175,35 @@ pub unsafe fn apply_speffects(base: usize) {
     });
 }
 
+/// The game reports a character's AP change (exe+1714F00 from its update, `FN_AP_CHANGED`): AP 0 now and above 0 last
+/// frame, on another character than the player = an enemy destroyed (`enemy_destroyed`, `e.max_ap` = its max AP).
+unsafe extern "system" fn ap_changed_hook(chr: usize) -> u64 {
+    let base = mem::module_base();
+    let orig: unsafe extern "system" fn(usize) -> u64 = core::mem::transmute(base + o::FN_AP_CHANGED);
+    let mods = if chr == 0 { 0 } else { mem::rd_usize(chr + o::PLAYER_MODULES) };
+    let blk = if mods == 0 { 0 } else { mem::rd_usize(mods) };
+    let before = if blk == 0 { (0, 0, 0) } else { (mem::rd_i32(blk + o::CHR_AP), mem::rd_i32(blk + o::CHR_AP_PREV), mem::rd_i32(blk + o::CHR_AP_MAX)) };
+    let r = orig(chr);
+    if blk != 0 {
+        let (ap, prev, max) = before;
+        if ap <= 0 && prev > 0 && chr != player_chr(base) {
+            logf!("enemy destroyed: character {:#X} (max AP {})", chr, max);
+            emit_with(Event::EnemyDestroyed, &[("max_ap", max as f64)]);
+        }
+    }
+    r
+}
+/// Boot: the event hooks (only the ones a chip uses).
+pub unsafe fn install(base: usize) {
+    if !chip::chips().iter().any(|c| c.script_on.contains(&Event::EnemyDestroyed) || c.on.iter().any(|h| h.0 == Event::EnemyDestroyed)) { return; }
+    match install_call_hook(base, o::AP_CHANGED_CALLSITE, o::FN_AP_CHANGED, ap_changed_hook as *const () as usize) {
+        Ok(_) => log("events: enemy_destroyed hook installed"),
+        Err(e) => logf!("events: enemy_destroyed hook FAILED: {}", e),
+    }
+}
+
 /// An OS Tuning / chip row by number or name.
-fn row_of(t: &str) -> Option<u16> {
+pub fn row_of(t: &str) -> Option<u16> {
     if let Ok(r) = t.trim().parse::<u16>() { return os::tuning(r).map(|x| x.row); }
     let k = config::name_key(t);
     os::tunings().iter().find(|x| config::name_key(&os::name(x.row)) == k).map(|x| x.row)

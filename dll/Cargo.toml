@@ -8,8 +8,11 @@ description = "Armored Core VI roguelike — me3 native DLL (in-memory param mod
 crate-type = ["cdylib"]
 
 [profile.release]
-panic = "abort"
+panic = "unwind"   # mlua raises Lua errors (script errors, the instruction budget) by unwinding
 opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
+
+[dependencies]
+mlua = { version = "0.10", features = ["lua54", "vendored"] }

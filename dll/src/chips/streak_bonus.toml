@@ -1,0 +1,7 @@
+# Streak bonus: a scripted chip. Its behaviour is in streak_bonus.lua next to this file (any chip may have a .lua file
+# with the same name: Lua 5.4, its on_<event>(e) functions run on the events, see the script for the API).
+id = 8
+name = "Prime de série"
+stat = "Série de 3"
+unit = " COAM"
+levels = "10000/20000/40000"
