@@ -34,7 +34,9 @@ HOW IT PLAYS
   surcadencé (EN capacity +10/20/30 %), Alliages légers (weight -5/10/15 %), Chargeurs étendus (ammunition
   +20/40/60 %), Contrat préférentiel (epic parts +25/50/100 % more often, shop and rewards), Prime de performance
   (+2 000 / 4 000 / 8 000 credits after each cleared mission, shown in the garage), Nanoréparation (your AC repairs
-  20 / 40 / 60 AP per second during missions). The AC chips change your
+  20 / 40 / 60 AP per second during missions), Prime de série (every 3rd mission cleared in a row: +10 000 / 20 000
+  / 40 000 credits; a failure resets it), Récupération (each enemy destroyed repairs 300 / 600 / 1 000 AP), Dernier
+  recours (below 30 % AP: weapon damage +10 / 20 / 30 %). The AC chips change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
   resupplies.
@@ -84,6 +86,10 @@ sections (mission_cleared, commit, death, shop_reroll, pick...; the list is in t
 give = "part", "level.<row>" = "+1", "flag.<id>" = 1, speffect = <SpEffectParam row> (applied to your AC; a chip
 can declare its own rows in [speffect.<row id>] sections, built into the mod's regulation.bin, see nanorepair.toml). Add a file for a new chip, delete one to remove it; in the
 settings a chip is known by its row (9000 + id) or its name.
+A chip can also have a Lua script with the same name (streak_bonus.toml + streak_bonus.lua): its on_<event>(e)
+functions run on the events (plus enemy_destroyed), with log, chip, store (a byte saved with the run), game (AP,
+credits, flags, levels) and the actions above; the API is listed in streak_bonus.lua. `unsafe = true` in the chip file
+gives the script raw game memory (can break the game). A script error is written to the log and skipped.
 Delete the folder to get the default chips back.
 
 LOG

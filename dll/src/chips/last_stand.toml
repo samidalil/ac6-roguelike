@@ -1,0 +1,36 @@
+# Last stand: while your AP is below 30 %, your weapons deal more damage. The SpEffect rows carry the condition
+# (conditionHp: the game turns the effect on and off itself); last_stand.lua applies the level's row in each mission.
+id = 10
+name = "Dernier recours"
+stat = "Dégâts sous 30 % PA"
+levels = "10/20/30"
+
+[speffect.900000101]
+copy = 9405                # every rate at 1.0
+changeHpPoint = 0
+effectEndurance = -1       # the whole mission
+conditionHp = 30           # active only while AP <= 30 %
+physicsAttackPowerRate = 1.1
+magicAttackPowerRate = 1.1
+fireAttackPowerRate = 1.1
+thunderAttackPowerRate = 1.1
+
+[speffect.900000102]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = -1
+conditionHp = 30
+physicsAttackPowerRate = 1.2
+magicAttackPowerRate = 1.2
+fireAttackPowerRate = 1.2
+thunderAttackPowerRate = 1.2
+
+[speffect.900000103]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = -1
+conditionHp = 30
+physicsAttackPowerRate = 1.3
+magicAttackPowerRate = 1.3
+fireAttackPowerRate = 1.3
+thunderAttackPowerRate = 1.3

@@ -109,6 +109,10 @@ pub const CHIP_GONE: u32 = 4504;
 pub const MAX_CHIPS: u16 = 32;
 /// [os_tuning]-style row of chip id k (used as its key in [part_rarity], [lost_on_failure], [max_occurrences]).
 pub const CHIP_ROW0: u16 = 9000;
+/// Chip scripts' saved byte (script.rs `store`): SCRIPT_STORE_BITS per chip id, LSB first, 7132..7387 (block 7, part
+/// of the old rolled sets freed by dupshop::migrate, which clears them once before the save format is set).
+pub const SCRIPT_STORE: u32 = 7132;
+pub const SCRIPT_STORE_BITS: u32 = 8;
 pub const CHIP_MAX_LEVEL: usize = 3;
 /// Own chips' stat hooks (RE 2026-10-29, RE_NOTES "Own OS chips"): per-frame stat code, every character; the hooks
 /// change the player's only. Set max AP (rcx = AP block = player module 0, edx = value; clamps and writes +0x27C):
@@ -131,6 +135,12 @@ pub const CHR_MOD_EN: usize = 0x2A;
 pub const CHR_SPEFFECT_MGR: usize = 0x308;
 pub const SPEFFECT_MGR_VTABLE: usize = 0x3839EB8;
 pub const FN_APPLY_SPEFFECT: usize = 0x968EA0;
+/// AP change report (RE 2026-10-29, RE_NOTES "Enemy destroyed event"): each character's update (exe+756370, every
+/// frame) calls exe+1714F00(chr) at exe+7563FF when its AP ratio moved by more than 10 % since the last frame, or its AP
+/// changed and is below 10; the AP block's last-frame AP (CHR_AP_PREV) is updated after the call.
+pub const FN_AP_CHANGED: usize = 0x1714F00;
+pub const AP_CHANGED_CALLSITE: usize = 0x7563FF;
+pub const CHR_AP_PREV: usize = 0x38C;
 /// Weapon module of a character (module 0x27 of the player; constructor exe+8FF8AE): vtable, owner character at +8,
 /// WEAPON_SLOTS slots of WEAPON_SLOT_STRIDE from WEAPON_SLOT0 (slot 1 = right arm, then back units): equipId
 /// +0x44, ammunition {loaded, reserve} at +0x88 / +0x8C (-1: no ammunition).

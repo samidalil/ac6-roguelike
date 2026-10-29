@@ -64,6 +64,7 @@ mod dupshop;
 mod os;
 mod chip;
 mod event;
+mod script;
 mod occur;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
@@ -1040,7 +1041,7 @@ fn boot() {
         Ok(cave) => logf!("open-session hook installed: exe+{:X} -> cave {:#X}", o::OPEN_SESSION_CALLSITE, cave),
         Err(e) => logf!("open-session hook FAILED: {}", e),
     }
-    unsafe { rewardmenu::install(base); chip::install(base); chip::init_ammo(base); }
+    unsafe { rewardmenu::install(base); chip::install(base); event::install(base); chip::init_ammo(base); }
     unsafe { dupshop::install(base); }
     match unsafe { msg::install(base) } {
         Ok(()) => logf!("message lookup hook installed: exe+{:X}", o::FN_MSG_LOOKUP),
