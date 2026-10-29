@@ -98,9 +98,51 @@ pub const SHOP_BASELINE: u32 = 7100;
 pub const SAVE_FORMAT: u32 = 7124;
 pub const SAVE_FORMAT_DUPES: u32 = 0xA5;
 /// [max_occurrences] OS Tunings offered their max number of times this run (1 bit per OS_TUNINGS entry: 4418..4434;
-/// lineup parts use ROWS_LOST). Block 4 was verified to hold only ROWS_SOLD / ROWS_LOST / REWARD_RNG bits several
+/// lineup parts use ROWS_LOST, chips CHIP_GONE). Block 4 was verified to hold only ROWS_SOLD / ROWS_LOST / REWARD_RNG bits several
 /// missions in.
 pub const OS_GONE: u32 = 4418;
+/// Our own chips (chip.rs), by chip id 1..MAX_CHIPS: level (2 bits, LSB first: 4440..4503) and "offered its max
+/// number of times" (1 bit: 4504..4535). Block 4, unused range 4435..4549.
+pub const CHIP_LEVELS: u32 = 4440;
+pub const CHIP_LEVEL_BITS: u32 = 2;
+pub const CHIP_GONE: u32 = 4504;
+pub const MAX_CHIPS: u16 = 32;
+/// [os_tuning]-style row of chip id k (used as its key in [part_rarity], [lost_on_failure], [max_occurrences]).
+pub const CHIP_ROW0: u16 = 9000;
+pub const CHIP_MAX_LEVEL: usize = 3;
+/// Own chips' stat hooks (RE 2026-10-29, RE_NOTES "Own OS chips"): per-frame stat code, every character; the hooks
+/// change the player's only. Set max AP (rcx = AP block = player module 0, edx = value; clamps and writes +0x27C):
+pub const FN_SET_MAX_AP: usize = 0x82AEC0;
+pub const SET_MAX_AP_CALLSITES: [usize; 7] = [0x48FB51, 0x491D6F, 0x71D668, 0x82A4D3, 0x82B5DD, 0x82B6AE, 0xB6AEED];
+/// EN capacity of an EN object (rcx = player module CHR_MOD_EN; float, stored at +0x20 every frame)
+pub const FN_EN_CAPACITY: usize = 0x88BAE0;
+pub const EN_CAPACITY_CALLSITE: usize = 0x88B7C8;
+/// Total weight of an assembly (rcx = PlayerGameData + GD_ASSEMBLY for the player; float, stored at weapon/weight
+/// module 0x23 +0x408 every frame)
+pub const FN_TOTAL_WEIGHT: usize = 0x46CA70;
+pub const TOTAL_WEIGHT_CALLSITE: usize = 0x850B77;
+pub const GD_ASSEMBLY: usize = 0x230;
+/// Player character modules ([[[WorldChrMan]+WCM_PLAYER]+PLAYER_MODULES] + 8 x k): the EN object.
+pub const CHR_MOD_EN: usize = 0x2A;
+/// Weapon module of a character (module 0x27 of the player; constructor exe+8FF8AE): vtable, owner character at +8,
+/// WEAPON_SLOTS slots of WEAPON_SLOT_STRIDE from WEAPON_SLOT0 (slot 1 = right arm, then back units): equipId
+/// +0x44, ammunition {loaded, reserve} at +0x88 / +0x8C (-1: no ammunition).
+pub const WEAPONS_VTABLE: usize = 0x3829510;
+pub const WEAPONS_OWNER: usize = 0x08;
+pub const WEAPON_SLOT0: usize = 0x20;
+pub const WEAPON_SLOT_STRIDE: usize = 0x480;
+pub const WEAPON_SLOTS: usize = 0x20;
+pub const SLOT_ID: usize = 0x44;
+pub const SLOT_LOADED: usize = 0x88;
+pub const SLOT_RESERVE: usize = 0x8C;
+/// Adding ammunition to a weapon slot (rcx = slot + SLOT_AMMO_BLOCK, edx = rounds; loaded round first, then the
+/// reserve, capped at the weapon's totalBulletNum): called when a weapon is filled (exe+907661, the set-weapon path)
+/// and for every slot with a rate (exe+907714).
+pub const FN_ADD_AMMO: usize = 0x907750;
+pub const ADD_AMMO_CALLSITES: [usize; 2] = [0x907661, 0x907714];
+pub const SLOT_AMMO_BLOCK: usize = 0x30;
+/// EquipParamWeapon totalBulletNum (s32)
+pub const WEAPON_TOTAL_AMMO: usize = 0x2A8;
 /// [max_occurrences] items offered but not used up yet (occur.rs): OCCUR_SLOTS slots of {9-bit key: lineup row + 1,
 /// or ROW_COUNT + 1 + rank in OS_TUNINGS, 0 = free; 4-bit count}, LSB first, 8030..8991. Block 8 holds no game flag
 /// (0 set on a fresh save and several missions in; 8020 = FLAG_NEVER is never set and stays out of the range).
@@ -116,6 +158,8 @@ pub const REROLL_COUNTER_BITS: u32 = 8;
 
 // --- param repository (RE 2026-10-26): the shop builder exe+159AAE0 does [exe+4E27300] -> exe+15C8980(repo, 0x29, 0) ---
 pub const PARAM_REPO_GLOBAL: usize = 0x4E27300;
+/// armoredcore6.exe 1.09 image size (tools/ac6_lib.py SIZE)
+pub const IMAGE_SIZE: usize = 0x6C2FC00;
 pub const REPO_SLOT0: usize = 0x80;          // slot i at repo + 0x80 + i*0x48: {u32 count, pad, ptr res[...]}
 pub const REPO_SLOT_STRIDE: usize = 0x48;
 pub const REPO_SLOTS: usize = 0x109;
@@ -161,10 +205,17 @@ pub const OS_TUNINGS: [(u16, usize, u32, u32); 17] = [
     (5010, 0x30, 71560, 75000000), (5020, 0x34, 71561, 75010000), (5030, 0x38, 71562, 75020000), (5040, 0x3C, 71563, 75030000),
     (5050, 0x40, 71550, 0), (5060, 0x44, 71552, 0), (5070, 0x48, 71551, 0), (5080, 0x4C, 71553, 0),
 ];
-/// OsReinforce row: 5 levels of {increase i32, OST chip cost i32, text id i32} from +0x14, 0x18 apart; a level
-/// exists while its cost is > 0.
+/// OsReinforce row: max level u8 at +4, then 5 levels of {increase i32 (the effect: read by the game at each hit,
+/// shown as <?osValue?>), OST chip cost i32, text id i32} from +0x14, 0x18 apart; a level exists while its cost is > 0.
+pub const OSR_MAX_LEVEL: usize = 0x04;
+pub const OSR_LEVEL0_VALUE: usize = 0x14;
 pub const OSR_LEVEL0_COST: usize = 0x18;
+pub const OSR_LEVEL0_TEXT: usize = 0x1C;
 pub const OSR_LEVEL_STRIDE: usize = 0x18;
+pub const OSR_LEVELS: usize = 5;
+/// ACS (1010): hidden sub-rows given the same [os_tuning] values (1013, coral, has 0 everywhere and is left alone).
+pub const OSR_ACS: u16 = 1010;
+pub const OSR_ACS_SUBROWS: [u16; 2] = [1011, 1012];
 /// Item queued for an OS offer that grants no item (the results' parts dialog only opens on a non-empty pending
 /// list): PULSE ARMOR, always taken out of the list at the commit.
 pub const OS_CARRIER_ITEM: u32 = 75010000;

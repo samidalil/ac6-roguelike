@@ -1241,3 +1241,62 @@ part's pool name in the pool's colour, on its own line above the category.
   warning and pools 1/1/1/1/1, leftovers 306, 2 at 0; the grid showed EPIC (gold), COMMON (grey), TRÈS SPÉCIAL (green,
   above "AMÉLIORATION OS LV 1/1"), RARE (purple), UNCOMMON (blue) on two rows without overlap; the pick (2nd tile)
   was the only part kept at the commit.
+
+## OS Tuning values and own OS chips (2026-10-29, implemented)
+User decisions (2026-10-29): `[os_tuning]` table of effect values per level, fewer levels with the same final value;
+own chips ("relics") one file per chip, declarative effects now, script hooks (SpEffect...) later; the part params are
+NOT edited (they are shared with enemy ACs): every effect applies to the player's AC only, through hooks, and it is fine
+that Assemblage does not show it for now. Resupply ("Ravitaillement") and the in-mission cutscenes: later.
+- **OsReinforce** (repo index 202, Smithbox def `OsReinforceParam`, row 0xAC): maxLevel u8 +4, iconId u8 +5, 5 levels of
+  {addVal s32, exp (OST chip cost) s32, textId s32} from +0x14, 0x18 apart. addVal is `<?osValue?>` in the cat 200 texts
+  (221000 "Dégâts cinétiques : +<?osValue?> %"...); repair kits have one text per level (221060..221090, +500..+2 000 per
+  kit) and the expansions "Charges +" (addVal 0/1/2). **The game reads addVal at each hit**: the player's level array
+  `[GameData+0x1368]` is only read at save load, by the autosave and by the menu's chip sum (exe+48AE30), never at the
+  sortie. Verified with the user playing (tester AC mission, kinetic/energy/explosive + ACS at level 1): hits on the
+  tester 77 -> 299 when addVal went 3 -> 300 (x1.03 -> x4.00), its hits on the player 66 -> 6 with ACS 3 -> 90.
+- `[os_tuning] row = "a/b/c"` (os.rs `apply_values`): levels k < n get the values (cost: the game's, or the last one >
+  0), levels above repeat the last value with cost 0 (a save above the new max keeps the max effect), maxLevel = n; text
+  = the game's text of the level with the same value (repair kits) else the level's own. ACS (1010) also writes its
+  sub-rows 1011/1012 (1013 = coral, all 0, left alone). os.rs `init` applies it before reading the max levels; the DLL
+  loop re-applies it when the param's stamp changes (`param_stamp`: [res+0x80] holder / [holder+0x80] file read without
+  VirtualQuery; one run showed the repository on another OsReinforce copy in the mission than in the garage). Shipped:
+  10/20/30/1010 = 6/12/15, 40/50 = 10/15, 2020 = 2/4, 3010 = 100. Boot log: `[os_tuning] wrote N field(s)`, max levels.
+- **Own chips** (chip.rs, `chips/*.toml` next to the DLL, defaults in dll/src/chips/ written when the folder is
+  missing): `id` 1..32 (row 9000 + id in [part_rarity] / [lost_on_failure] / [max_occurrences]; level 2 bits at flags
+  4440 + 2 (id-1), used up 4504 + id-1, block 4), `name`, `stat`, `levels` (1..3 values in %), `[effect]` ap /
+  en_capacity / weight / ammo = "+"/"-". They are os.rs tunings with `chip = true` (pool, grid tile "Name : PB +5 %",
+  level up at the commit, one level lost on failure, occur.rs rank 17 + id-1). Effects: the DLL loop turns the levels
+  into a % per stat (`chip::update`, flag reads only) read by the hooks:
+  - **max AP**: exe+82AEC0 (rcx = AP block, edx = value; clamps, writes +0x27C, clamps the current) is called every
+    frame for every character from 7 call sites; hooked, the value is scaled when rcx is the player's module 0
+    ([[[WorldChrMan]+A5A0]+320]+0). A write to +0x27C is undone the next frame.
+  - **EN capacity**: exe+88B7C8 calls exe+88BAE0(EN object) every frame and stores the float at +0x20 (current EN at
+    +0x24); scaled when the object is the player's module 0x2A.
+  - **total weight**: exe+850B77 calls exe+46CA70(assembly) every frame (stored, min 1.0, at module 0x23 +0x408; copy
+    at +0x78); scaled when the assembly is PlayerGameData + 0x230.
+  - **ammunition**: weapon module = player module 0x27 (vtable exe+3829510, owner character at +8, constructor around
+    exe+8FF8AE: 0x20 slots of 0x480 from +0x20; slot equipId +0x44, loaded +0x88, reserve +0x8C, -1 = none).
+    exe+907750 adds rounds to a slot (rcx = slot + 0x30, edx = rounds; loaded first, then the reserve capped at the
+    weapon's totalBulletNum via the getter exe+15D3110). Called from exe+907661 (filling a weapon, the set-weapon path)
+    and exe+907714 (every slot with a rate); a burst at the garage / mission load, nothing per frame in play. Hooked:
+    after the call, a player slot that is full (loaded + reserve = totalBulletNum) gets its reserve raised. Not
+    verified: a resupply.
+  The part params are not touched (an earlier version scaled EquipParamProtector ap etc.: the tester AC went 12300 ->
+  12915 AP, enemy ACs share the frame rows; enemy weapons use EquipParamWeapon_Npc).
+- **Verified** (profile ac6-roguelike-osstat.me3, copies of saves/ac-mission-available.sl2): boot max levels
+  [(10, 3), (40, 2), (2020, 2), (3010, 1), ... (9001..9004, 3)]; live rows as configured (repair kits texts 221070 /
+  221090). All four chips at level 1 (flags set in the garage): player AP 9080 -> 9534 (HUD and AP block), tester AC
+  12300 unchanged, EN capacity 2300 -> 2530, total weight 63410 -> 60239.5, ammunition 78/25/140 -> 94/30/168 (tester
+  weapons unchanged). `force_os 9001 9002 9004` + scripted clear: grid tiles "Blindage renforcé : PB +5 %  RARE
+  AMÉLIORATION OS LV 1/3", picks -> levels 0 -> 1 at the commit, kept after a relaunch; escrow + relaunch: "OS levels
+  lost [(9001, 1), (9002, 1), (9004, 1)]", levels 1 -> 0, loss dialog "Niveaux OS perdus : Blindage renforcé (LV 1 >
+  0), ...".
+- Side fixes: call hooks share cave pages (`alloc_cave`; with ~10 more hooks the near pages ran out and even the shop /
+  COAM hooks failed), `alloc_near_page` also searches above the image; trace.rs swallows a hit raised after `unwatch`
+  (it crashed the game, exception 0x80000004) and stops its stack walk at an unmapped page (access violation in the
+  DLL).
+- Test scripts: `garage_to_mission_success.py` skips the mission briefing (double Tab while `menu_drive.on_briefing`
+  sees the briefing frame notches at (917..919, 62..64) and (1000..1002, 62..64); no briefing on a second view) and the
+  pre-mission talk (double Tab from OUI until the sortie). Garage -> reward grid about 1 min. The "deployment talk" log
+  line comes when the mission menu opens, not at the talk. `tools/live_param.py` dumps a live param with its Smithbox
+  definition.

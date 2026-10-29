@@ -1,0 +1,8 @@
+# Extended magazines (see reinforced_plating.toml for the format).
+id = 4
+name = "Chargeurs étendus"
+stat = "Munitions"
+levels = "20/40/60"
+
+[effect]
+ammo = "+"

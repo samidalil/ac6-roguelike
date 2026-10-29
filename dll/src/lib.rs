@@ -62,6 +62,7 @@ mod rewardmenu;
 mod choice;
 mod dupshop;
 mod os;
+mod chip;
 mod occur;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
@@ -473,6 +474,29 @@ unsafe fn param_index(base: usize, name: &str) -> Option<usize> {
     })
 }
 
+/// `param_index`, remembered (the repository order does not change while the game runs): for lookups made often.
+unsafe fn param_index_cached(base: usize, name: &'static str) -> Option<usize> {
+    static CACHE: std::sync::Mutex<Vec<(&'static str, usize)>> = std::sync::Mutex::new(Vec::new());
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&(_, i)) = c.iter().find(|x| x.0 == name) { return Some(i); }
+    let i = param_index(base, name)?;
+    c.push((name, i));
+    Some(i)
+}
+
+/// Cheap identity of a param's live data: its (holder, file) pointers, read without VirtualQuery (the repository and
+/// its resources live as long as the game; `idx` from `param_index_cached`). Changes when the game reloads or switches
+/// the param, so a per-tick check can tell when edited values must be written again.
+unsafe fn param_stamp(base: usize, idx: usize) -> (usize, usize) {
+    let repo = mem::rd_usize(base + o::PARAM_REPO_GLOBAL);
+    if repo == 0 { return (0, 0); }
+    let res = mem::rd_usize(repo + o::REPO_SLOT0 + idx * o::REPO_SLOT_STRIDE + 8);
+    if res == 0 { return (0, 0); }
+    let holder = mem::rd_usize(res + o::RES_FILE_HOLDER);
+    if holder == 0 { return (0, 0); }
+    (holder, mem::rd_usize(holder + o::RES_FILE_HOLDER))
+}
+
 /// equipIds of the tank legs: EquipParamProtector rows with legsType 300..302 (Paramdex LEGS_TYPE).
 unsafe fn tank_legs(base: usize) -> Vec<u32> {
     let Some(f) = param_index(base, "EquipParamProtector").and_then(|i| param_file(base, i)) else {
@@ -597,7 +621,27 @@ unsafe fn alloc_near_page(base: usize) -> Option<usize> {
         if !p.is_null() { return Some(p as usize); }
         hint -= 0x10000;
     }
+    // below the image is full (every page takes a 64 KB allocation slot): above it, still within rel32 reach
+    let mut hint = (base + o::IMAGE_SIZE + 0xFFFF) & !0xFFFF;
+    while hint < base + 0x7000_0000 {
+        let p = VirtualAlloc(hint as *mut c_void, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        if !p.is_null() { return Some(p as usize); }
+        hint += 0x10000;
+    }
     None
+}
+
+/// `len` bytes of executable memory within rel32 reach of the image, carved from shared near pages (one page holds
+/// many call-hook stubs instead of one 64 KB allocation slot each).
+unsafe fn alloc_cave(base: usize, len: usize) -> Option<usize> {
+    static PAGE: AtomicUsize = AtomicUsize::new(0);
+    static USED: AtomicUsize = AtomicUsize::new(0);
+    let len = (len + 15) & !15;
+    if PAGE.load(Relaxed) == 0 || USED.load(Relaxed) + len > 0x1000 {
+        PAGE.store(alloc_near_page(base)?, Relaxed);
+        USED.store(0, Relaxed);
+    }
+    Some(PAGE.load(Relaxed) + USED.fetch_add(len, Relaxed))
 }
 
 unsafe fn write_code(site: usize, bytes: &[u8]) -> bool {
@@ -654,7 +698,7 @@ unsafe fn install_call_hook(base: usize, site_rva: usize, target_rva: usize, f: 
     if mem::rd_u8(site) != 0xE8 || mem::rd_i32(site + 1) != expect_rel {
         return Err(format!("unexpected bytes at exe+{:X}: {:02X} rel={:#X}", site_rva, mem::rd_u8(site), mem::rd_i32(site + 1)));
     }
-    let cave = alloc_near_page(base).ok_or("no near page for the cave")?;
+    let cave = alloc_cave(base, 12).ok_or("no near page for the cave")?;
     let mut code = [0u8; 12];
     code[0] = 0x48; code[1] = 0xB8;
     code[2..10].copy_from_slice(&(f as u64).to_le_bytes());
@@ -926,6 +970,7 @@ fn boot() {
     let base = mem::module_base();
     logf!("module base = {:#X}", base);
     config::load();
+    chip::load();
     msg::set_base(base);
     // before the menus are preloaded: our reward choice movie takes a spare menu table entry
     for _ in 0..100 { if unsafe { mem::rd_usize(base + o::MENU_TABLE_SPARE_ENTRY) } != 0 { break; } sleep_ms(20); }
@@ -997,7 +1042,7 @@ fn boot() {
         Ok(cave) => logf!("open-session hook installed: exe+{:X} -> cave {:#X}", o::OPEN_SESSION_CALLSITE, cave),
         Err(e) => logf!("open-session hook FAILED: {}", e),
     }
-    unsafe { rewardmenu::install(base); }
+    unsafe { rewardmenu::install(base); chip::install(base); chip::init_ammo(base); }
     unsafe { dupshop::install(base); }
     match unsafe { msg::install(base) } {
         Ok(()) => logf!("message lookup hook installed: exe+{:X}", o::FN_MSG_LOOKUP),
@@ -1047,9 +1092,15 @@ fn boot() {
                 if config::get().os_rewards && os::lock_menu(run.game.base) { log("OS Tuning menu locked again (params were reloaded)"); }
                 if config::get().os_rewards && os::cut_allmind_talk(run.game.base) { log("ALLMIND OS Tuning lines silenced again (params were reloaded)"); }
             } // re-walk the map every 5 s (pages can be reallocated)
+            // [os_tuning] values and chip effects every tick: a param reload (the repository can switch to another copy
+            // when a mission loads) is fixed before the game builds the AC from it
+            // [os_tuning] values (cheap check each tick: the param's stamp; a full write when it changed)
+            let n = os::update_values(run.game.base);
+            if n > 0 { logf!("[os_tuning]: wrote {} fields (params loaded or reloaded)", n); }
 
             // (1) persisted shop state (flags) -> chosen ids. Handles Continue / New Game / our own writes.
             if let Some(man) = run.game.flag_man() {
+                chip::update(&run.game, man); // chip effects from their levels (cheap: a few flag reads)
                 dupshop::migrate(&run.game, man);
                 let st = run.game.read_state(man);
                 if prev_state.as_ref() != Some(&st) {

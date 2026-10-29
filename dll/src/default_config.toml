@@ -65,7 +65,8 @@ color = "#FFC23D"
 # What a failed sortie takes from the equipped AC, per item: equipId, "part name", or an OS Tuning row = 1 (lost) or
 # 0 (kept). Unlisted: every weapon and frame part / internal is lost, the OS Tunings are kept.
 # Core expansions (5010 Assault Armor, 5020 Pulse Armor, 5030 Pulse Protection, 5040 Terminal Armor): the equipped one
-# loses its item and its OS Tuning level (back to 0). The other OS Tunings: each installed one loses ONE level.
+# loses its item and its OS Tuning level (back to 0). The other OS Tunings and our own chips (9001..): each installed
+# one loses ONE level.
 5010 = 1    # Assault Armor
 5020 = 1    # Pulse Armor
 5030 = 1    # Pulse Protection
@@ -83,6 +84,25 @@ color = "#FFC23D"
 5060 = 1    # Manual Aiming
 5070 = 1    # Weapon Bay
 5080 = 1    # Quick Turn
+9001 = 1    # Blindage renforcé (our own chips: chips/ folder)
+9002 = 1    # Générateur surcadencé
+9003 = 1    # Alliages légers
+9004 = 1    # Chargeurs étendus
+
+[os_tuning]
+# Effect of each OS Tuning level, by OsReinforce row: "value/value/..." (1 to 5 levels; their count is the tuning's
+# max level). The game applies these values in missions and the OS Tuning texts show them. Unlisted: the game's values.
+# Core expansions (5010..5040: level 1 unlocks, the next levels add charges) and on/off tunings are best left alone;
+# repair kits (2020) take only the game's values 1..4 (+500 to +2 000 AP repaired per kit). A save already above a
+# new max keeps the max effect.
+10 = "6/12/15"     # Kinetic Weapons - Fire Control Tuning, damage +% (game: 3/6/9/12/15)
+20 = "6/12/15"     # Energy Weapons - Output Control Tuning, damage +% (game: 3/6/9/12/15)
+30 = "6/12/15"     # Explosive Weapons - Fuse Control Tuning, damage +% (game: 3/6/9/12/15)
+40 = "10/15"       # Melee Weapons - Drive Control Tuning, damage +% (game: 5/10/15)
+50 = "10/15"       # Direct Hit Modifier - Damage Tuning, direct hit damage +% (game: 5/10/15)
+1010 = "6/12/15"   # ACS - Dynamic Deflection Control Tuning, damage taken -% (game: 3/6/9/12/15)
+2020 = "2/4"       # Repair Kits - Optimization, +1 000 / +2 000 AP per kit (game: +500 / +1 000 / +1 500 / +2 000)
+3010 = "100"       # Access Speed - Optimization, +% (game: 50/100)
 
 [max_occurrences]
 # How many times per run an item can be offered: every reward choice or shop that shows it counts, picked or not;
@@ -338,6 +358,11 @@ color = "#FFC23D"
 5050 = common    # Boost Kick
 5060 = common    # Manual Aiming
 5080 = common    # Quick Turn
+# Our own OS chips (chips/ folder next to the DLL), by row 9000 + id: they help any build
+9001 = rare      # Blindage renforcé (frame AP)
+9002 = rare      # Générateur surcadencé (EN capacity)
+9003 = rare      # Alliages légers (weight)
+9004 = rare      # Chargeurs étendus (ammunition)
 
 [prices]
 # Value of a part: equipId = price, or "part name" = price (spacing and case do not matter; a name also matches

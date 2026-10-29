@@ -1,0 +1,8 @@
+# Light alloys (see reinforced_plating.toml for the format).
+id = 3
+name = "Alliages légers"
+stat = "Masse"
+levels = "5/10/15"
+
+[effect]
+weight = "-"

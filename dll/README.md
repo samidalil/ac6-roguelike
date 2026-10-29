@@ -42,7 +42,13 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `os.rs` — OS Tunings as rewards (never in the shop, offered while below their max level): levels at
   `[GameData+0x1368]`, a pick adds one at the commit (choice.rs); a core expansion not owned also queues its item,
   other offers queue a carrier item taken out at the commit; the vanilla OS Tuning menu stays locked (its unlock row
-  points at a never-set flag, the unlock notification no longer names it).
+  points at a never-set flag, the unlock notification no longer names it). `[os_tuning]` rewrites a tuning's effect
+  value per level in the OsReinforce param (the game reads it at each hit; fewer levels = lower max level).
+- `chip.rs` — our own OS chips: one file per chip in `chips/` next to the DLL (`id`, `name`, `stat`, `levels`,
+  `[effect]` ap / en_capacity / weight / ammo = "+" / "-"), offered and leveled like OS Tunings (rows 9000 + id; levels
+  in flags 4440..4503, used up 4504..4535). Effects on the player's AC only, through call hooks on the game's stat code:
+  set max AP (exe+82AEC0), EN capacity (exe+88BAE0), total weight (exe+46CA70), add ammunition (exe+907750); the part
+  params are untouched.
 - `occur.rs` — `[max_occurrences]`: offers per run of the listed items (any part or OS Tuning), counted at the mission
   clear (rewards) or the reroll (shop) in a slot table (flags 8030..8991, 74 slots of {item, count}); at its max an
   item gets its "never again" bit in `ROWS_LOST` (lineup parts) or `OS_GONE` (flags 4418..4434, OS Tunings).
@@ -50,8 +56,9 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   reward, tiles filled by the game's own part view, each with its pool's label in the pool's colour: `PoolName` text,
   colours in the `SelIdx` state), navigation from the game's menu actions (pad + keyboard).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
+  Call hooks share cave pages (`alloc_cave`): one 64 KB allocation slot near the image per page, not per hook.
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, pools:
-  `[pool.NAME]` sections + the built-in unlisted pool, `[part_rarity]` part = pool, prices, per-item tables `[lost_on_failure]` / `[max_occurrences]` read through `config::lookup` / `config::value`).
+  `[pool.NAME]` sections + the built-in unlisted pool, `[part_rarity]` part = pool, prices, per-item tables `[lost_on_failure]` / `[max_occurrences]` read through `config::lookup` / `config::value`, `[os_tuning]` values per level).
 - `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts).
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
@@ -60,7 +67,8 @@ Playable end to end: mission pay removed, random shop and rewards from pools def
 its pool in the pool's colour; weapons
 and frame parts can repeat and be owned several times, boosters / generators / FCS once; OS Tunings, core
 expansions included, are rewards only, one level per pick, the OS Tuning menu locked; core expansions offered as
-many times per run as their levels and lost on a failure), failed sorties take parts,
+many times per run as their levels and lost on a failure; OS Tuning values per level in the settings; our own OS
+chips from `chips/` files: AP, EN capacity, weight, ammunition, on the player only), failed sorties take parts,
 auto-sell
 when broke, game over back to the title with the run's save closed. Vanilla rank / arena reward parts are not granted;
 they are shop parts like the others.

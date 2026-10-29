@@ -28,6 +28,13 @@ HOW IT PLAYS
   is lost on a failed sortie (part and level); the loss does not give back offers. Every other installed OS
   Tuning loses one level on a failed sortie.
   [max_occurrences] and [lost_on_failure] in the settings set this per item.
+  The weapon damage tunings and ACS have 3 levels (6 / 12 / 15 %), melee and direct hit 2 (10 / 15 %), repair kits 2
+  (+1 000 / +2 000 AP per kit), access speed 1 (+100 %): fewer levels, same max as the base game ([os_tuning]).
+- OS chips of our own, offered like the OS Tunings (3 levels each): Blindage renforcé (AP +5/10/15 %), Générateur
+  surcadencé (EN capacity +10/20/30 %), Alliages légers (weight -5/10/15 %), Chargeurs étendus (ammunition
+  +20/40/60 %). They change your AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and
+  ammunition show on the mission HUD. A failed sortie takes one level of each. The ammunition bonus applies when the
+  mission starts, not to resupplies.
 - A part you sell (or that is sold automatically) stays in the shop at its shop price until the next reroll,
   so you can buy it back.
 - The game's own reward parts (S-rank and arena rewards) are not handed out: they show up in the shop like any part.
@@ -62,6 +69,14 @@ ignored): core expansions are then kept after a failure and offered without limi
 sections from a new one) to get them. An older [lost_on_failure] does not list the other OS Tunings: they then keep
 their levels after a failure.
 Each setting is explained in the file. Delete the file to get the defaults back.
+[os_tuning] sets each OS Tuning's effect per level ("6/12/15": 3 levels); an older settings file has no such section
+and keeps the game's values.
+
+OS CHIPS
+The chips folder (created next to the DLL on first launch) holds one file per chip: its id (1 to 32), name, the stat
+named on the reward tile, its values per level and its effects (ap, en_capacity, weight, ammo = "+" or "-"). Add a
+file for a new chip, delete one to remove it; in the settings a chip is known by its row (9000 + id) or its name.
+Delete the folder to get the default chips back.
 
 LOG
 %USERPROFILE%\ac6_roguelike_dll.log (rewritten at every launch) - useful when reporting a problem.
