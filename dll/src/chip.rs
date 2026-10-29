@@ -1,14 +1,13 @@
 //! Our own OS chips: one file per chip in `chips/` next to the DLL (the defaults in dll/src/chips/ are written when
 //! the folder is missing). A chip is offered and leveled like an OS Tuning (os.rs: reward grid, [part_rarity],
 //! [lost_on_failure], [max_occurrences] by its row 9000 + id or its name); its level is saved in event flags
-//! (CHIP_LEVELS). Effects are declarative and typed (`[effect]` stat = "+" / "-": the level's value in %), recomputed
-//! when a level changes or a save is loaded, and applied to the player's AC only through hooks on the game's stat code
+//! (CHIP_LEVELS). Effects are declarative and typed (`[effect]` stat = "+" / "-": the level's value in %), read from
+//! the levels when used (like the game's OS Tunings) and applied to the player's AC only through hooks on its stat code
 //! (the part params are not touched, so Assemblage shows the parts' own stats): max AP, EN capacity and total weight
 //! (recomputed by the game every frame), and each weapon's ammunition when the game fills it (mission load). RE_NOTES
 //! "OS Tuning values and own OS chips". Script hooks (SpEffect...) come later; resupply is not covered yet.
 
 use super::*;
-use std::sync::atomic::AtomicI32;
 use std::sync::OnceLock;
 
 /// Effect types a chip file can use (`[effect]` keys).
@@ -113,11 +112,10 @@ pub unsafe fn level(row: u16) -> Option<i32> {
     let (g, man) = flags()?;
     Some(g.get_bits(man, level_flag(c), o::CHIP_LEVEL_BITS) as i32)
 }
-/// New level (0..max) of a chip (pick at the commit, loss on a failure), and the effects from the new levels.
+/// New level (0..max) of a chip (pick at the commit, loss on a failure).
 pub unsafe fn set_level(row: u16, lv: i32) -> bool {
     let (Some(c), Some((g, man))) = (chip(row), flags()) else { return false };
     g.put_bits(man, level_flag(c), o::CHIP_LEVEL_BITS, lv.clamp(0, c.values.len() as i32) as u32);
-    refresh(&g, man);
     true
 }
 /// [max_occurrences] used up (CHIP_GONE + id - 1).
@@ -128,27 +126,23 @@ pub unsafe fn set_gone(g: &Game, man: usize, row: u16) { if let Some(c) = chip(r
 pub fn value(row: u16, lv: i32) -> i32 { chip(row).and_then(|c| c.values.get((lv - 1).max(0) as usize).copied()).filter(|_| lv > 0).unwrap_or(0) }
 
 // ---- effects
-/// Change in % of each stat (STATS order) at the current chip levels, for the hooks (game thread).
-static PCT: [AtomicI32; 4] = [const { AtomicI32::new(0) }; 4];
-fn pct(s: Stat) -> i32 { PCT[s as usize].load(Relaxed) }
-fn scaled(v: f64, p: i32) -> f64 { v * (100 + p).max(0) as f64 / 100.0 }
-
-/// The % of each stat from the chip levels (several chips on one stat add up), when the levels can have changed: a
-/// level set here, a save's flags loaded (Continue, New Game). Logs changes.
-pub unsafe fn refresh(g: &Game, man: usize) {
-    let mut p = [0i32; 4];
-    for c in chips() {
-        let lv = g.get_bits(man, level_flag(c), o::CHIP_LEVEL_BITS) as i32;
-        let v = if lv > 0 { c.values[(lv as usize).min(c.values.len()) - 1] } else { 0 };
-        for &(s, sign) in &c.effects { p[s as usize] += sign * v; }
+/// Change in % of a stat from the chip levels, read from the save's flags when the hook needs it (several chips on one
+/// stat add up), the way the game reads its own OS Tuning levels when it uses them: nothing to refresh on a pick, a
+/// failure, Continue or New Game. 0 without a save.
+unsafe fn pct(base: usize, s: Stat) -> i32 {
+    let man = mem::rd_usize(base + o::EVENTFLAGMAN_GLOBAL);
+    if man == 0 { return 0; }
+    let g = Game::new(base);
+    let mut p = 0;
+    for c in chips().iter().filter(|c| c.effects.iter().any(|e| e.0 == s)) {
+        let lv = g.get_bits(man, level_flag(c), o::CHIP_LEVEL_BITS) as usize;
+        if lv == 0 { continue; }
+        let v = c.values[lv.min(c.values.len()) - 1];
+        for &(st, sign) in &c.effects { if st == s { p += sign * v; } }
     }
-    if (0..4).any(|i| PCT[i].load(Relaxed) != p[i]) {
-        for i in 0..4 { PCT[i].store(p[i], Relaxed); }
-        logf!("chips: effects now {}", STATS.iter().map(|(n, s)| format!("{} {:+}%", n, p[*s as usize])).collect::<Vec<_>>().join(", "));
-    }
+    p
 }
-/// Back to the title (no save loaded): no effect until the next save's levels are read.
-pub fn clear() { for a in &PCT { a.store(0, Relaxed); } }
+fn scaled(v: f64, p: i32) -> f64 { v * (100 + p).max(0) as f64 / 100.0 }
 
 /// The player's character modules (WorldChrMan player -> +0x320), 0 when there is no player character.
 unsafe fn player_modules(base: usize) -> usize {
@@ -166,8 +160,7 @@ unsafe fn player_module(base: usize, k: usize) -> usize {
 /// Max AP setter (every frame, every character): the player's AP block gets the AP chips' %.
 unsafe extern "system" fn set_max_ap_hook(block: usize, value: i32) -> u64 {
     let base = mem::module_base();
-    let p = pct(Stat::Ap);
-    let v = if p != 0 && block != 0 && block == player_module(base, 0) { scaled(value as f64, p).round() as i32 } else { value };
+    let v = if block != 0 && block == player_module(base, 0) { scaled(value as f64, pct(base, Stat::Ap)).round() as i32 } else { value };
     let orig: unsafe extern "system" fn(usize, i32) -> u64 = core::mem::transmute(base + o::FN_SET_MAX_AP);
     orig(block, v)
 }
@@ -176,19 +169,17 @@ unsafe extern "system" fn en_capacity_hook(en: usize) -> f32 {
     let base = mem::module_base();
     let orig: unsafe extern "system" fn(usize) -> f32 = core::mem::transmute(base + o::FN_EN_CAPACITY);
     let v = orig(en);
-    let p = pct(Stat::EnCapacity);
-    if p != 0 && en != 0 && en == player_module(base, o::CHR_MOD_EN) { scaled(v as f64, p) as f32 } else { v }
+    if en != 0 && en == player_module(base, o::CHR_MOD_EN) { scaled(v as f64, pct(base, Stat::EnCapacity)) as f32 } else { v }
 }
 /// Total weight of an assembly (every frame, for a character's movement): the player's gets the weight chips' %.
 unsafe extern "system" fn total_weight_hook(assembly: usize) -> f32 {
     let base = mem::module_base();
     let orig: unsafe extern "system" fn(usize) -> f32 = core::mem::transmute(base + o::FN_TOTAL_WEIGHT);
     let v = orig(assembly);
-    let p = pct(Stat::Weight);
-    if p == 0 || assembly == 0 { return v; }
+    if assembly == 0 { return v; }
     let gdm = mem::rd_usize(base + o::GAMEDATAMAN_GLOBAL);
     let gd = if gdm == 0 { 0 } else { mem::rd_usize(gdm + o::GDM_PLAYER_GAMEDATA) };
-    if gd != 0 && assembly == gd + o::GD_ASSEMBLY { scaled(v as f64, p) as f32 } else { v }
+    if gd != 0 && assembly == gd + o::GD_ASSEMBLY { scaled(v as f64, pct(base, Stat::Weight)) as f32 } else { v }
 }
 
 /// Boot: the stat hooks (call sites of the game's per-frame stat code). Not installed without chips.
@@ -225,8 +216,7 @@ unsafe fn add_ammo(ammo: usize, rounds: i32) -> u64 {
     let base = mem::module_base();
     let orig: unsafe extern "system" fn(usize, i32) -> u64 = core::mem::transmute(base + o::FN_ADD_AMMO);
     let r = orig(ammo, rounds);
-    let p = pct(Stat::Ammo);
-    if p == 0 || ammo < o::SLOT_AMMO_BLOCK + o::WEAPON_SLOT0 { return r; }
+    if ammo < o::SLOT_AMMO_BLOCK + o::WEAPON_SLOT0 { return r; }
     let slot = ammo - o::SLOT_AMMO_BLOCK;
     let Some(module) = (0..o::WEAPON_SLOTS).map(|k| slot.wrapping_sub(o::WEAPON_SLOT0 + k * o::WEAPON_SLOT_STRIDE))
         .find(|&m| mem::rd_usize(m) == base + o::WEAPONS_VTABLE) else { return r };
@@ -234,11 +224,20 @@ unsafe fn add_ammo(ammo: usize, rounds: i32) -> u64 {
     let player = if wcm == 0 { 0 } else { mem::rd_usize(wcm + o::WCM_PLAYER) };
     let (id, loaded, reserve) = (mem::rd_u32(slot + o::SLOT_ID), mem::rd_i32(slot + o::SLOT_LOADED), mem::rd_i32(slot + o::SLOT_RESERVE));
     if player == 0 || mem::rd_usize(module + o::WEAPONS_OWNER) != player { return r; }
+    let p = pct(base, Stat::Ammo);
+    if p == 0 { return r; }
     let Some(&total) = AMMO.get().and_then(|t| t.get(&id)) else { return r };
     if reserve < 0 || loaded < 0 || loaded + reserve != total { return r; }
     let new = (scaled(total as f64, p).round() as i32 - loaded).max(0);
     mem::wr_i32(slot + o::SLOT_RESERVE, new);
-    logf!("chips: weapon {} ammunition {} -> {} ({:+}%)", id, total, loaded + new, p);
+    // the game refills the weapons many times while a mission opens (each refill is raised again): one log per slot
+    static LOGGED: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+    let mut logged = LOGGED.lock().unwrap_or_else(|e| e.into_inner());
+    if !logged.contains(&slot) {
+        if logged.len() >= 64 { logged.clear(); }
+        logged.push(slot);
+        logf!("chips: weapon {} ammunition {} -> {} ({:+}%)", id, total, loaded + new, p);
+    }
     r
 }
 unsafe extern "system" fn add_ammo_hook(ammo: usize, rounds: i32) -> u64 { add_ammo(ammo, rounds) }

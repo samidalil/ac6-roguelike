@@ -1266,8 +1266,8 @@ that Assemblage does not show it for now. Resupply ("Ravitaillement") and the in
   4440 + 2 (id-1), used up 4504 + id-1, block 4), `name`, `stat`, `levels` (1..3 values in %), `[effect]` ap /
   en_capacity / weight / ammo = "+"/"-". They are os.rs tunings with `chip = true` (pool, grid tile "Name : PB +5 %",
   level up at the commit, one level lost on failure, occur.rs rank 17 + id-1). Effects: the DLL loop turns the levels
-  into a % per stat (`chip::refresh`: on a level change at the commit / failure, and when a save's flags load (flag
-  1000 rising, Continue and New Game); reset at the title) read by the hooks:
+  read when used: each hook (player only) sums its stat's % from the chip level flags at that moment, like the game
+  reads its OS Tuning levels at each use, so a pick, a failure, Continue or New Game need no refresh:
   - **max AP**: exe+82AEC0 (rcx = AP block, edx = value; clamps, writes +0x27C, clamps the current) is called every
     frame for every character from 7 call sites; hooked, the value is scaled when rcx is the player's module 0
     ([[[WorldChrMan]+A5A0]+320]+0). A write to +0x27C is undone the next frame.
@@ -1279,7 +1279,8 @@ that Assemblage does not show it for now. Resupply ("Ravitaillement") and the in
     exe+8FF8AE: 0x20 slots of 0x480 from +0x20; slot equipId +0x44, loaded +0x88, reserve +0x8C, -1 = none).
     exe+907750 adds rounds to a slot (rcx = slot + 0x30, edx = rounds; loaded first, then the reserve capped at the
     weapon's totalBulletNum via the getter exe+15D3110). Called from exe+907661 (filling a weapon, the set-weapon path)
-    and exe+907714 (every slot with a rate); a burst at the garage / mission load, nothing per frame in play. Hooked:
+    and exe+907714 (every slot with a rate); a burst at the garage / mission load and for about 5 s after the sortie
+    (the opening refills the weapons ~250 times a second), nothing later in play. Hooked:
     after the call, a player slot that is full (loaded + reserve = totalBulletNum) gets its reserve raised. Not
     verified: a resupply.
   The part params are not touched (an earlier version scaled EquipParamProtector ap etc.: the tester AC went 12300 ->

@@ -1155,7 +1155,6 @@ fn boot() {
                 let loaded = run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true);
                 if loaded && !prev_loaded {
                     buyback::load(&run.game, man);
-                    chip::refresh(&run.game, man); // chip effects from this save's levels
                     // dead save: flagged, or an unpaid failure (escrow) whose penalty leaves the player broke.
                     // The second case is the same outcome every time it is loaded, so nothing needs saving:
                     // leave for the title at once, before the garage shows.
@@ -1168,7 +1167,6 @@ fn boot() {
                         penalty::CLEANUP_REQUEST.store(true, Relaxed); run.on_garage_open(man, "save loaded");
                     }
                 }
-                if !loaded && prev_loaded { chip::clear(); } // back to the title
                 prev_loaded = loaded;
 
                 if penalty::RETIRED.swap(0, Relaxed) > 0 { log("death: mission retired automatically (back to the garage)"); }
@@ -1248,9 +1246,7 @@ fn boot() {
                             logf!("DEBUG: unlock notification {}: {:?}", c, msg::shown(c, o::MSG_OS_UNLOCKED));
                         },
                         "os" => {
-                            // each OS Tuning: level / max, rollable as a reward, its core expansion item owned (and the
-                            // chip effects recomputed: test levels written straight into the flags)
-                            chip::refresh(&run.game, man);
+                            // each OS Tuning: level / max, rollable as a reward, its core expansion item owned
                             let owned = run.game.owned_ids(gd);
                             let cands = run.reward_candidates(gd, man, &[]);
                             for t in os::tunings() {
