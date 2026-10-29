@@ -1,0 +1,15 @@
+profileVersion = "v1"
+disable_arxan = true
+savefile = "AC6_roguelike_osstat.sl2"
+
+[[supports]]
+game = "armoredcore6"
+
+[[natives]]
+path = 'dll/target/release/ac6_roguelike.dll'
+optional = true
+enabled = false   # vanilla: DLL off
+
+[[packages]]
+id = "roguelike"
+path = 'mod'
