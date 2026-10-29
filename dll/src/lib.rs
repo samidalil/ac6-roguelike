@@ -241,6 +241,14 @@ impl Game {
         if gd == 0 || !mem::is_readable(gd + o::GD_ITEM_MGR, 0x100) { return None; }
         Some(gd)
     }
+    /// `game_data` without VirtualQuery, for per-frame code on the game thread: GameDataMan lives as long as the game,
+    /// and its player GameData pointer is 0 until a save is loaded.
+    unsafe fn game_data_fast(&self) -> Option<usize> {
+        let gdm = mem::rd_usize(self.base + o::GAMEDATAMAN_GLOBAL);
+        if gdm == 0 { return None; }
+        let gd = mem::rd_usize(gdm + o::GDM_PLAYER_GAMEDATA);
+        if gd == 0 { None } else { Some(gd) }
+    }
     unsafe fn flag_man(&self) -> Option<usize> {
         let slot = self.base + o::EVENTFLAGMAN_GLOBAL;
         if !mem::is_readable(slot, 8) { return None; }
@@ -474,29 +482,6 @@ unsafe fn param_index(base: usize, name: &str) -> Option<usize> {
     })
 }
 
-/// `param_index`, remembered (the repository order does not change while the game runs): for lookups made often.
-unsafe fn param_index_cached(base: usize, name: &'static str) -> Option<usize> {
-    static CACHE: std::sync::Mutex<Vec<(&'static str, usize)>> = std::sync::Mutex::new(Vec::new());
-    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(&(_, i)) = c.iter().find(|x| x.0 == name) { return Some(i); }
-    let i = param_index(base, name)?;
-    c.push((name, i));
-    Some(i)
-}
-
-/// Cheap identity of a param's live data: its (holder, file) pointers, read without VirtualQuery (the repository and
-/// its resources live as long as the game; `idx` from `param_index_cached`). Changes when the game reloads or switches
-/// the param, so a per-tick check can tell when edited values must be written again.
-unsafe fn param_stamp(base: usize, idx: usize) -> (usize, usize) {
-    let repo = mem::rd_usize(base + o::PARAM_REPO_GLOBAL);
-    if repo == 0 { return (0, 0); }
-    let res = mem::rd_usize(repo + o::REPO_SLOT0 + idx * o::REPO_SLOT_STRIDE + 8);
-    if res == 0 { return (0, 0); }
-    let holder = mem::rd_usize(res + o::RES_FILE_HOLDER);
-    if holder == 0 { return (0, 0); }
-    (holder, mem::rd_usize(holder + o::RES_FILE_HOLDER))
-}
-
 /// equipIds of the tank legs: EquipParamProtector rows with legsType 300..302 (Paramdex LEGS_TYPE).
 unsafe fn tank_legs(base: usize) -> Vec<u32> {
     let Some(f) = param_index(base, "EquipParamProtector").and_then(|i| param_file(base, i)) else {
@@ -517,9 +502,10 @@ unsafe fn param_rows(file: usize) -> Vec<(u32, usize)> {
     }).collect()
 }
 
-/// Apply the economy to the live params. Idempotent; returns how many fields it changed.
-/// Values this function wrote, by address: a field that no longer holds our value was reloaded by the game and is
-/// scaled again (never twice).
+/// Apply the economy to the live params, once at boot: the game loads its params once per start (no reload in a
+/// mission, a return to the title or a Continue; RE_NOTES "Param edits applied once"). Idempotent; returns how many
+/// fields it changed. Values this function wrote, by address: a field that already holds our value is not scaled
+/// twice.
 static ECONOMY_WRITTEN: std::sync::Mutex<Option<std::collections::HashMap<usize, i32>>> = std::sync::Mutex::new(None);
 
 unsafe fn apply_economy(base: usize) -> usize {
@@ -1085,18 +1071,7 @@ fn boot() {
         unsafe {
             let gd = match run.game.game_data() { Some(g) => g, None => { prev_defer = None; sleep_ms(250); continue; } };
             if gd != prev_gd { logf!("GameData = {:#X}", gd); prev_gd = gd; prev_defer = None; clear_page_cache(); }
-            if tick % 50 == 0 {
-                clear_page_cache();
-                let n = apply_economy(run.game.base);
-                if n > 0 { logf!("economy: re-applied {} fields (params were reloaded)", n); }
-                if config::get().os_rewards && os::lock_menu(run.game.base) { log("OS Tuning menu locked again (params were reloaded)"); }
-                if config::get().os_rewards && os::cut_allmind_talk(run.game.base) { log("ALLMIND OS Tuning lines silenced again (params were reloaded)"); }
-            } // re-walk the map every 5 s (pages can be reallocated)
-            // [os_tuning] values and chip effects every tick: a param reload (the repository can switch to another copy
-            // when a mission loads) is fixed before the game builds the AC from it
-            // [os_tuning] values (cheap check each tick: the param's stamp; a full write when it changed)
-            let n = os::update_values(run.game.base);
-            if n > 0 { logf!("[os_tuning]: wrote {} fields (params loaded or reloaded)", n); }
+            if tick % 50 == 0 { clear_page_cache(); } // re-walk the flag map every 5 s (pages can be reallocated)
 
             // (1) persisted shop state (flags) -> chosen ids. Handles Continue / New Game / our own writes.
             if let Some(man) = run.game.flag_man() {
