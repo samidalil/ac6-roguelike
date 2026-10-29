@@ -65,6 +65,10 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   `on_<event>(e)` handlers in a per-chip environment with the safe API (log, chip, store, game, the actions) and, with
   `unsafe = true` in the chip file, the `unsafe` table (raw memory); 2M-instruction budget per call, errors logged.
   Needs `panic = "unwind"` (Cargo.toml).
+- `cap.rs` — inventory cap (`[inventory] max_parts`): parts owned (weapons, frame parts, internals, equipped included,
+  each copy) counted from the inventory table; full = the shop's buy step refuses (game dialog, message 231020
+  reworded); over the cap after a reward = dialog + the native Vente list, reopened each time a list window closes
+  while still over. Debug `cap` (check now), `vente` (open Vente).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
   Call hooks share cave pages (`alloc_cave`): one 64 KB allocation slot near the image per page, not per hook.
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, pools:

@@ -28,6 +28,11 @@ reroll_interval = 1              # cleared missions between shop rerolls (1 = ev
 # Shop offers and rewards can repeat. Weapons and frame parts (head, core, arms, legs) are offered even when you own
 # them (each copy is its own part); boosters, generators and FCS are not offered while owned or once lost for good.
 
+[inventory]
+max_parts = 20                   # parts you can own: weapons, frame parts and internals, equipped ones included (each
+                                 # copy counts; core expansions don't). Full: the shop refuses purchases; a reward that
+                                 # goes over asks you to sell parts until you are back at the limit
+
 [rarity]
 # Shop offers and mission rewards are drawn from pools: a pool by its weight, then a part uniformly within it. Each
 # [pool.NAME] section is a pool; [part_rarity] puts parts in them, and every part it does not list goes to the

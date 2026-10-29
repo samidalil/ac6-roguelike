@@ -1533,3 +1533,37 @@ boot instead. Nothing here runs at play time; the check below was a one-off scri
   `conditionHp` 30, the four `*AttackPowerRate` 1.1 / 1.2 / 1.3). The game evaluates the condition itself: the active
   entry's state (+0x60) is 1 above 30 % AP and 4 at 30 % or below, switching both ways (AP 9080 / 2000 / 5000 / 2700
   tested). The damage gain itself was not measured.
+
+## Inventory cap (2026-10-30, implemented)
+User decisions (2026-10-28): every weapon / frame part / internal owned counts, equipped ones included, each copy one
+(core expansions do not); `[inventory] max_parts = 20`; a shop purchase while full is BLOCKED; a reward that goes over
+shows a "full" dialog, then the Vente list opens, again each time it closes while still over (no auto-sell).
+- **Count** (`cap.rs`): inventory entries (penalty.rs table walk) with tag 0 (not 75xxxxxx), 1, 5, 6, 7.
+- **Purchase block.** The shop's buy step exe+D66940 calls `exe+D2F860(const u32* id)` (= D2F900 on a copy) at
+  exe+D669C5; 0 -> the game's own refusal dialog with message cat 204 id 231020 ("Vous avez acheté toutes les pièces
+  disponibles."), before the confirmation and the price check. Hooked at that call site: full -> 0. The message is
+  looked up BEFORE the check runs, so msg.rs serves "Inventaire plein (N pièces maximum). Vendez une pièce pour en
+  acheter une autre." whenever the inventory is full. Buy-back and starters go through the same step.
+- **The Vente list from the DLL.** Garage MAGASIN DE PIÈCES -> ACHAT / VENTE is a submenu of the garage menu (no new
+  job); confirming VENTE makes the menu manager run a std::function (exe+D74BC0: `call [vtable+0x10]` at exe+D74BF0)
+  whose callable is the game's function-pointer wrapper (vtable exe+3912780, pointer at +8) around
+  **exe+10A5C00(out RefPtr<MenuJob>, ctx)**. That factory calls the builder exe+10A6F20 with mode 0x23 (the Achat
+  factory, around exe+10A5B7A, passes 0x22), which makes the shared part-list window `02_010_EquipTop` (class vtable
+  exe+39E9F68, ctor exe+10A2E60; Assemblage uses it too). The DLL opens Vente like the reward grid opens its menu:
+  a std::function {vtable exe+3912780, exe+10A5C00} -> `exe+DA3410(&job, &f)` -> `exe+DC2A70(&job)`, from the garage
+  game thread. Pushed with the dialog, it opens once the dialog is closed.
+- **Close event.** Vtable slot 1 of the list window (exe+39E9F68+8) is its deleting destructor exe+10A58C0(this,
+  flags); the DLL swaps the slot: while over the cap, a closing list window (Vente, or Achat / Assemblage) re-runs the
+  check (dialog + Vente again).
+- **When the check runs.** Save load (flag 1000 edge: dialog over the loading screen, then Vente) and after a mission
+  commit. Not AT the commit: menus pushed then are dropped when the results screen is torn down (the dialog box
+  flashed, nothing else). After the commit flag 3139 rises (~4 s) for the post-mission garage sequence (Walter's
+  talk) and falls when the garage menu is back: the commit's check runs on that fall. OpenSession is not called
+  around the tester-AC mission (only at save load), so it is no signal here.
+- **Verified in game** (profile ac6-roguelike-cap.me3, copy of saves/ac-mission-available.sl2, 17 parts):
+  max 16 at load -> "17 pièces pour 16 places" -> Vente; Retour without selling -> dialog + Vente again; TURNER sold
+  (buy-back recorded) -> 16/16, Retour -> garage. Max 17: TURNER bought back at 16/17 (-55 000), then at 17/17 the
+  next part refused with the new text, credits unchanged. Tester-AC mission at 17/17, reward picked -> after the talk
+  "18 pièces pour 17 places" -> Vente (new part marked) -> sale -> 17/17, no reopen.
+- Seen on the way: after Vente closes, the vanilla VENTE tutorial sometimes pops up over the garage (cause not checked); breakpoints on per-frame menu functions (exe+DC2A70,
+  exe+D834E0) froze the UI: watch only functions that run once per menu.

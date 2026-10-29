@@ -64,6 +64,21 @@ pub const FN_SHOP_PRED: usize = 0x159ACB0;
 /// the purchase confirmation exe+10A96FE, the buy step exe+D669C5, the purchasable quantity exe+D2F4DF and the adds
 /// exe+D2EC51 / D2ECE1.
 pub const FN_SHOP_OBTAINABLE: usize = 0xD2F900;
+/// Shop buy step exe+D66940 (inventory cap, 2026-10-29): `call exe+D2F860(const u32* id)` (= D2F900 on a copy) at
+/// exe+D669C5; 0 -> the game's refusal dialog with message 231020 ("Vous avez acheté toutes les pièces disponibles.").
+pub const BUY_OBTAINABLE_CALLSITE: usize = 0xD669C5;
+pub const FN_SHOP_OBTAINABLE_REF: usize = 0xD2F860;
+pub const MSG_SHOP_NONE_LEFT: u32 = 231020;
+pub const MSG_CAT_SHOP: u32 = 204;
+/// The garage's VENTE entry (inventory cap, 2026-10-30): the menu manager runs a std::function whose callable is the
+/// game's function-pointer wrapper (vtable exe+3912780, pointer at +8) around exe+10A5C00(out RefPtr<MenuJob>, ctx),
+/// which builds the shared part-list window 02_010_EquipTop (builder exe+10A6F20) in sell mode 0x23 (Achat = 0x22).
+pub const FN_PTR_FUNCTION_VTABLE: usize = 0x3912780;
+pub const FN_SELL_MENU: usize = 0x10A5C00;
+/// 02_010_EquipTop window class vtable (Assemblage / Achat / Vente lists); slot 1 = its deleting destructor
+/// exe+10A58C0(this, flags), run when the list closes.
+pub const LIST_WINDOW_VTABLE: usize = 0x39E9F68;
+pub const FN_LIST_WINDOW_DTOR: usize = 0x10A58C0;
 /// itemCtx + this = pointer to the EquipmentLineupParam row the shop is testing
 pub const ITEMCTX_ROW: usize = 0x08;
 /// Item-id category tag per lineup equipType (verified from the inventory table, 2026-09-24):

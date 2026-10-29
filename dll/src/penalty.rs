@@ -237,6 +237,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
     if CLEANUP_REQUEST.swap(false, Relaxed) { cleanup_orphans(&game, gd); }
     // mission_failed first: the chips lost by the penalty were still installed during the failed mission
     if PENALTY_REQUEST.swap(false, Relaxed) { event::emit(event::Event::MissionFailed); apply_penalty(&game, ctx, gd); }
+    cap::tick(gd);
     let give = GIVE_REQUEST.swap(0, Relaxed);
     if give != 0 {
         if GIVE_FORCE.swap(false, Relaxed) {
@@ -256,12 +257,12 @@ unsafe extern "system" fn frame_hook(this: usize) {
 // ---------------------------------------------------------------- inventory helpers
 /// Address of inventory entry `i` ({handle, id, count, ordinal}); the first [mgr+1C] entries live at
 /// [mgr+40], the rest at [mgr+30].
-unsafe fn entry(mgr: usize, i: u32) -> usize {
+pub unsafe fn entry(mgr: usize, i: u32) -> usize {
     let split = mem::rd_u32(mgr + o::MGR_TABLE_SPLIT);
     if i < split { mem::rd_usize(mgr + o::MGR_TABLE_LO) + i as usize * 16 }
     else { mem::rd_usize(mgr + o::MGR_TABLE_HI) + (i - split) as usize * 16 }
 }
-unsafe fn capacity(mgr: usize) -> u32 { mem::rd_u32(mgr + o::MGR_TABLE_COUNT).min(4096) }
+pub unsafe fn capacity(mgr: usize) -> u32 { mem::rd_u32(mgr + o::MGR_TABLE_COUNT).min(4096) }
 
 /// Inventory index holding item `id` (tag | equipId).
 unsafe fn find(mgr: usize, id: u32) -> Option<u32> {
