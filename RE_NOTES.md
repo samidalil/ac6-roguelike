@@ -1538,7 +1538,9 @@ boot instead. Nothing here runs at play time; the check below was a one-off scri
 User decisions (2026-10-28 / 30): every weapon / frame part / internal owned counts, equipped ones included, each copy one
 (core expansions do not); `[inventory] max_parts = 20` (at least 7 = the frame parts / internals of an AC; weapon slots may stay empty); a shop purchase
 while full is BLOCKED; ANY part entering the inventory over the cap shows a "full" dialog, then the Vente list, again
-each time it closes while still over (no auto-sell); with several rewards the check runs between the grid pages.
+each time it closes while still over (no auto-sell). **Garage only (user, 2026-10-30):** a part gained in the garage,
+a save loaded, or back in the garage after a mission; nothing on the results screen (the between-pages check of the
+first version is gone, see "Between grid pages" below for why).
 - **Count** (`cap.rs`): inventory entries (penalty.rs table walk) with tag 0 (not 75xxxxxx), 1, 5, 6, 7.
 - **Single entry point = the table inserts.** AddItem exe+474D80 is NOT the only way in: the commit of the obtained
   items (exe+4756E0) inserts its elements itself. Both end in **exe+C2A0F0 / exe+C2A180** (one per half of the
@@ -1576,11 +1578,10 @@ each time it closes while still over (no auto-sell); with several rewards the ch
   sequence (Walter's talk) and falls when the garage menu is back: the commit's check runs on that fall (a sortie or a
   save load clears the wait, in case a commit has no 3139 sequence). OpenSession is not called around the tester-AC
   mission (only at save load).
-- **Between grid pages.** Rewards are all committed at the end; each page after the first counts the parts picked on
-  the pages before it (+ the inventory) and, over the cap, opens the dialog then Vente over the results. The grid
-  hides itself meanwhile (5th SelIdx field "hidden" -> the movie sets `visible = false`, the grid ignores the menu
-  input: else our dialog's OK confirmed the grid page, and Vente was drawn under it) and comes back when the list
-  closes. The last page's pick is checked after the commit.
+- **Between grid pages (removed 2026-10-30).** The first version counted the picks of the earlier pages and opened
+  the dialog + Vente over the results (the grid hid itself through a 5th SelIdx field). Vente over the results showed
+  the results through its middle and no 3D AC (the garage scene does not exist there), and the VENTE tutorial could
+  not show over it (below). Replaced by the garage-only rule; the grid code and movie are back to their PR #22 state.
 - **Layers.** Menu table entries {flags, name} at exe+4E28CF0: flags low byte = draw layer. 02_MissionResult and the
   part lists (02_010_EquipTop, 02_PartsShop, 02_Equip...) 0x0F, the stat panels (02_GaitemStatus_*, 02_DetailStatus_*)
   0x10, 02_GotReward / 02_RwdChoice / 02_Tutorial_Modal / 02_HelpMovie 0x12, garage menus 0x0B. The results show

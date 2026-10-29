@@ -223,7 +223,6 @@ unsafe extern "system" fn frame_hook(this: usize) {
     let game = Game::new(base);
     let Some(gd) = game.game_data_fast() else { return };
     rewardmenu::tick(base);
-    cap::tick_any(gd);
     script::run_queue(); // chip scripts' handlers of the events emitted since the last frame
     event::apply_speffects(base); // SpEffects queued for the player (event actions, scripts, debug)
     if RETIRE_REQUEST.swap(false, Relaxed) && game.defer_byte(gd) == 1 {

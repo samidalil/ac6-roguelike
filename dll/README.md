@@ -68,7 +68,7 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `cap.rs` — inventory cap (`[inventory] max_parts`): parts owned (weapons, frame parts, internals, equipped included,
   each copy) counted from the inventory table; every insert into the table is hooked (AddItem and the mission commit).
   Full = the shop's buy step refuses (game dialog, message 231020 reworded); over the cap = dialog, then the native
-  Vente list (reopened each time a list window closes while still over), also between the reward grid's pages.
+  Vente list (reopened each time a list window closes while still over), in the garage only.
   Debug `cap` (check now), `vente` (open Vente).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
   Call hooks share cave pages (`alloc_cave`): one 64 KB allocation slot near the image per page, not per hook.
