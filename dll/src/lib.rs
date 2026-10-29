@@ -1247,6 +1247,11 @@ fn boot() {
                             }
                         }
                         "save" => logf!("DEBUG: save requested (mask before {:?})", run.game.request_save()),
+                        c if c.starts_with("speffect ") => match c[9..].trim().parse::<i32>() {
+                            // `speffect <id>`: a SpEffectParam row applied to the player (game thread, next frame)
+                            Ok(id) => { logf!("DEBUG: speffect {} queued for the player", id); event::queue_speffect(id, false); }
+                            Err(_) => logf!("DEBUG: bad speffect id {:?}", c),
+                        },
                         c if c.starts_with("odds") => {
                             // `odds [N]`: N weighted picks among the reward candidates (pool weights after the chips)
                             let n: usize = c[4..].trim().parse().unwrap_or(10000);

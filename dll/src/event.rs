@@ -57,6 +57,9 @@ pub enum Action {
     Level(String, Amount),
     /// `"flag.<id>" = 1 / 0`: event flag set / cleared
     Flag(u32, bool),
+    /// `speffect = <SpEffectParam row>` (or one row per level, "a/b/c"): applied to the player's AC on the game thread
+    /// (from `mission_start`: to the mission's AC, not the garage's)
+    SpEffect(Amount),
 }
 impl Action {
     /// An `[on.<event>]` line: key and value.
@@ -66,12 +69,15 @@ impl Action {
         if k.eq_ignore_ascii_case("give") {
             return match v { config::Value::Text(t) => Ok(Action::Give(t.clone())), config::Value::Num(n) => Ok(Action::Give(n.to_string())) };
         }
+        if k.eq_ignore_ascii_case("speffect") {
+            return Amount::parse(v).filter(|a| !matches!(a, Amount::Value)).map(Action::SpEffect).ok_or("speffect = <SpEffectParam row id> or \"a/b/c\"".into());
+        }
         if let Some(r) = k.strip_prefix("level.") { return Amount::parse(v).map(|a| Action::Level(r.to_string(), a)).ok_or("level.<row> = \"+1\"".into()); }
         if let Some(f) = k.strip_prefix("flag.") {
             let id = f.parse::<u32>().map_err(|_| format!("flag.<id>: {} is not a flag id", f))?;
             return match v { config::Value::Num(n) => Ok(Action::Flag(id, *n != 0)), _ => Err("flag.<id> = 1 or 0".into()) };
         }
-        Err(format!("unknown action {} (credits, give, level.<row>, flag.<id>)", k))
+        Err(format!("unknown action {} (credits, give, speffect, level.<row>, flag.<id>)", k))
     }
 }
 
@@ -94,12 +100,12 @@ pub fn emit(e: Event) {
         if lv == 0 { continue; }
         for (_, a) in c.on.iter().filter(|h| h.0 == e) {
             logf!("event {}: chip {} (LV {}) -> {:?}", name(e), c.name, lv, a);
-            unsafe { run(&g, man, c, lv, a) };
+            unsafe { run(&g, man, c, lv, a, e) };
         }
     }
 }
 
-unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action) {
+unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action, e: Event) {
     match a {
         Action::Credits(n) => {
             let v = n.at(&c.values, lv);
@@ -118,7 +124,40 @@ unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action) {
             for _ in 0..d.abs() { if d > 0 { os::level_up(gd, row); } else { os::level_down(gd, row); } }
         }
         Action::Flag(id, v) => { g.put_flag(man, *id, *v); }
+        Action::SpEffect(n) => queue_speffect(n.at(&c.values, lv), e == Event::MissionStart),
     }
+}
+
+/// SpEffects waiting for the game thread: (id, a player character it must not go to). At the sortie the garage's own
+/// player character still exists: a mission SpEffect waits for the mission's.
+static SPEFFECTS: Mutex<Vec<(i32, usize)>> = Mutex::new(Vec::new());
+pub fn queue_speffect(id: i32, next_character: bool) {
+    let not = if next_character { unsafe { player_chr(mem::module_base()) } } else { 0 };
+    SPEFFECTS.lock().unwrap_or_else(|e| e.into_inner()).push((id, not));
+}
+unsafe fn player_chr(base: usize) -> usize {
+    let wcm = mem::rd_usize(base + o::WORLDCHRMAN_GLOBAL);
+    if wcm == 0 { 0 } else { mem::rd_usize(wcm + o::WCM_PLAYER) }
+}
+
+/// Game thread, every frame (penalty.rs frame hook): apply the queued SpEffects to the player's AC through the game's
+/// own call (exe+968EA0: the character's SpEffect manager [chr+0x308], id, target, source, parameters, three flags),
+/// the player being both the target and the source. Kept queued while there is no player character.
+pub unsafe fn apply_speffects(base: usize) {
+    let mut q = SPEFFECTS.lock().unwrap_or_else(|e| e.into_inner());
+    if q.is_empty() { return; }
+    let chr = player_chr(base);
+    let mgr = if chr == 0 { 0 } else { mem::rd_usize(chr + o::CHR_SPEFFECT_MGR) };
+    if mgr == 0 || mem::rd_usize(mgr) != base + o::SPEFFECT_MGR_VTABLE { return; }
+    type FnApply = unsafe extern "system" fn(mgr: usize, id: i32, target: usize, source: usize, params: *const [f32; 4], a6: u32, a7: u32, a8: u32) -> u64;
+    let apply: FnApply = core::mem::transmute(base + o::FN_APPLY_SPEFFECT);
+    let params = [1.0f32; 4];
+    q.retain(|&(id, not)| {
+        if chr == not { return true; }
+        let r = apply(mgr, id, chr, chr, &params, 0, 0, 0);
+        logf!("speffect {} applied to the player {:#X} (ret {:#X})", id, chr, r);
+        false
+    });
 }
 
 /// An OS Tuning / chip row by number or name.

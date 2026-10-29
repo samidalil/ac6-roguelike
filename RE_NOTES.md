@@ -1336,7 +1336,7 @@ Goal: new content is files (declarations) plus, when it needs logic, a script; t
 - **Scripts**: an embedded Lua (mlua, vendored 5.4) or Rhai, one optional script per content file, handlers per event
   calling the actions.
 - Steps: (1) modifier targets [done, below], (2) events + actions [done, below], (3) regulation generator [done,
-  below], (4) SpEffect RE + `apply_speffect`, (5) script engine.
+  below], (4) SpEffect RE + `speffect` action [done, below], (5) script engine.
 
 ## Modifier targets (2026-10-29, implemented; step 1 of the roadmap)
 - `[effect]` keys are targets, values a mode: `"+"` / `"-"` (the level's value in %), `"add"` / `"sub"` (the value
@@ -1433,3 +1433,27 @@ for now (the boot-time edits of [os_tuning], the economy, the menu lock and the 
 - **Verified**: TURNER `totalBulletNum` 540 -> 777 and a new SpEffectParam row 900000001 (copy of 6200,
   `effectEndurance` 12.5) live in game (`live_param.py`; SpEffectParam 4121 rows), a full mission played normally.
 - The file carries the whole game regulation: rebuild after a game update (else the old data replaces the new).
+
+## SpEffects on the player (2026-10-29, implemented; step 4 of the roadmap)
+- **Repair kits** are SpEffectParam 9403..9407 (`changeHpPoint` -4000..-6000, instant: 4 000 AP + 500 per Repair Kits
+  tuning level; the Paramdex names 9303..9307 are outdated). Keyboard: C uses one.
+- **SpEffect manager** of a character: `[chr + 0x308]` (vtable exe+3839EB8): +8 head of the active list, +0x10 owner
+  character. Entries: +0 id (and a byte at +4), +8 the param row, +0x38 next, +0x64 flags (processing loops at
+  exe+966C00 / exe+96A420; an instant effect is linked, processed at exe+96E550 (reads `changeHpPoint` +0xA4) and
+  unlinked the same frame).
+- **Apply**: found by a write watch on the last entry's next pointer during a repair: the insert exe+969FE1 in
+  exe+969F70 (allocate + link at the tail), called by exe+96B6C0 (manager, id, ...), wrapped by **exe+968EA0(manager,
+  id, target chr, source chr, *params, u8, u8, u8)**; its 6 callers pass the character's own manager, the character as
+  target, a source, a pointer to 4 floats (1.0 where filled) and 0 flags. Game thread only.
+- DLL: `event::queue_speffect` + `apply_speffects` (penalty.rs frame hook): the player is target and source, params
+  4 x 1.0, flags 0; the manager checked by its vtable. A SpEffect queued at `mission_start` waits for the mission's
+  player character (the garage has its own player character at the sortie). Chip action `speffect = <row>` or
+  "a/b/c" (row per level); debug `speffect <id>`.
+- Chip files: `[speffect.<row id>]` sections = SpEffectParam rows compiled by tools/regulation (RegBuild reads
+  `dll/src/chips` too); the DLL ignores those sections.
+- Default chip 9007 "Nanoréparation": rows 900000071..073 (copy of 9405, `changeHpPoint` -20/-40/-60,
+  `motionInterval` 1.0, `effectEndurance` -1) applied at mission_start: +20/40/60 AP per second (row 1 of the game
+  is such a 10 AP/s regeneration). Pool epic, lost on failure.
+- **Verified**: debug `speffect 9405` with AP 3000 -> 8000; a generated row (copy 9405, `maxHpRate` 1.2,
+  `effectEndurance` -1) -> player max AP 9080 -> 10896, tester AC unchanged; Nanoréparation LV2: applied 9 s after the
+  sortie to the mission character, AP 5000 -> 5240 in about 6 s.

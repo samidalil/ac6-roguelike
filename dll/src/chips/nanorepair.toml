@@ -1,0 +1,30 @@
+# Nanorepair: the AC repairs itself during missions. An advanced chip: its effect is a SpEffect of its own, one
+# [speffect.<row id>] per level compiled into mod/regulation.bin by tools/build_regulation.ps1 (SpEffectParam fields
+# by Smithbox name), applied to your AC by the speffect action (see reinforced_plating.toml and
+# performance_bonus.toml for the rest of the format).
+id = 7
+name = "Nanoréparation"
+stat = "Réparation"
+unit = " PB/s"
+levels = "20/40/60"
+
+[on.mission_start]
+speffect = "900000071/900000072/900000073"   # the row of the chip's level
+
+[speffect.900000071]
+copy = 9405                # a repair kit row (every rate at 1.0)
+changeHpPoint = -20        # AP restored per tick (negative = repair)
+motionInterval = 1.0       # a tick every second
+effectEndurance = -1       # until the end of the mission
+
+[speffect.900000072]
+copy = 9405
+changeHpPoint = -40
+motionInterval = 1.0
+effectEndurance = -1
+
+[speffect.900000073]
+copy = 9405
+changeHpPoint = -60
+motionInterval = 1.0
+effectEndurance = -1

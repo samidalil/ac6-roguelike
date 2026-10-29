@@ -3,7 +3,8 @@
 # save_loaded, title, garage_opened, deployment, mission_start, death, respawn, mission_cleared, results, commit,
 # mission_failed, game_over, shop_reroll, pick, part_sold, auto_sell. Actions: credits = N (COAM, "a/b/c" per level
 # or "value" = the chip's level value; shown in a dialog in the garage), give = "part name" (one copy, in the
-# garage), "level.<OS Tuning row or chip row / name>" = "+1" (or "-1"), "flag.<id>" = 1 / 0 (event flag).
+# garage), "level.<OS Tuning row or chip row / name>" = "+1" (or "-1"), "flag.<id>" = 1 / 0 (event flag),
+# speffect = <SpEffectParam row> or "a/b/c" per level (applied to your AC; see nanorepair.toml).
 id = 6
 name = "Prime de performance"
 stat = "Prime"

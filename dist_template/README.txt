@@ -33,7 +33,8 @@ HOW IT PLAYS
 - OS chips of our own, offered like the OS Tunings (3 levels each): Blindage renforcé (AP +5/10/15 %), Générateur
   surcadencé (EN capacity +10/20/30 %), Alliages légers (weight -5/10/15 %), Chargeurs étendus (ammunition
   +20/40/60 %), Contrat préférentiel (epic parts +25/50/100 % more often, shop and rewards), Prime de performance
-  (+2 000 / 4 000 / 8 000 credits after each cleared mission, shown in the garage). The AC chips change your
+  (+2 000 / 4 000 / 8 000 credits after each cleared mission, shown in the garage), Nanoréparation (your AC repairs
+  20 / 40 / 60 AP per second during missions). The AC chips change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
   resupplies.
@@ -80,7 +81,8 @@ named on the reward tile, its values per level and its effects: a target = "+" /
 "add" / "sub" (the value itself). Targets: ap, en_capacity, weight, ammo (your AC), pool.<NAME>.weight (odds of a
 pool), reward.count, reward.choices, shop.weapons, shop.parts. A chip can also react to events with [on.<event>]
 sections (mission_cleared, commit, death, shop_reroll, pick...; the list is in the default chip files): credits,
-give = "part", "level.<row>" = "+1", "flag.<id>" = 1. Add a file for a new chip, delete one to remove it; in the
+give = "part", "level.<row>" = "+1", "flag.<id>" = 1, speffect = <SpEffectParam row> (applied to your AC; a chip
+can declare its own rows in [speffect.<row id>] sections, built into the mod's regulation.bin, see nanorepair.toml). Add a file for a new chip, delete one to remove it; in the
 settings a chip is known by its row (9000 + id) or its name.
 Delete the folder to get the default chips back.
 
