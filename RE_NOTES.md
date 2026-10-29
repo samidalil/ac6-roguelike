@@ -1689,6 +1689,13 @@ How the VENTE tutorial (TutorialParam 2002010, "Le menu VENTE permet...") is que
   at +0x308 (selected panel = its byte 0; panel components at +0x258 / +0x9D0 / +0x1148 / +0x18C0; exe+10AB900(panels,
   on) names the 4 movies or none). Hiding or moving DetailStatusView from AS3 left the panel on screen; removing the
   placeholder from the movie removes it (the game finds no slot and draws no panel). Vanilla screens all keep it.
+- **Panel (2026-10-30).** The AS3 draws a dialog panel under the movie instead of a full-screen backdrop: the vanilla
+  dialogs' blue (vertical gradient #3F506B -> #2D3B54, sampled from the Vente confirmation), a thin border and corner
+  marks like the tutorial window, around x 60..1220 / y 20..1000; the rest of the screen (garage, credits) stays
+  visible. Not centred: the list, the part info and the part stats are other movies (the list window's builder also
+  makes "02_Equip", exe+10A618B; the stats 02_GaitemStatus_*), full-screen windows drawn at fixed positions. Moving
+  the ItemList placement (XML), ItemList.x (AS3, every frame) or the whole movie root moved only what this movie draws
+  (title, key guide, panel). Centring them needs our own copies of those movies.
 - **GFX = Scaleform (SWF):** binary tags (shapes, sprites, text fields, PlaceObject placements per frame with depth and
   name, AS3 bytecode). FFDec converts to XML and back and replaces AS3 classes; the reward grid (build_rwdchoice) and
   this screen are both built that way.

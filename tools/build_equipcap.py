@@ -3,7 +3,8 @@
 From the vanilla part list movie (FFDec -swf2xml), on the main timeline: every tag at the depths of the 3D AC view
 (PlayerModelView, sprite 228, depth 38) and of the AC specs slot (DetailStatusView, sprite 270, depth 90: the game puts
 its 02_050_DetailStatus_Player window on DetailStatusView/AdjustPosTop/Status_Player) is removed, the placement and
-its animation moves. The rest (category tabs, list, part info, part stats) is untouched: the game binds those names.
+its animation moves. The rest (category tabs, title, key guide) is untouched: the game binds those names. The list,
+part info and part stats are other movies (02_Equip, 02_GaitemStatus_*: full-screen windows at fixed positions).
 Then: ffdec -xml2swf, and -importScript for MainTimeline (see equipcap_MainTimeline.as)."""
 import re, sys
 
@@ -20,5 +21,6 @@ names = {d: sum(1 for m in tags if m.group(1) == d) for d in REMOVED}
 for d, n in REMOVED.items():
     assert re.search(r'\bdepth="%s"[^>]*\bname="%s"' % (d, n), "".join(m.group() for m in tags)), (d, n)
 for m in reversed(tags): x = x[:m.start()] + x[m.end():]
+
 open(dst, "w", encoding="utf-8").write(x)
 print("removed: " + ", ".join("%s (depth %s, %d tags)" % (n, d, names[d]) for d, n in REMOVED.items()))
