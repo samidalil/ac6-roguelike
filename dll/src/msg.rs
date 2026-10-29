@@ -43,6 +43,7 @@ unsafe extern "system" fn msg_lookup(repo: usize, version: u32, category: u32, i
     if GAME_OVER_TEXT.load(Relaxed) && MISSION_FAILED_TEXTS.contains(&(category, id)) {
         return GAME_OVER_W.as_ptr() as usize;
     }
+    if let Some(p) = cap::refused_text(category, id) { return p; }
     if id == dialog::CUSTOM_MSG_ID {
         if let Ok(c) = CUSTOM.lock() { if !c.is_empty() { return c.as_ptr() as usize; } }
     }

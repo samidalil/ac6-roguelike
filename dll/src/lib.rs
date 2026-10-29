@@ -66,6 +66,7 @@ mod chip;
 mod event;
 mod script;
 mod occur;
+mod cap;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
 struct Lineup {
@@ -1043,6 +1044,7 @@ fn boot() {
     }
     unsafe { rewardmenu::install(base); chip::install(base); event::install(base); chip::init_ammo(base); }
     unsafe { dupshop::install(base); }
+    unsafe { cap::install(base); }
     match unsafe { msg::install(base) } {
         Ok(()) => logf!("message lookup hook installed: exe+{:X}", o::FN_MSG_LOOKUP),
         Err(e) => logf!("message lookup hook FAILED: {}", e),
@@ -1076,6 +1078,7 @@ fn boot() {
     let mut coam_last_neg: i32 = 0;
     let mut coam_last_bal: i32 = i32::MIN;
     let mut prev_clear: Option<u8> = None; // flag 5074: mission cleared, results pending
+    let mut prev_post = false; // flag 3139: post-mission garage sequence (set after the commit, cleared when the garage menu is back)
     let mut prev_state: Option<Option<Vec<u16>>> = None;
     let mut prev_gd = 0usize;
     let mut tick: u64 = 0;
@@ -1155,7 +1158,7 @@ fn boot() {
                         exit_phase = 1;
                     } else {
                         event::emit(event::Event::SaveLoaded);
-                        penalty::CLEANUP_REQUEST.store(true, Relaxed); run.on_garage_open(man, "save loaded");
+                        penalty::CLEANUP_REQUEST.store(true, Relaxed); cap::AFTER_COMMIT.store(false, Relaxed); cap::CHECK.store(true, Relaxed); run.on_garage_open(man, "save loaded");
                     }
                 }
                 if !loaded && prev_loaded { event::emit(event::Event::Title); }
@@ -1314,6 +1317,8 @@ fn boot() {
                             if let Ok(mut f) = FORCE_REWARD.lock() { *f = ids; }
                         }
                         "dups" => penalty::log_duplicates(gd),
+                        "vente" => { log("DEBUG: open Vente"); cap::OPEN_SELL.store(true, Relaxed); }
+                        "cap" => { log("DEBUG: inventory cap check"); cap::CHECK.store(true, Relaxed); }
                         c if c.starts_with("give ") => match u32::from_str_radix(c[5..].trim().trim_start_matches("0x"), 16) {
                             Ok(id) => { logf!("DEBUG: give {:#X} (game thread)", id); penalty::GIVE_REQUEST.store(id, Relaxed); }
                             Err(_) => logf!("DEBUG: bad item id {:?}", c),
@@ -1355,7 +1360,7 @@ fn boot() {
                         // The dialog content is built at the mission-clear instant, so the reward must
                         // already be queued by then; check_reward re-queues if the game empties the list.
                         event::emit(event::Event::MissionStart);
-                        log("defer 0->1 (mission active)"); run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_sets.clear(); run.mission_ran = true;
+                        log("defer 0->1 (mission active)"); cap::AFTER_COMMIT.store(false, Relaxed); // a commit without the post-mission sequence (3139) must not block the cap run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_sets.clear(); run.mission_ran = true;
                         alive = false; dead = false; cleared_seen = false;
                         msg::GAME_OVER_TEXT.store(false, Relaxed);
                         // escrow should already be in the save (armed during the pre-mission talk); the game
@@ -1423,6 +1428,10 @@ fn boot() {
                     } else { log("5074 rose without a mission having run (stale flag on load): ignored"); }
                 }
 
+                // the post-mission sequence ended (garage menu back): the inventory cap check of the commit's rewards
+                let post = run.game.get_flag(man, o::FLAG_RESULTS) == Some(true);
+                if prev_post && !post && cap::AFTER_COMMIT.swap(false, Relaxed) { cap::CHECK.store(true, Relaxed); }
+                prev_post = post;
                 prev_clear = Some(cleared);
                 prev_defer = Some(d);
             }

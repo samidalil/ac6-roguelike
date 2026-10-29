@@ -50,6 +50,8 @@ pub struct Config {
     /// [os_tuning]: (OsReinforce row, effect value per level, 1..5 levels: the tuning's max level); unlisted rows keep
     /// the game's values
     pub os_tuning: Vec<(u16, Vec<i32>)>,
+    /// [inventory] max_parts: parts owned at most (weapons, frame parts, internals; equipped ones and each copy count)
+    pub max_parts: u32,
 }
 
 /// A pool of parts: the shop and the rewards pick a pool by weight (among the pools with a candidate left), then a
@@ -78,6 +80,8 @@ impl Pool {
 pub const MAX_POOLS: usize = 200;
 
 pub const MAX_SHOP_SLOTS: u32 = 8;
+/// [inventory] max_parts at least the frame parts / internals an AC needs (7; weapon slots may stay empty).
+pub const MIN_PARTS: u32 = 7;
 /// [max_occurrences] values above this are read as this (4-bit count in the save, offsets OCCUR_*)
 pub const MAX_OCCURRENCES: u32 = 15;
 
@@ -87,7 +91,7 @@ fn defaults() -> Config {
         item_charge_percent: 100, prices: Vec::new(), ammo_cost_percent: 100, repair_cost_percent: 100,
         shop_weapons: 1, shop_parts: 2, parts_per_mission: 1, reward_choices: 3, os_rewards: true, reroll_interval: 1, starting_credits: 100_000,
         pools: vec![Pool::unlisted(UNLISTED)], unlisted_pool: 0, part_rarity: Vec::new(),
-        lost_on_failure: Vec::new(), max_occurrences: Vec::new(), os_tuning: Vec::new(),
+        lost_on_failure: Vec::new(), max_occurrences: Vec::new(), os_tuning: Vec::new(), max_parts: 20,
     }
 }
 
@@ -247,6 +251,7 @@ pub fn load() {
             ("rewards", "os_rewards") => c.os_rewards = v != 0,
             ("shop", "reroll_interval") => c.reroll_interval = v.clamp(1, 255), // 8-bit counter in the save
             ("economy", "starting_credits") => c.starting_credits = v.min(999_999_999),
+            ("inventory", "max_parts") => c.max_parts = v.max(MIN_PARTS), // a complete frame must fit
             ("lost_on_failure", _) => c.lost_on_failure.push((k.to_string(), v.min(1))),
             ("max_occurrences", _) => {
                 if v > MAX_OCCURRENCES { logf!("config line {}: [max_occurrences] {} = {} read as {}", n + 1, k, v, MAX_OCCURRENCES); }

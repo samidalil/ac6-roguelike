@@ -9,7 +9,7 @@ package _02_GotReward_fla
 
    // menu/02_rwdchoice.gfx: the reward choice grid. The game's "Pièces obtenues" class drives Dialog/_Content_; the
    // DLL fills _Content_/TileNN (one part each, its pool label in TileNN/PoolName) and writes
-   // "selected/count/hidden-image mask/pool colours" into _Content_/SelIdx. This script only
+   // "selected/count/hidden-image mask/pool colours/hidden" into _Content_/SelIdx. This script only
    // lays the grid out (3 columns, up to 4 rows), resizes the window around it and draws the highlight. The movie gets
    // no input.
    [SWF(width="1920", height="1080", backgroundColor="#787878", frameRate="30")]
@@ -89,6 +89,8 @@ package _02_GotReward_fla
          c.MakerLogo.visible = false; c.SelIdx.visible = false;
          var state:String = c.SelIdx.text;
          var parts:Array = state.split("/");
+         // fifth field: 1 = the window hidden (the Vente list is open over the results: it is drawn under this movie)
+         this.visible = !(parts.length > 4 && parts[4] == "1");
          var sel:int = parseInt(parts[0]);
          var n:int = parts.length > 1 ? parseInt(parts[1]) : MAX;
          if (isNaN(sel)) sel = 0;

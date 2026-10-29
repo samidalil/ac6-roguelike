@@ -179,6 +179,14 @@ static SEEN_PAGES: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new
 static PAGE: AtomicUsize = AtomicUsize::new(0);
 /// Handle of _Content_/SelIdx ("selected/count", read by the movie's script). Leaked on purpose: one per page.
 static SEL_HANDLE: AtomicUsize = AtomicUsize::new(0);
+/// The grid hides itself (the Vente list is open over the results, drawn under our movie) and ignores the input.
+static HIDDEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// cap.rs: hide or show the page shown (game thread).
+pub unsafe fn hide_grid(base: usize, hide: bool) {
+    if HIDDEN.swap(hide, Relaxed) == hide || SEL_HANDLE.load(Relaxed) == 0 { return; }
+    set_selection(base, SEL.load(Relaxed) as usize, COUNT.load(Relaxed) as usize);
+    logf!("grid: {}", if hide { "hidden (Vente open)" } else { "shown again" });
+}
 /// The page's window root component (class + 0x4F0).
 static ROOT_HANDLE: AtomicUsize = AtomicUsize::new(0);
 
@@ -246,21 +254,25 @@ unsafe fn fill_page(base: usize, page: usize) {
     COUNT.store(n as u32, Relaxed);
     for a in &ACTIONS { a.store(0, Relaxed); } // ignore what was pressed before the page opened
     GRID_OPEN.store(true, Relaxed);
+    HIDDEN.store(false, Relaxed);
     set_selection(base, 0, n);
     let pages = PAGES.lock().map(|p| p.len()).unwrap_or(0);
     logf!("grid: page {}/{} filled ({} part(s))", page + 1, pages, n);
     if page + 1 >= pages { ACTIVE.store(false, Relaxed); RESTORE_IN.store(60, Relaxed); }
+    // the inventory cap counts the parts picked on the pages before this one (dialog + Vente over the results)
+    let picks: Vec<u32> = PAGES.lock().map(|p| p.iter().take(page).enumerate().filter_map(|(k, pg)| pg.ids.get(picked(k).min(pg.ids.len().saturating_sub(1))).copied()).collect()).unwrap_or_default();
+    cap::page_opened(page, &picks);
 }
 /// Tiles of the current page whose part image the movie hides (bit per tile).
 static HIDE_MASK: AtomicU32 = AtomicU32::new(0);
 /// Pool label colours of the current page's tiles, "RRGGBB,,RRGGBB" ("" = no label).
 static POOL_COLORS: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
-/// Write "selected/count/hidden-image mask/pool colours" into _Content_/SelIdx (game thread).
+/// Write "selected/count/hidden-image mask/pool colours/hidden" into _Content_/SelIdx (game thread).
 unsafe fn set_selection(base: usize, sel: usize, count: usize) {
     let h = SEL_HANDLE.load(Relaxed);
     if h == 0 { return; }
     let colors = POOL_COLORS.lock().map(|c| c.clone()).unwrap_or_default();
-    let text: Vec<u16> = format!("{}/{}/{}/{}", sel, count, HIDE_MASK.load(Relaxed), colors).encode_utf16().chain(Some(0)).collect();
+    let text: Vec<u16> = format!("{}/{}/{}/{}/{}", sel, count, HIDE_MASK.load(Relaxed), colors, HIDDEN.load(Relaxed) as u8).encode_utf16().chain(Some(0)).collect();
     let set_text: FnSetText = core::mem::transmute(base + o::FN_SET_TEXT);
     set_text(h + 8, text.as_ptr());
 }
@@ -325,7 +337,9 @@ type FnCommit = unsafe extern "system" fn(mgr: usize, commit: u32, obj: usize) -
 /// (and level up a picked OS Tuning).
 unsafe extern "system" fn commit_hook(mgr: usize, commit: u32, obj: usize) -> usize {
     if commit & 0xFF != 0 { choice::prune(mgr); }
+    cap::committed();
     GRID_OPEN.store(false, Relaxed);
+    SEL_HANDLE.store(0, Relaxed); // the grid's last page is gone
     let base = mem::module_base();
     restore_movie_name(base);
     let orig: FnCommit = core::mem::transmute(base + o::FN_PENDING_COMMIT);
@@ -413,7 +427,7 @@ unsafe fn read_input() -> u32 {
 /// Game thread, every frame: move the highlight of the page shown (that part becomes the page's pick). Confirm goes to
 /// the class's OK (next page / close): the page's handles die with it, so nothing more is written until the next fill.
 pub unsafe fn tick(base: usize) {
-    if !GRID_OPEN.load(Relaxed) { for a in &ACTIONS { a.store(0, Relaxed); } return; }
+    if !GRID_OPEN.load(Relaxed) || HIDDEN.load(Relaxed) { for a in &ACTIONS { a.store(0, Relaxed); } return; }
     let pulse = read_input();
     if pulse & IN_OK != 0 { GRID_OPEN.store(false, Relaxed); return; }
     if pulse == 0 { return; }

@@ -223,6 +223,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
     let game = Game::new(base);
     let Some(gd) = game.game_data_fast() else { return };
     rewardmenu::tick(base);
+    cap::tick_any(gd);
     script::run_queue(); // chip scripts' handlers of the events emitted since the last frame
     event::apply_speffects(base); // SpEffects queued for the player (event actions, scripts, debug)
     if RETIRE_REQUEST.swap(false, Relaxed) && game.defer_byte(gd) == 1 {
@@ -237,6 +238,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
     if CLEANUP_REQUEST.swap(false, Relaxed) { cleanup_orphans(&game, gd); }
     // mission_failed first: the chips lost by the penalty were still installed during the failed mission
     if PENALTY_REQUEST.swap(false, Relaxed) { event::emit(event::Event::MissionFailed); apply_penalty(&game, ctx, gd); }
+    cap::tick(gd);
     let give = GIVE_REQUEST.swap(0, Relaxed);
     if give != 0 {
         if GIVE_FORCE.swap(false, Relaxed) {
@@ -256,12 +258,12 @@ unsafe extern "system" fn frame_hook(this: usize) {
 // ---------------------------------------------------------------- inventory helpers
 /// Address of inventory entry `i` ({handle, id, count, ordinal}); the first [mgr+1C] entries live at
 /// [mgr+40], the rest at [mgr+30].
-unsafe fn entry(mgr: usize, i: u32) -> usize {
+pub unsafe fn entry(mgr: usize, i: u32) -> usize {
     let split = mem::rd_u32(mgr + o::MGR_TABLE_SPLIT);
     if i < split { mem::rd_usize(mgr + o::MGR_TABLE_LO) + i as usize * 16 }
     else { mem::rd_usize(mgr + o::MGR_TABLE_HI) + (i - split) as usize * 16 }
 }
-unsafe fn capacity(mgr: usize) -> u32 { mem::rd_u32(mgr + o::MGR_TABLE_COUNT).min(4096) }
+pub unsafe fn capacity(mgr: usize) -> u32 { mem::rd_u32(mgr + o::MGR_TABLE_COUNT).min(4096) }
 
 /// Inventory index holding item `id` (tag | equipId).
 unsafe fn find(mgr: usize, id: u32) -> Option<u32> {
@@ -340,6 +342,9 @@ unsafe fn equipped_handles(gd: usize) -> Vec<u32> {
 
 /// Sellable stash: owned, not equipped, priced parts, most expensive first: (price, handle, id).
 /// Handles (not ids) so a second copy of an equipped part counts as stash.
+/// Parts the player can sell right now (unequipped, priced): cap.rs only opens Vente when there is one.
+pub unsafe fn sellable_count(gd: usize) -> usize { CTX.get().map_or(0, |ctx| stash(ctx, gd).len()) }
+
 unsafe fn stash(ctx: &Ctx, gd: usize) -> Vec<(i32, u32, u32)> {
     let mgr = gd + o::GD_ITEM_MGR;
     let equipped = equipped_handles(gd);
