@@ -22,8 +22,8 @@ Log: `%USERPROFILE%\ac6_roguelike_dll.log` (rewritten at every launch).
 Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config.toml` when missing.
 
 ## Modules
-- `lib.rs` — boot (config, param lookup, hooks), the shop (candidates, rarity pick, tier 0 / weight 0 parts out of the
-  pools, pool sizes logged at boot, reroll every `reroll_interval` cleared
+- `lib.rs` — boot (config, param lookup, hooks), the shop (candidates, pick by `[pool.NAME]` weight then uniform in the
+  pool, `= 0` / weight 0 parts out of the pools, pool sizes and unlisted parts logged at boot, reroll every `reroll_interval` cleared
   missions, state kept in event flags), saved state helpers (flags, multi-bit values, row bitsets one flag per lineup
   row: `read_rows` / `write_rows` / `clear_rows` / `put_row` / `has_row` over `o::ROWS_*`), economy (mission pay, first mission = starting credits), mission rewards (queued at mission start through the game's give
   path), the game-thread loop and the game-over exit sequence.
@@ -47,15 +47,17 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   clear (rewards) or the reroll (shop) in a slot table (flags 8030..8991, 74 slots of {item, count}); at its max an
   item gets its "never again" bit in `ROWS_LOST` (lineup parts) or `OS_GONE` (flags 4418..4434, OS Tunings).
 - `rewardmenu.rs` — the choice grid: the results screen's "Pièces obtenues" call opens our movie instead (one page per
-  reward, tiles filled by the game's own part view), navigation from the game's menu actions (pad + keyboard).
+  reward, tiles filled by the game's own part view, each with its pool's label in the pool's colour: `PoolName` text,
+  colours in the `SelIdx` state), navigation from the game's menu actions (pad + keyboard).
 - `trace.rs` — RE tool: hardware breakpoints + VEH log (debug `watch` command, `%USERPROFILE%\ac6_watch.txt`).
-- `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, rarity, prices,
-  per-item tables `[lost_on_failure]` / `[max_occurrences]` read through `config::lookup` / `config::value`).
+- `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, pools:
+  `[pool.NAME]` sections + the built-in unlisted pool, `[part_rarity]` part = pool, prices, per-item tables `[lost_on_failure]` / `[max_occurrences]` read through `config::lookup` / `config::value`).
 - `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts).
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
 ## Status
-Playable end to end: mission pay removed, random shop and rewards by rarity tier (pick 1 of 3 per reward; weapons
+Playable end to end: mission pay removed, random shop and rewards from pools defined in the settings file (pick 1 of 3 per reward, each tile showing
+its pool in the pool's colour; weapons
 and frame parts can repeat and be owned several times, boosters / generators / FCS once; OS Tunings, core
 expansions included, are rewards only, one level per pick, the OS Tuning menu locked; core expansions offered as
 many times per run as their levels and lost on a failure), failed sorties take parts,

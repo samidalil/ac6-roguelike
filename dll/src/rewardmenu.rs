@@ -7,12 +7,13 @@
 use super::*;
 
 /// One page of the grid: the parts it shows (the highlighted one is that page's pick) and its title. A tile can get its
-/// own texts (name, category: OS Tuning offers) written over the part view, and its part image hidden.
+/// own texts (name, category: OS Tuning offers) written over the part view, its part image hidden, and its pool's
+/// label (text, 0xRRGGBB) on its PoolName line.
 #[derive(Clone)]
-pub struct Page { pub ids: Vec<u32>, pub title: String, pub labels: Vec<Option<(String, String)>>, pub hide_icon: Vec<bool> }
+pub struct Page { pub ids: Vec<u32>, pub title: String, pub labels: Vec<Option<(String, String)>>, pub hide_icon: Vec<bool>, pub pools: Vec<Option<(String, u32)>> }
 impl Page {
-    pub fn part(id: u32, title: &str) -> Page { Page { ids: vec![id], title: title.to_string(), labels: vec![None], hide_icon: vec![false] } }
-    pub fn parts(ids: Vec<u32>, title: String) -> Page { let n = ids.len(); Page { ids, title, labels: vec![None; n], hide_icon: vec![false; n] } }
+    pub fn part(id: u32, title: &str) -> Page { Page::parts(vec![id], title.to_string()) }
+    pub fn parts(ids: Vec<u32>, title: String) -> Page { let n = ids.len(); Page { ids, title, labels: vec![None; n], hide_icon: vec![false; n], pools: vec![None; n] } }
 }
 
 /// Pages of the next grid we build.
@@ -217,19 +218,22 @@ unsafe fn fill_page(base: usize, page: usize) {
         let call: unsafe extern "system" fn(usize, *mut usize) -> usize = core::mem::transmute(mem::rd_usize(mem::rd_usize(callable) + 0x10));
         call(callable, tile);
         release(tile);
-        if let Some(Some((name, cat))) = info.labels.get(i) {
-            for (field, text) in [("ItemName", name), ("CategoryName", cat)] {
-                let h = new_handle();
-                let path = format!("_Content_/Tile{:02}/{}\0", i, field);
-                get_child(root, h, path.as_ptr());
-                let w: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-                set_text(h as usize + 8, w.as_ptr());
-                release(h);
-            }
+        let mut texts = info.labels.get(i).cloned().flatten().map_or(Vec::new(), |(name, cat)| vec![("ItemName", name), ("CategoryName", cat)]);
+        if let Some(Some((label, _))) = info.pools.get(i) { texts.push(("PoolName", label.clone())); }
+        for (field, text) in texts {
+            let h = new_handle();
+            let path = format!("_Content_/Tile{:02}/{}\0", i, field);
+            get_child(root, h, path.as_ptr());
+            let w: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+            set_text(h as usize + 8, w.as_ptr());
+            release(h);
         }
     }
     let mask = (0..n).filter(|i| info.hide_icon.get(*i) == Some(&true)).fold(0u32, |m, i| m | 1 << i);
     HIDE_MASK.store(mask, Relaxed);
+    // pool label colours, one per tile ("" = no label): the movie colours and shows PoolName
+    let colors: Vec<String> = (0..n).map(|i| info.pools.get(i).cloned().flatten().map_or(String::new(), |p| format!("{:06X}", p.1))).collect();
+    if let Ok(mut c) = POOL_COLORS.lock() { *c = colors.join(","); }
     let title = new_handle();
     get_child(root, title, b"Title\0".as_ptr());
     let text: Vec<u16> = info.title.encode_utf16().chain(Some(0)).collect();
@@ -249,11 +253,14 @@ unsafe fn fill_page(base: usize, page: usize) {
 }
 /// Tiles of the current page whose part image the movie hides (bit per tile).
 static HIDE_MASK: AtomicU32 = AtomicU32::new(0);
-/// Write "selected/count/hidden-image mask" into _Content_/SelIdx (game thread).
+/// Pool label colours of the current page's tiles, "RRGGBB,,RRGGBB" ("" = no label).
+static POOL_COLORS: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+/// Write "selected/count/hidden-image mask/pool colours" into _Content_/SelIdx (game thread).
 unsafe fn set_selection(base: usize, sel: usize, count: usize) {
     let h = SEL_HANDLE.load(Relaxed);
     if h == 0 { return; }
-    let text: Vec<u16> = format!("{}/{}/{}", sel, count, HIDE_MASK.load(Relaxed)).encode_utf16().chain(Some(0)).collect();
+    let colors = POOL_COLORS.lock().map(|c| c.clone()).unwrap_or_default();
+    let text: Vec<u16> = format!("{}/{}/{}/{}", sel, count, HIDE_MASK.load(Relaxed), colors).encode_utf16().chain(Some(0)).collect();
     let set_text: FnSetText = core::mem::transmute(base + o::FN_SET_TEXT);
     set_text(h + 8, text.as_ptr());
 }

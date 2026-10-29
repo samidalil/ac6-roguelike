@@ -11,18 +11,21 @@ WEAPONS: consensus of dated tier lists, S=5 A=4 B=3 C=2 D=1, weighted by recency
   GameRant, Weapon Tier List (patch 1.02, 2023-09-14; "in general" groups skipped)  weight 1
     https://gamerant.com/armored-core-6-weapon-tier-list-best-primary-weapons-ac6/
   + 0.25 per "best weapons" guide recommending it (GGRecon = GoSuNoob, Digital Trends), at most +0.5.
-  Score >= 3.75 -> epic, >= 2.75 -> rare, below -> common.
+  Score >= 4.5 -> epic, >= 3.75 -> rare, >= 2.75 -> uncommon, below -> common.
 FRAMES / INTERNALS (no tier lists exist): number of independent guides recommending the part
   (GGRecon best parts [= GoSuNoob], Digital Trends best gear, Push Square best armor, PCGamesN frame / inner parts,
-  GameRant best cores ranked, GGRecon best generators): 3+ -> epic, 1-2 -> rare.
-Unlisted parts all go in the config's unlisted_tier pool (common by default).
+  GameRant best cores ranked, GGRecon best generators): 3+ -> epic, 2 -> rare, 1 -> uncommon.
+EVERY OTHER SHOP PART (EquipmentLineupParam rows the DLL pools: price > 0, weapon / frame / internal; rank rewards
+  included) -> common, so the shipped unlisted pool (weight 0) is empty.
 Names are checked against Smithbox's English row names (offline; the DLL matches names ignoring case and punctuation).
 Usage: python tier_lists.py > data/part_rarity.toml, then paste it into dll/src/default_config.toml [part_rarity]
 """
-import json, os, sys
+import csv, json, os, sys
 from collections import defaultdict
 # offline part names: Smithbox's English row names (no game needed)
 NAMES = r"D:\samee\Workspace\Modding\PC\From Software\Smithbox_2_2_5_2026_08_29_a\Assets\PARAM\AC6\Param Row Names\English"
+# the shop lineup (Smithbox CSV export): every part the DLL's pools hold
+LINEUP = r"D:\samee\Workspace\Modding\PC\Armored Core 6\ac6-roguelike\csv\exports\EquipmentLineupParam.csv"
 
 V = {"S": 5, "A": 4, "B": 3, "C": 2, "D": 1}
 WEAPON_LISTS = [
@@ -94,13 +97,13 @@ FRAME_RECS = [
 key = lambda s: "".join(c for c in s.upper() if c.isalnum())
 
 # game names (weapons, frames, internals) to check spelling and print the game's own name
-game = {}
-for f in ("EquipParamWeapon", "EquipParamProtector", "EquipParamBooster", "EquipParamFcs", "EquipParamGenerator"):
+game, by_id = {}, {}
+for t, f in ((0, "EquipParamWeapon"), (1, "EquipParamProtector"), (4, "EquipParamBooster"), (5, "EquipParamFcs"), (6, "EquipParamGenerator")):
     for e in json.load(open(os.path.join(NAMES, f + ".json"), encoding="utf-8"))["Entries"]:
         n = (e["Entries"] or [""])[0].strip()
         n = n.split(" - ", 1)[-1]                                   # "ASSAULT RIFLE - RF-024 TURNER (Right)"
         n = n.rsplit(" (", 1)[0] if n.endswith(")") else n          # drop the side
-        if n and not (f == "EquipParamWeapon" and e["ID"] // 1_000_000 == 75): game.setdefault(key(n), n)
+        if n and not (f == "EquipParamWeapon" and e["ID"] // 1_000_000 == 75): game.setdefault(key(n), n); by_id[(t, e["ID"])] = n
 
 lines, missing = [], []
 # weapons
@@ -120,7 +123,7 @@ for src, names in WEAPON_RECS:
 weapon_rows = []
 for k in set(score_sum) | set(bonus):
     score = (score_sum[k] / weight_sum[k] if weight_sum[k] else 3.0) + bonus[k]
-    tier = 3 if score >= 3.75 else 2 if score >= 2.75 else 1
+    tier = "epic" if score >= 4.5 else "rare" if score >= 3.75 else "uncommon" if score >= 2.75 else "common"
     weapon_rows.append((tier, score, game[k], ", ".join(seen_in[k]) + (f", +{bonus[k]:.2f} recs" if bonus[k] else "")))
 # frames / internals
 mentions = defaultdict(list)
@@ -129,12 +132,27 @@ for src, names in FRAME_RECS:
         k = key(n)
         if k not in game: missing.append(f"{src}: {n}"); continue
         if src not in mentions[k]: mentions[k].append(src)
-frame_rows = [(3 if len(m) >= 3 else 2, len(m), game[k], "; ".join(s.split()[0] for s in m)) for k, m in mentions.items()]
+frame_rows = [("epic" if len(m) >= 3 else "rare" if len(m) == 2 else "uncommon", len(m), game[k], "; ".join(s.split()[0] for s in m))
+              for k, m in mentions.items()]
+# every other part of the shop pools (rank / arena rewards included: the DLL releases them at boot); named by equipId
+# (some CSV row names are wrong, e.g. 60040000 BUERZEL/21D is labelled IA-C01B: GILLS)
+rated = {key(r[2]) for r in weapon_rows + frame_rows}
+other = {}
+for r in csv.DictReader(open(LINEUP, encoding="utf-8")):
+    t = int(r["equipType"])
+    if int(r["price"]) > 0 and t in (0, 1, 4, 5, 6):
+        n = by_id.get((t, int(r["equipId"])))
+        if n is None: print("# no name for lineup row", r["ID"], r["equipId"], file=sys.stderr); continue
+        if key(n) not in rated: other.setdefault(key(n), (n, r["Name"].split(" - ", 1)[0].title()))
 
 if missing: print("# NOT FOUND in the game:", missing, file=sys.stderr)
-print("# weapons: consensus of community tier lists (tools/price_model/tier_lists.py), 3 epic / 2 rare / 1 common")
-for tier, score, n, src in sorted(weapon_rows, key=lambda r: (-r[0], -r[1], r[2])):
-    print(f'"{n}" = {tier}    # {score:.2f} ({src})')
-print("# frames and internals: recommended by 3+ guides = epic, 1-2 = rare")
-for tier, cnt, n, src in sorted(frame_rows, key=lambda r: (-r[0], -r[1], r[2])):
-    print(f'"{n}" = {tier}    # {cnt} guide(s): {src}')
+RANK = {"epic": 0, "rare": 1, "uncommon": 2, "common": 3}
+print("# weapons: consensus of community tier lists, score >= 4.5 epic, >= 3.75 rare, >= 2.75 uncommon, below common")
+for pool, score, n, src in sorted(weapon_rows, key=lambda r: (RANK[r[0]], -r[1], r[2])):
+    print(f'"{n}" = {pool}    # {score:.2f} ({src})')
+print("# frames and internals: recommended by 3+ guides = epic, 2 = rare, 1 = uncommon")
+for pool, cnt, n, src in sorted(frame_rows, key=lambda r: (RANK[r[0]], -r[1], r[2])):
+    print(f'"{n}" = {pool}    # {cnt} guide(s): {src}')
+print("# every other shop part: common")
+for n, kind in sorted(other.values(), key=lambda r: (r[1], r[0])):
+    print(f'"{n}" = common    # {kind}')

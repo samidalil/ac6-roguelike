@@ -39,9 +39,10 @@ pub unsafe fn roll(g: &Game, man: usize, cands: &[Part], n: u32, k: usize) -> Ve
 
 /// One offered part: the item queued in the pending list (`id`, its pending `handle`, 0 = not found), and for an OS
 /// Tuning offer its OsReinforce row, whether the item is kept when picked (a core expansion not owned yet; else a
-/// carrier, always taken out) and its tile texts (name, category + level).
+/// carrier, always taken out) and its tile texts (name, category + level); `pool` = its pool's tile label (text,
+/// 0xRRGGBB), None when its pool shows none.
 #[derive(Clone, Debug)]
-pub struct Offer { pub id: u32, pub handle: u32, pub os: u16, pub keep: bool, pub label: Option<(String, String)> }
+pub struct Offer { pub id: u32, pub handle: u32, pub os: u16, pub keep: bool, pub label: Option<(String, String)>, pub pool: Option<(String, u32)> }
 
 /// The current sortie's offers, by reward.
 static ARMED: std::sync::Mutex<Vec<Vec<Offer>>> = std::sync::Mutex::new(Vec::new());
@@ -64,6 +65,7 @@ pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
         ids: s.iter().map(|x| x.id).collect(),
         labels: s.iter().map(|x| x.label.clone()).collect(),
         hide_icon: s.iter().map(|x| x.os != 0 && os::tuning(x.os).map_or(true, |t| t.item == 0)).collect(),
+        pools: s.iter().map(|x| x.pool.clone()).collect(),
         title: if s.len() < 2 { "PIÈCE OBTENUE".to_string() } else { k += 1; if n > 1 { format!("CHOISISSEZ UNE PIÈCE ({}/{})", k, n) } else { "CHOISISSEZ UNE PIÈCE".to_string() } },
     }).collect();
     let handles: Vec<u32> = sets.iter().flatten().map(|x| x.id).collect();

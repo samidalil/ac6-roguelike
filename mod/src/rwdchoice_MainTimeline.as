@@ -8,7 +8,8 @@ package _02_GotReward_fla
    import flash.text.TextField;
 
    // menu/02_rwdchoice.gfx: the reward choice grid. The game's "Pièces obtenues" class drives Dialog/_Content_; the
-   // DLL fills _Content_/TileNN (one part each) and writes "selected/count" into _Content_/SelIdx. This script only
+   // DLL fills _Content_/TileNN (one part each, its pool label in TileNN/PoolName) and writes
+   // "selected/count/hidden-image mask/pool colours" into _Content_/SelIdx. This script only
    // lays the grid out (3 columns, up to 4 rows), resizes the window around it and draws the highlight. The movie gets
    // no input.
    [SWF(width="1920", height="1080", backgroundColor="#787878", frameRate="30")]
@@ -33,6 +34,7 @@ package _02_GotReward_fla
       private var content:MovieClip = null; // content clip laid out last
       private var gridW:Number = 0;       // size of the grid laid out last
       private var gridH:Number = 0;
+      private var tileBox:Rectangle = null; // tile extent used by the layout (taller with pool labels)
 
       public function MainTimeline()
       {
@@ -102,6 +104,17 @@ package _02_GotReward_fla
             if (ht.ItemIcon != null) ht.ItemIcon.visible = false;
             if (ht.MakerLogo != null) ht.MakerLogo.visible = false;
          }
+         // fourth field: pool label colours per tile (RRGGBB, empty = no label), every frame: PoolName shown and coloured
+         var colors:Array = parts.length > 3 ? String(parts[3]).split(",") : [];
+         var pools:Boolean = false;
+         for (var q:int = 0; q < MAX; q++)
+         {
+            var qt:MovieClip = this.tile(c, q);
+            if (qt == null || qt.PoolName == null) continue;
+            var col:String = q < colors.length ? colors[q] : "";
+            qt.PoolName.visible = col.length > 0;
+            if (col.length > 0) { qt.PoolName.textColor = parseInt(col, 16); pools = pools || q < n; }
+         }
          // each page is a new content clip in the same window: lay it out even when its state text is the same
          if (c != this.content) { this.content = c; this.shown = ""; this.hl = null; if (this.orig != null) this.rememberContent(c, this.orig); }
          // the window's own animation keyframes reset some of its pieces: size them again every frame
@@ -109,6 +122,9 @@ package _02_GotReward_fla
          this.shown = state;
          if (this.orig == null) this.remember(c);
          var tb:Rectangle = this.orig.tb;
+         // with pool labels the tiles reach up to the PoolName line
+         if (pools && this.orig.poolY < tb.y) { tb = tb.clone(); tb.height += tb.y - this.orig.poolY; tb.y = this.orig.poolY; }
+         this.tileBox = tb;
          var cols:int = Math.min(COLS, n);
          var rows:int = Math.ceil(n / COLS);
          var sc:Number = Math.min(TILE_SCALE, (GRID_MAX_W - (cols - 1) * GAP) / (cols * tb.width), (GRID_MAX_H - (rows - 1) * GAP) / (rows * tb.height));
@@ -136,7 +152,7 @@ package _02_GotReward_fla
       private function highlight(c:MovieClip, t:MovieClip) : void
       {
          if (this.hl == null) { this.hl = new Shape(); c.addChild(this.hl); }
-         var b:Rectangle = this.orig.tb;
+         var b:Rectangle = this.tileBox != null ? this.tileBox : this.orig.tb;
          var r:Rectangle = new Rectangle(t.x + b.x * t.scaleX, t.y + b.y * t.scaleY, b.width * t.scaleX, b.height * t.scaleY);
          r.inflate(8, 6);
          this.hl.graphics.clear();
@@ -197,6 +213,7 @@ package _02_GotReward_fla
          var t:MovieClip = this.tile(c, 0);
          t.scaleX = t.scaleY = 1;
          o.tb = this.slotBounds(t);
+         o.poolY = t.PoolName != null ? t.PoolName.getBounds(t).y : o.tb.y;
          var box:Rectangle = c.ItemIcon.getBounds(c).union(c.ItemName.getBounds(c)).union(c.MakerLogo.getBounds(c));
          o.top = box.y; o.width = box.width; o.height = box.height;
          return box;
