@@ -51,7 +51,7 @@ def click(p, settle=0.3):
     user32.SetCursorPos(*PARK)
 
 # virtual key, scan code (arrows are extended keys)
-VK = {"esc": (0x1B, 0x01, 0), "enter": (0x0D, 0x1C, 0), "down": (0x28, 0x50, 1), "up": (0x26, 0x48, 1),
+VK = {"esc": (0x1B, 0x01, 0), "enter": (0x0D, 0x1C, 0), "tab": (0x09, 0x0F, 0), "down": (0x28, 0x50, 1), "up": (0x26, 0x48, 1),
       "left": (0x25, 0x4B, 1), "right": (0x27, 0x4D, 1)}
 def key(name, hold=0.2, after=0.0):
     """Hold a key (the game ignores taps shorter than a frame or two), then wait `after` seconds."""
@@ -59,6 +59,12 @@ def key(name, hold=0.2, after=0.0):
     focus()
     user32.keybd_event(vk, sc, ext, 0); time.sleep(hold)
     user32.keybd_event(vk, sc, ext | 2, 0); time.sleep(after)
+
+def skip_briefing():
+    """Double Tab: skips the mission briefing (only while on_briefing(): none on a second view) or the pre-mission talk.
+    Each press held a few frames, a short gap between them (two quick taps are read as one)."""
+    key("tab", hold=0.15, after=0.35)
+    key("tab", hold=0.15)
 
 def play(seq):
     """seq: (key, seconds to wait after it) pairs."""
@@ -88,6 +94,11 @@ def on_warning():
     """The "session not ended properly" dialog: its blue-grey panel over the black title screen."""
     c = pixel((700, 560))
     return luma(c) > 40 and c[2] > c[0] + 10
+def on_briefing():
+    """A briefing is playing: the two diagonal notches of its frame at the top centre are lit (thin lines: any of a
+    few pixels along each)."""
+    lit = lambda pts: any(luma(pixel(p)) > 35 for p in pts)
+    return lit([(917, 64), (918, 63), (919, 62)]) and lit([(1000, 62), (1001, 63), (1002, 64)])
 def on_garage_menu():
     """The garage menu has faded in (about 3 s after "garage opened"): DESIGN D'AC, selected at a fresh load, is lit."""
     return luma(pixel((300, 155))) > 80

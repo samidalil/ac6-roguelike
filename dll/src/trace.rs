@@ -46,6 +46,9 @@ unsafe fn stack_chain(rsp: usize) -> String {
     let mut out = String::new();
     let mut n = 0;
     for k in 0..0xC0 {
+        // the top of a shallow thread stack can be less than 0x600 bytes away
+        if (rsp + k * 8) & 0xFFF == 0 && !mem::is_readable(rsp + k * 8, 8) { break; }
+        if k == 0 && !mem::is_readable(rsp, 8) { break; }
         let v = mem::rd_usize(rsp + k * 8);
         if v <= base + 0x1000 || v >= end { continue; }
         let call = mem::rd_u8(v - 5) == 0xE8 || mem::rd_u8(v - 2) == 0xFF || mem::rd_u8(v - 3) == 0xFF || mem::rd_u8(v - 6) == 0xFF;
@@ -62,7 +65,16 @@ unsafe extern "system" fn veh(info: *mut [usize; 2]) -> i32 {
     let ctx = &mut *((*info)[1] as *mut Ctx);
     if mem::rd_u32(rec) != EXCEPTION_SINGLE_STEP { return 0; }
     let dr6 = ctx.u64(0x68);
-    let Some(slot) = (0..4).find(|i| dr6 & (1 << i) != 0 && SLOT_ADDR[*i].load(Relaxed) != 0) else { return 0; };
+    let Some(slot) = (0..4).find(|i| dr6 & (1 << i) != 0 && SLOT_ADDR[*i].load(Relaxed) != 0) else {
+        // a hit already raised when `unwatch` cleared its slot: swallow it (unhandled, it would crash the game)
+        if dr6 & 0xF != 0 {
+            ctx.set_u64(0x68, 0);
+            let fl = u32::from_le_bytes(ctx.0[0x44..0x48].try_into().unwrap()) | 0x10000; // resume flag (execution slots)
+            ctx.0[0x44..0x48].copy_from_slice(&fl.to_le_bytes());
+            return -1;
+        }
+        return 0;
+    };
     let base = mem::module_base() as u64;
     let rip = ctx.u64(0xF8);
     let left = SLOT_LEFT[slot].load(Relaxed);

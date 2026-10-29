@@ -21,9 +21,12 @@ Run from this folder with the game running (`PYTHONIOENCODING=utf-8 python <scri
 - `ce/step14_vanilla_unlock_observer.lua` — CE trap on `SetEventFlag` (exe+B08500) logging 3xxx/6xxx flag writes with a
   backtrace; arm it (via `ce_bridge.py`) then complete a mission in the VANILLA game (DLL `enabled = false`) to find the
   mission-complete unlock handler. Output goes to `%USERPROFILE%\ac6_re_log.txt`.
+- `live_param.py --list | <Param> [rows] [--def <Smithbox def>] [--fields substr...]` — rows of a live param from the
+  game's param repository, decoded with the Smithbox definition (`paramdef.py`), e.g.
+  `live_param.py OsReinforce --def OsReinforceParam`.
 - `title_to_garage.py` then `garage_to_mission_success.py [--no-results]` — title screen -> garage menu, then garage ->
-  "Destruction de l'AC d'essai" -> tester AC killed (`kill_enemies.py --max-ap 12300`) -> results closed -> reward grid
+  "Destruction de l'AC d'essai" (mission briefing and pre-mission talk skipped with a double Tab) -> tester AC killed (`kill_enemies.py --max-ap 12300`) -> results closed -> reward grid
   open (or the commit when nothing is offered). Menu clicks once each screen is up (pixel probes with timeouts, the game
   kept in front), the DLL log for load / sortie / clear / results; shared helpers in `menu_drive.py`. With
   `restore_save.ps1` + `relaunch.ps1` it is the automated mission success of RE_NOTES "Test routine: instant mission
-  clear" (about 2 min 15 s, 50 s of it the briefing).
+  clear" (about 1 min).

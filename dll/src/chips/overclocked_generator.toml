@@ -1,0 +1,8 @@
+# Overclocked generator (see reinforced_plating.toml for the format).
+id = 2
+name = "Générateur surcadencé"
+stat = "Capacité EN"
+levels = "10/20/30"
+
+[effect]
+en_capacity = "+"

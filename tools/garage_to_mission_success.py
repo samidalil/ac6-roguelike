@@ -2,12 +2,12 @@
 l'AC d'essai" cleared and its reward grid open. Menu clicks, each one once the screen it needs is up (pixel probes,
 each with a timeout); the DLL log for the sortie, the clear and the results. The mission is the 2nd row of
 saves/ac-mission-available.sl2 and is gone from the list once cleared: restore the save before each run.
-  DÉPLOIEMENT -> MISSIONS -> 2nd mission -> the briefing (first view in a game session, about 50 s: no keyboard key
-  found to skip it, Esc / Enter / Space / Backspace / Tab / F / Q, tapped, doubled or held, do nothing) -> mission menu -> Déploiement
-  -> OUI -> sortie (log "defer 0->1") -> tools/kill_enemies.py --max-ap 12300 (the tester AC) -> mission cleared (log
-  "5074 rose") -> Fermer on the results screen -> the reward grid (log "results:"), or the commit when there is no
-  part to show (log "defer 1->0"). --no-results stops at the clear."""
-import os, subprocess, sys
+  DÉPLOIEMENT -> MISSIONS -> 2nd mission -> the briefing (first view in a game session, about 50 s; skipped with a
+  double Tab while menu_drive.on_briefing sees it) -> mission menu -> Déploiement -> OUI -> the pre-mission talk (double
+  Tab until the sortie) -> sortie (log "defer 0->1") -> tools/kill_enemies.py --max-ap 12300
+  (the tester AC) -> mission cleared (log "5074 rose") -> Fermer on the results screen -> the reward grid (log "results:"), or the
+  commit when there is no part to show (log "defer 1->0"). --no-results stops at the clear."""
+import os, subprocess, sys, time
 from menu_drive import *
 
 GARAGE_DEPLOY, MISSIONS, MENU_DEPLOY, YES, FERMER = (237, 345), (659, 156), (311, 222), (770, 592), (140, 1036)
@@ -22,12 +22,21 @@ def main():
     time.sleep(0.5)
     click(MISSION_ROW(1))
     step("mission selected")
-    if not until(on_mission_menu, 120): sys.exit("mission menu not reached (pixel probe)")
+    # the briefing (first view in a game session only): a double Tab while it shows, until the mission menu is up
+    end = time.time() + 120
+    while not until(on_mission_menu, 1):
+        if time.time() > end: sys.exit("mission menu not reached (pixel probe)")
+        if on_briefing(): skip_briefing(); step("briefing skipped")
     step("mission menu")
     mark = log_size()
     click(MENU_DEPLOY); time.sleep(0.8)  # the launch dialog fades in
     click(YES)
-    if not wait_log("defer 0->1", mark, 30): sys.exit("no sortie")
+    # the pre-mission talk (Walter's launch cinematic, once the mission menu is gone): a double Tab until the sortie
+    if not until(lambda: not on_mission_menu(), 10): sys.exit("launch not confirmed")
+    end = time.time() + 60
+    while not wait_log("defer 0->1", mark, 2):
+        if time.time() > end: sys.exit("no sortie")
+        skip_briefing(); step("talk skipped")
     step("sortie")
     # the mission loads (about 12 s): wait until the tester AC exists, then a moment more (zeroing AP during the load
     # froze the game once)

@@ -47,6 +47,9 @@ pub struct Config {
     /// [max_occurrences]: same keys (any part or OS Tuning), N = offered at most N times per run (reward grid or shop,
     /// picked or not; 1..MAX_OCCURRENCES), 0 = no limit like unlisted
     pub max_occurrences: Vec<(String, u32)>,
+    /// [os_tuning]: (OsReinforce row, effect value per level, 1..5 levels: the tuning's max level); unlisted rows keep
+    /// the game's values
+    pub os_tuning: Vec<(u16, Vec<i32>)>,
 }
 
 /// A pool of parts: the shop and the rewards pick a pool by weight (among the pools with a candidate left), then a
@@ -84,7 +87,7 @@ fn defaults() -> Config {
         item_charge_percent: 100, prices: Vec::new(), ammo_cost_percent: 100, repair_cost_percent: 100,
         shop_weapons: 1, shop_parts: 2, parts_per_mission: 1, reward_choices: 3, os_rewards: true, reroll_interval: 1, starting_credits: 100_000,
         pools: vec![Pool::unlisted(UNLISTED)], unlisted_pool: 0, part_rarity: Vec::new(),
-        lost_on_failure: Vec::new(), max_occurrences: Vec::new(),
+        lost_on_failure: Vec::new(), max_occurrences: Vec::new(), os_tuning: Vec::new(),
     }
 }
 
@@ -112,8 +115,8 @@ pub fn lookup(table: &[(String, u32)], ids: &[u32], names: &[String]) -> Option<
 pub fn pool_index(pools: &[Pool], name: &str) -> Option<usize> { pools.iter().position(|p| name_key(&p.name) == name_key(name)) }
 
 /// A setting's value: a number (decimal with `_` separators, or 0x hex) or a string (quoted, or a bare word).
-enum Value { Num(u32), Text(String) }
-fn parse_value(v: &str) -> Option<Value> {
+pub(crate) enum Value { Num(u32), Text(String) }
+pub(crate) fn parse_value(v: &str) -> Option<Value> {
     if v.len() >= 2 && v.starts_with('"') && v.ends_with('"') { return Some(Value::Text(v[1..v.len() - 1].to_string())); }
     let n = v.replace('_', "");
     if let Some(h) = n.strip_prefix("0x").or_else(|| n.strip_prefix("0X")) { return u32::from_str_radix(h, 16).ok().map(Value::Num); }
@@ -128,13 +131,25 @@ fn parse_color(v: &Value) -> Option<u32> {
     }
 }
 /// A line without its `#` comment (a `#` inside quotes is text: "#RRGGBB").
-fn strip_comment(raw: &str) -> &str {
+pub(crate) fn strip_comment(raw: &str) -> &str {
     let mut quoted = false;
     for (i, c) in raw.char_indices() {
         match c { '"' => quoted = !quoted, '#' if !quoted => return &raw[..i], _ => {} }
     }
     raw
 }
+
+/// Values per level written "a/b/c" (or one number): 1..`max` integers, None when malformed.
+pub(crate) fn parse_levels(v: &Value, max: usize) -> Option<Vec<i32>> {
+    let v: Vec<i32> = match v {
+        Value::Num(n) => vec![*n as i32],
+        Value::Text(t) => t.split('/').map(|x| x.trim().parse::<i32>().ok()).collect::<Option<Vec<_>>>()?,
+    };
+    (!v.is_empty() && v.len() <= max).then_some(v)
+}
+
+/// The DLL's own folder (settings file, chips/).
+pub fn dir() -> std::path::PathBuf { path().parent().map(|d| d.to_path_buf()).unwrap_or_else(|| ".".into()) }
 
 /// Path of the settings file: the DLL's own folder.
 fn path() -> std::path::PathBuf {
@@ -206,6 +221,13 @@ pub fn load() {
         match (section.as_str(), k, &val) {
             ("rarity", "unlisted_pool", Value::Text(t)) => { unlisted_pool = t.clone(); continue }
             ("part_rarity", _, _) => { rarity.push((k.to_string(), val, n + 1)); continue }
+            ("os_tuning", _, _) => {
+                match (k.parse::<u16>(), parse_levels(&val, o::OSR_LEVELS)) {
+                    (Ok(row), Some(v)) => c.os_tuning.push((row, v)),
+                    _ => logf!("config line {}: [os_tuning] {} = {}: an OsReinforce row = \"value/value/...\" (1 to {} levels) expected", n + 1, k, v, o::OSR_LEVELS),
+                }
+                continue
+            }
             _ => {}
         }
         let Value::Num(v) = val else { logf!("config line {}: {} is not a number", n + 1, v); continue };
@@ -255,9 +277,9 @@ pub fn load() {
         c.shop_weapons = c.shop_weapons.min(MAX_SHOP_SLOTS);
         c.shop_parts = MAX_SHOP_SLOTS - c.shop_weapons;
     }
-    logf!("config: ammo cost {}%, repair cost {}%, starting credits {}, shop {} weapon(s) + {} part(s) rerolled every {} mission(s), {} reward(s) per mission, {} part_rarity entr(ies), {} lost-on-failure / {} max-occurrence entr(ies)",
+    logf!("config: ammo cost {}%, repair cost {}%, starting credits {}, shop {} weapon(s) + {} part(s) rerolled every {} mission(s), {} reward(s) per mission, {} part_rarity entr(ies), {} lost-on-failure / {} max-occurrence / {} os_tuning entr(ies)",
         c.ammo_cost_percent, c.repair_cost_percent, c.starting_credits, c.shop_weapons, c.shop_parts, c.reroll_interval, c.parts_per_mission,
-        c.part_rarity.len(), c.lost_on_failure.len(), c.max_occurrences.len());
+        c.part_rarity.len(), c.lost_on_failure.len(), c.max_occurrences.len(), c.os_tuning.len());
     logf!("config pools (unlisted parts -> {}): {}", c.pools[c.unlisted_pool].name, c.pools.iter().map(|p| format!("{} weight {} #{:06X}{}",
         p.name, p.weight, p.color, if p.show_name { format!(" \"{}\"", p.label) } else { String::new() })).collect::<Vec<_>>().join(", "));
     logf!("config {}: mission pay {}%, arena repeat pay {}%, parts sell {}%, weapons sell {}%, charge {}%, {} price override(s)",

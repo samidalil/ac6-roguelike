@@ -1,0 +1,13 @@
+# One OS chip per file (chips/ next to the DLL; restart the game after a change). A chip is a mission reward like the
+# OS Tunings: each pick adds a level. In the settings file it is known by its row (9000 + id) or its name, in
+# [part_rarity], [lost_on_failure] and [max_occurrences].
+id = 1                         # 1 to 32, unique: the chip's save slot (row 9001); changing it mid-run loses its level
+name = "Blindage renforcé"     # shown on the reward tile
+stat = "PB"                    # stat shown on the tile with the level's value: "PB +5 %"
+levels = "5/10/15"             # effect value per level, in % (1 to 3 levels)
+
+[effect]
+# What the chip changes on YOUR AC only (enemies are not affected; Assemblage still shows the parts' own stats):
+# effect = "+" (raised by the level's %) or "-" (lowered). Effects: ap (max AP), en_capacity (EN capacity),
+# weight (total weight), ammo (every weapon's total ammunition, at mission start and after a resupply).
+ap = "+"
