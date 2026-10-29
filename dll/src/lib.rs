@@ -129,8 +129,11 @@ impl Part {
     fn pool_label(&self) -> Option<(String, u32)> { self.pool().filter(|p| p.show_name).map(|p| (p.label.clone(), p.color)) }
 }
 
-/// [pool.NAME] weight of a pool (0 for POOL_OUT).
-fn pool_weight(pool: u8) -> u32 { config::get().pools.get(pool as usize).map_or(0, |p| p.weight) }
+/// [pool.NAME] weight of a pool (0 for POOL_OUT), after the chips' `pool.<NAME>.weight` modifiers.
+fn pool_weight(pool: u8) -> u32 {
+    let w = config::get().pools.get(pool as usize).map_or(0, |p| p.weight);
+    unsafe { chip::modify(chip::Target::PoolWeight(pool), w as f64).round() as u32 }
+}
 
 /// Every row a roguelike shop may offer: priced, not a mission reward, weapon / frame / internal, plus the OS Tunings
 /// (rewards only) unless [rewards] os_rewards = 0. Each gets its pool from [part_rarity] (OS Tunings by OsReinforce
@@ -783,7 +786,10 @@ impl Run {
         let owned = self.game.owned_ids(gd);
         let mut taken: Vec<u16> = self.reward_parts.iter().map(|p| p.idx).collect();
         let mut out = Vec::new();
-        for (count, weapon) in [(cfg.shop_weapons, true), (cfg.shop_parts, false)] {
+        // shop size after the chips' shop.weapons / shop.parts modifiers, MAX_SHOP_SLOTS at most
+        let weapons = chip::modify_count(chip::Target::ShopWeapons, cfg.shop_weapons, 0, config::MAX_SHOP_SLOTS);
+        let parts = chip::modify_count(chip::Target::ShopParts, cfg.shop_parts, 0, config::MAX_SHOP_SLOTS - weapons);
+        for (count, weapon) in [(weapons, true), (parts, false)] {
             for n in 0..count {
                 let cands = self.candidates(gd, man, &owned, Some(weapon), &taken);
                 let Some(p) = pick_weighted(&mut self.rng, &cands) else {
@@ -877,14 +883,17 @@ impl Run {
     /// (choice.rs).
     unsafe fn roll_rewards(&mut self, gd: usize, man: usize, why: &str) {
         let cfg = config::get();
-        if cfg.reward_choices > 1 {
+        // rewards per mission (0..3) and parts per reward (1..12) after the chips' reward.count / reward.choices
+        let count = chip::modify_count(chip::Target::RewardCount, cfg.parts_per_mission, 0, 3);
+        let choices = chip::modify_count(chip::Target::RewardChoices, cfg.reward_choices, 1, 12);
+        if choices > 1 {
             let cands = self.reward_candidates(gd, man, &[]);
-            self.reward_sets = choice::roll(&self.game, man, &cands, cfg.parts_per_mission, cfg.reward_choices as usize);
+            self.reward_sets = choice::roll(&self.game, man, &cands, count, choices as usize);
             self.reward_parts = self.reward_sets.iter().flatten().copied().collect();
             logf!("{}: reward offers {:?}", why, self.reward_sets.iter().map(|s| s.iter().map(|p| p.idx).collect::<Vec<_>>()).collect::<Vec<_>>());
             return;
         }
-        for _ in 0..cfg.parts_per_mission {
+        for _ in 0..count {
             let taken: Vec<u16> = self.reward_parts.iter().map(|p| p.idx).collect();
             let cands = self.reward_candidates(gd, man, &taken);
             match pick_weighted(&mut self.rng, &cands) {
@@ -1231,6 +1240,16 @@ fn boot() {
                             }
                         }
                         "save" => logf!("DEBUG: save requested (mask before {:?})", run.game.request_save()),
+                        c if c.starts_with("odds") => {
+                            // `odds [N]`: N weighted picks among the reward candidates (pool weights after the chips)
+                            let n: usize = c[4..].trim().parse().unwrap_or(10000);
+                            let cands = run.reward_candidates(gd, man, &[]);
+                            let mut count = vec![0usize; config::get().pools.len()];
+                            for _ in 0..n { if let Some(p) = pick_weighted(&mut run.rng, &cands) { count[p.pool as usize] += 1; } }
+                            logf!("DEBUG: odds over {} picks: {}", n, config::get().pools.iter().enumerate().filter(|(i, _)| count[*i] > 0)
+                                .map(|(i, p)| format!("{} {:.1}% (weight {})", p.name, 100.0 * count[i] as f64 / n as f64, pool_weight(i as u8)))
+                                .collect::<Vec<_>>().join(", "));
+                        }
                         "reward" => {
                             // a sortie's reward roll, without granting
                             run.reward_parts.clear(); run.reward_sets.clear();

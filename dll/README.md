@@ -48,7 +48,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   `[effect]` ap / en_capacity / weight / ammo = "+" / "-"), offered and leveled like OS Tunings (rows 9000 + id; levels
   in flags 4440..4503, used up 4504..4535). Effects on the player's AC only, through call hooks on the game's stat code:
   set max AP (exe+82AEC0), EN capacity (exe+88BAE0), total weight (exe+46CA70), add ammunition (exe+907750); the part
-  params are untouched.
+  params are untouched. Effects are modifier targets (`Target`, `modify`): the player's stats above, plus the run's own
+  values looked up where they are used (pool weights, rewards per mission, parts per reward, shop size).
 - `occur.rs` — `[max_occurrences]`: offers per run of the listed items (any part or OS Tuning), counted at the mission
   clear (rewards) or the reroll (shop) in a slot table (flags 8030..8991, 74 slots of {item, count}); at its max an
   item gets its "never again" bit in `ROWS_LOST` (lineup parts) or `OS_GONE` (flags 4418..4434, OS Tunings).

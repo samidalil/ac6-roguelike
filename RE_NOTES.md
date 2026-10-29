@@ -1322,3 +1322,67 @@ User decision (2026-10-29): the param edits are applied once at boot, with no re
   75 field(s)`, `economy: 220 reward fields scaled at boot`, menu locked, ALLMIND lines silenced; after a full mission
   OsReinforce row 10 still 6/12 (max 3), 2020 2/4 (max 2); reward grid pages, picks and commit through the frame hook;
   a failure (escrow + relaunch) applied its penalty and opened the loss dialog.
+
+## Modular chips: architecture and roadmap (decided with the user 2026-10-29)
+Goal: new content is files (declarations) plus, when it needs logic, a script; the DLL is a fixed engine.
+- **Engine (DLL)**: *modifier targets* (named values looked up where they are used: `chip::Target`, `chip::modify`),
+  *events* (mission start, cleared, failure, reward roll, shop reroll, pick, save loaded; later hit, kill, resupply:
+  each one an init point or hook, never a poller) and *actions* (change a modifier, apply a SpEffect to the player,
+  grant an item / credits, set a flag, offer a reward).
+- **Content (files)**: chips (`chips/*.toml`, `[effect]` target = mode), later other kinds (event cards, mission
+  modifiers); game data files (param edits, new rows: OsReinforce values, mission pay, new SpEffectParam rows) compiled
+  by a build tool into a `regulation.bin` in the mod package (the only way to add rows; the DLL would stop patching
+  tables at boot).
+- **Scripts**: an embedded Lua (mlua, vendored 5.4) or Rhai, one optional script per content file, handlers per event
+  calling the actions.
+- Steps: (1) modifier targets [done, below], (2) events + actions formalized, (3) regulation generator, (4) SpEffect
+  RE + `apply_speffect`, (5) script engine.
+
+## Modifier targets (2026-10-29, implemented; step 1 of the roadmap)
+- `[effect]` keys are targets, values a mode: `"+"` / `"-"` (the level's value in %), `"add"` / `"sub"` (the value
+  itself). `chip::modify(target, v)` = v x (100 + % sum) / 100 + flat sum (>= 0), the levels read from the flags when
+  the target is used (several chips add up). Tile: "Name : Stat +v %" (no % for add / sub).
+- Targets: `ap`, `en_capacity`, `weight` (min 1.0), `ammo` (player hooks, section "OS Tuning values and own OS chips");
+  `pool.<NAME>.weight` (lib.rs `pool_weight`, every pool lookup of the shop and reward rolls: in_pool, pick_weighted);
+  `reward.count` (0..3) and `reward.choices` (1..12) in `roll_rewards` (sortie); `shop.weapons` / `shop.parts` in
+  `pick_shop` (total MAX_SHOP_SLOTS). A target named in no chip costs one scan of the chip list.
+- Default chip 9005 "Contrat préférentiel": `"pool.epic.weight" = "+"`, 25/50/100, pool epic, lost on failure.
+- Debug `odds [N]`: N weighted picks among the reward candidates, share per pool and its weight after the chips.
+- **Verified** (profile ac6-roguelike-osstat.me3): `odds 20000` common 50.0 / uncommon 25.1 / rare 15.1 / epic 9.7 %,
+  then with 9005 at LV3 (flags 4448/4449) epic weight 20 -> 17.8 %; a test chip (`reward.choices`, `reward.count`,
+  `shop.weapons` = "add", LV2): debug `reward` 3 offers of 5 parts, `reroll` 5 shop slots (3 weapons + 2 parts), real
+  clear: grid 3 pages of 5 tiles.
+
+## Advanced chip design (example, not implemented)
+"Surcharge de combat": each enemy destroyed during a mission raises the AC's damage (stacking), at a fixed AP cost.
+Shows the three layers working together:
+```toml
+id = 7
+name = "Surcharge de combat"
+stat = "Dégâts par élimination"
+levels = "3/5/8"                 # % per kill, the chip's levels
+script = "combat_overload.lua"   # optional logic (step 5)
+
+[effect]
+ap = "-10%"                      # fixed value at every level (format extension: explicit values per effect)
+
+[speffect.attack_up]             # a new SpEffectParam row, compiled into regulation.bin (step 3)
+# fields by Smithbox name; {level} = the chip's level value, the row id chosen by the builder
+physicsAttackPowerRate = "1 + {level}/100"
+magicAttackPowerRate = "1 + {level}/100"
+effectEndurance = -1             # until removed
+```
+```lua
+-- combat_overload.lua: engine events call these; ctx = the engine's actions (step 2 / 4 / 5)
+local stacks = 0
+function on_mission_start(ctx) stacks = 0 end
+function on_enemy_destroyed(ctx, enemy)
+  if stacks < 5 then
+    stacks = stacks + 1
+    ctx.apply_speffect("attack_up")   -- the row above, on the player only
+  end
+end
+```
+Engine needs for it: the `on_enemy_destroyed` event (RE: a character's death, owner = enemy), `apply_speffect` on the
+player (SpEffect RE, step 4; stacking = one row applied n times or n rows), the regulation builder for the new row
+(step 3), the script host (step 5); the fixed `ap = "-10%"` is a small parser change on top of step 1.

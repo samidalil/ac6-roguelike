@@ -177,7 +177,7 @@ pub unsafe fn label(gd: usize, row: u16) -> (String, String) {
     let next = level(gd, row).unwrap_or(0) + 1;
     let menu = msg::text(o::MSG_CAT_MENU_TITLE, o::MSG_OS_MENU).unwrap_or_default();
     let name = match chip::chip(row) {
-        Some(c) => format!("{} : {} {}{} %", c.name, c.stat, if c.sign() < 0 { "-" } else { "+" }, chip::value(row, next)),
+        Some(c) => format!("{} : {} {}{}{}", c.name, c.stat, if c.sign() < 0 { "-" } else { "+" }, chip::value(row, next), c.unit()),
         None => name(row),
     };
     (name, format!("{}  LV {}/{}", menu, next, t.map_or(next, |t| t.max)))
