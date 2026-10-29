@@ -66,6 +66,9 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts).
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
+Game data: `data/regulation/*.toml` declarations (param edits, new rows) are compiled into `mod/regulation.bin` by
+`tools/build_regulation.ps1` (served by me3 from the mod package); see data/regulation/README.md.
+
 ## Status
 Playable end to end: mission pay removed, random shop and rewards from pools defined in the settings file (pick 1 of 3 per reward, each tile showing
 its pool in the pool's colour; weapons

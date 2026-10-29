@@ -21,6 +21,8 @@ Run from this folder with the game running (`PYTHONIOENCODING=utf-8 python <scri
 - `ce/step14_vanilla_unlock_observer.lua` — CE trap on `SetEventFlag` (exe+B08500) logging 3xxx/6xxx flag writes with a
   backtrace; arm it (via `ce_bridge.py`) then complete a mission in the VANILLA game (DLL `enabled = false`) to find the
   mission-complete unlock handler. Output goes to `%USERPROFILE%\ac6_re_log.txt`.
+- `build_regulation.ps1` — builds `mod/regulation.bin` from `data/regulation/*.toml` (`regulation/`: C# on
+  Smithbox's SoulsFormats; see data/regulation/README.md).
 - `live_param.py --list | <Param> [rows] [--def <Smithbox def>] [--fields substr...]` — rows of a live param from the
   game's param repository, decoded with the Smithbox definition (`paramdef.py`), e.g.
   `live_param.py OsReinforce --def OsReinforceParam`.

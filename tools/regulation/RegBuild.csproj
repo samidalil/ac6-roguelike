@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Builds mod/regulation.bin from data/regulation/*.toml (tools/regulation/Program.cs). Uses Smithbox's SoulsFormats
+       (regulation encryption, DCX, BND4, PARAM, PARAMDEF): set SMITHBOX_DIR or keep the default path below. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <SmithboxDir Condition="'$(SMITHBOX_DIR)' != ''">$(SMITHBOX_DIR)</SmithboxDir>
+    <SmithboxDir Condition="'$(SMITHBOX_DIR)' == ''">D:\samee\Workspace\Modding\PC\From Software\Smithbox_2_2_5_2026_08_29_a</SmithboxDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(SmithboxDir)\Andre.*.dll" />
+    <Reference Include="$(SmithboxDir)\DotNext*.dll" />
+    <Reference Include="$(SmithboxDir)\BouncyCastle.Cryptography.dll" />
+    <Reference Include="$(SmithboxDir)\CommunityToolkit.HighPerformance.dll" />
+  </ItemGroup>
+</Project>
