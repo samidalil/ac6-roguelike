@@ -202,6 +202,13 @@ pub const SLOT_RESERVE: usize = 0x8C;
 pub const FN_ADD_AMMO: usize = 0x907750;
 pub const ADD_AMMO_CALLSITES: [usize; 2] = [0x907661, 0x907714];
 pub const SLOT_AMMO_BLOCK: usize = 0x30;
+/// Resupply of a character's weapons (rcx = weapon module, xmm1 = rate: each slot's two ammunition blocks get
+/// max(1, rate x total) rounds through exe+9075D0 -> exe+907750). Call sites: exe+B6639E (rate 1.0, after the
+/// assembly reset), exe+B6C2BF (rate argument; exe+114E991 calls it with 0.1 for the player), exe+784A6A (0.1).
+pub const FN_RESUPPLY: usize = 0x907540;
+pub const RESUPPLY_CALLSITES: [usize; 3] = [0xB6639E, 0xB6C2BF, 0x784A6A];
+/// Weapon module index in a character's modules
+pub const CHR_MOD_WEAPONS: usize = 0x27;
 /// EquipParamWeapon totalBulletNum (s32)
 pub const WEAPON_TOTAL_AMMO: usize = 0x2A8;
 /// [max_occurrences] items offered but not used up yet (occur.rs): OCCUR_SLOTS slots of {9-bit key: lineup row + 1,
