@@ -31,7 +31,7 @@ reroll_interval = 1              # cleared missions between shop rerolls (1 = ev
 [inventory]
 max_parts = 20                   # parts you can own: weapons, frame parts and internals, equipped ones included (each
                                  # copy counts; core expansions don't). Full: the shop refuses purchases; a reward that
-                                 # goes over asks you to sell parts until you are back at the limit (11 at least)
+                                 # goes over asks you to sell parts until you are back at the limit (7 at least)
 
 [rarity]
 # Shop offers and mission rewards are drawn from pools: a pool by its weight, then a part uniformly within it. Each

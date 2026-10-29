@@ -1536,7 +1536,7 @@ boot instead. Nothing here runs at play time; the check below was a one-off scri
 
 ## Inventory cap (2026-10-30, implemented)
 User decisions (2026-10-28 / 30): every weapon / frame part / internal owned counts, equipped ones included, each copy one
-(core expansions do not); `[inventory] max_parts = 20` (at least 11 = the equipped slots that count); a shop purchase
+(core expansions do not); `[inventory] max_parts = 20` (at least 7 = the frame parts / internals of an AC; weapon slots may stay empty); a shop purchase
 while full is BLOCKED; ANY part entering the inventory over the cap shows a "full" dialog, then the Vente list, again
 each time it closes while still over (no auto-sell); with several rewards the check runs between the grid pages.
 - **Count** (`cap.rs`): inventory entries (penalty.rs table walk) with tag 0 (not 75xxxxxx), 1, 5, 6, 7.
