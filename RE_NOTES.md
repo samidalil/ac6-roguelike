@@ -1280,8 +1280,9 @@ that Assemblage does not show it for now. Resupply ("Ravitaillement") and the in
     exe+907750 adds rounds to a slot (rcx = slot + 0x30, edx = rounds; loaded first, then the reserve capped at the
     weapon's totalBulletNum via the getter exe+15D3110). Called from exe+907661 (filling a weapon, the set-weapon path)
     and exe+907714 (every slot with a rate); a burst at the garage / mission load and for about 5 s after the sortie
-    (the opening refills the weapons ~250 times a second; the game's own: same counts with the ammo chip at level 0,
-    no write, ~2 000 calls at garage open and ~11 000 after the sortie, as at level 1), nothing later in play. Hooked:
+    (the game's own: in a vanilla run, DLL off, with a counting cave on both call sites written from Python, ~1 950
+    calls in 1 s when the garage opens and ~2 800/s for ~4 s after the sortie, all via exe+907661, none via
+    exe+907714; same counts with the mod and the ammo chip at level 0 or 1), nothing later in play. Hooked:
     after the call, a player slot that is full (loaded + reserve = totalBulletNum) gets its reserve raised. Not
     verified: a resupply.
   The part params are not touched (an earlier version scaled EquipParamProtector ap etc.: the tester AC went 12300 ->
