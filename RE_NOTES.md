@@ -1335,8 +1335,8 @@ Goal: new content is files (declarations) plus, when it needs logic, a script; t
   tables at boot).
 - **Scripts**: an embedded Lua (mlua, vendored 5.4) or Rhai, one optional script per content file, handlers per event
   calling the actions.
-- Steps: (1) modifier targets [done, below], (2) events + actions [done, below], (3) regulation generator, (4)
-  SpEffect RE + `apply_speffect`, (5) script engine.
+- Steps: (1) modifier targets [done, below], (2) events + actions [done, below], (3) regulation generator [done,
+  below], (4) SpEffect RE + `apply_speffect`, (5) script engine.
 
 ## Modifier targets (2026-10-29, implemented; step 1 of the roadmap)
 - `[effect]` keys are targets, values a mode: `"+"` / `"-"` (the level's value in %), `"add"` / `"sub"` (the value
@@ -1415,3 +1415,21 @@ User decisions (2026-10-29): actions credits, give, level, flag; as many events 
   (flag, give SG-027 ZIMMERMAN, level 9001 0 -> 1); COAM 58 906 -> 62 906 at the commit; after the post-mission talk
   the dialog "Prime de performance : +4000 COAM" over the garage menu (title lookups 2 -> 3). save_loaded /
   garage_opened not exercised (levels set after the load).
+
+## Regulation generator (2026-10-29, implemented; step 3 of the roadmap)
+Decision (2026-10-29, "keep going" on the proposal): a build step, not the DLL; only new declarations go through it
+for now (the boot-time edits of [os_tuning], the economy, the menu lock and the ALLMIND lines stay in the DLL).
+- `tools/regulation/` (C#, .NET 10) on Smithbox's Andre.SoulsFormats (`SFUtil.DecryptAC6Regulation` /
+  `EncryptAC6Regulation`, BND4, PARAM, PARAMDEF): reads the game's `Game\regulation.bin` (AES, then DCX
+  `DCX_DFLT_11000_44_9_15` = zlib: no Oodle needed; 257 params), applies `data/regulation/*.toml`, writes
+  `mod/regulation.bin` (re-encrypted, same DCX). `tools/build_regulation.ps1` builds and runs it (SMITHBOX_DIR or the
+  default Smithbox path); `tools/package.ps1` ships the file when there are declarations. Without declarations
+  nothing is written (an old file is removed).
+- Declarations: `[ParamName.rowId]` (regulation file name) + `field = value` (Smithbox field name, case ignored);
+  a missing row is added, `copy = <rowId>` clones a row first; rows re-sorted by id (the game binary-searches them).
+  Definitions: `Name.xml`, `NameParam.xml` or the name without "Param" (SpEffectParam -> `SpEffect.xml`); AC6 PARAM
+  files carry no ParamType.
+- **me3 serves `mod/regulation.bin`** from the profile's package (no extra setting).
+- **Verified**: TURNER `totalBulletNum` 540 -> 777 and a new SpEffectParam row 900000001 (copy of 6200,
+  `effectEndurance` 12.5) live in game (`live_param.py`; SpEffectParam 4121 rows), a full mission played normally.
+- The file carries the whole game regulation: rebuild after a game update (else the old data replaces the new).

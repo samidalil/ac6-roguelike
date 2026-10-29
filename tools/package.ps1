@@ -16,6 +16,10 @@ Copy-Item (Join-Path $root "dist_template\README.txt") $out
 # menu movies the mod adds (reward choice screen), loaded through the profile's [[packages]] entry
 New-Item -ItemType Directory -Force (Join-Path $out "mod\menu") | Out-Null
 Copy-Item (Join-Path $root "mod\menu\02_rwdchoice.gfx") (Join-Path $out "mod\menu")
+# the regulation built from data/regulation (only when there are declarations)
+& (Join-Path $PSScriptRoot "build_regulation.ps1")
+$reg = Join-Path $root "mod\regulation.bin"
+if (Test-Path $reg) { Copy-Item $reg (Join-Path $out "mod") }
 @'
 profileVersion = "v1"
 disable_arxan = true
