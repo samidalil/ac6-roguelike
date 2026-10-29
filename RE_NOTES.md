@@ -1580,7 +1580,15 @@ each time it closes while still over (no auto-sell); with several rewards the ch
   the pages before it (+ the inventory) and, over the cap, opens the dialog then Vente over the results. The grid
   hides itself meanwhile (5th SelIdx field "hidden" -> the movie sets `visible = false`, the grid ignores the menu
   input: else our dialog's OK confirmed the grid page, and Vente was drawn under it) and comes back when the list
-  closes. The results table shows through behind Vente (cosmetic). The last page's pick is checked after the commit.
+  closes. The last page's pick is checked after the commit.
+- **Layers.** Menu table entries {flags, name} at exe+4E28CF0: flags low byte = draw layer. 02_MissionResult and the
+  part lists (02_010_EquipTop, 02_PartsShop, 02_Equip...) 0x0F, the stat panels (02_GaitemStatus_*, 02_DetailStatus_*)
+  0x10, 02_GotReward / 02_RwdChoice / 02_Tutorial_Modal / 02_HelpMovie 0x12, garage menus 0x0B. The results show
+  through Vente's transparent middle (where the garage shows the 3D AC): cosmetic, not fixed (would need the results
+  window hidden). Raising EquipTop's layer while opening changed nothing (read at preload?).
+- **VENTE tutorial.** The first Vente of a save queues 02_Tutorial_Modal; with Vente opened by the DLL (a child) it
+  shows after the list closes. Its seen state is saved (no event flag 0..9999 changes; after a save + relaunch the
+  tutorial and the "!" badge are gone): at most once per save.
 - **Nothing to sell** (counted parts all equipped or priced 0, e.g. the Worm Killer): the dialog says to take parts off
   the AC in ASSEMBLAGE and sell them; no Vente (it would reopen at once forever); the check runs again when a list
   window closes. Not reproduced in game (needs an unsellable spare).
@@ -1593,6 +1601,5 @@ each time it closes while still over (no auto-sell); with several rewards the ch
   one OK -> Vente.
 - Not covered: arena rewards (no arena on this save: is there a 3139 sequence after an arena commit?), chip `give`
   actions (same AddItem path, not run), mouse clicks on the hidden grid's OK while Vente is open, reward_choices = 1
-  without OS offers (no grid: only the after-commit check). After Vente closes, the vanilla VENTE tutorial sometimes
-  pops up (cause not checked; tutorial texts: separate task). Breakpoints on per-frame menu functions (exe+DC2A70,
+  without OS offers (no grid: only the after-commit check). Tutorial texts: separate task. Breakpoints on per-frame menu functions (exe+DC2A70,
   exe+D834E0) froze the UI: watch only functions that run once per menu.
