@@ -312,7 +312,7 @@ unsafe extern "system" fn content_lookup_hook(parent: usize, out: *mut usize, pa
             PAGE.store(idx, Relaxed);
         }
         ROOT_HANDLE.store(parent, Relaxed);
-        // normally rolled at the page before it's confirm (tick); an OK the tick did not see rolls it here
+        // a reward page is rolled when the class opens it: the page before it is closed, its pick final
         roll_page(mem::module_base(), PAGE.load(Relaxed), "page opened");
         NEW_PAGE.store(true, Relaxed);
     }
@@ -446,16 +446,22 @@ unsafe fn read_input() -> u32 {
     if has(ACT_DOWN) { pulse |= IN_DOWN; }
     if has(ACT_RIGHT) { pulse |= IN_RIGHT; }
     if has(ACT_LEFT) { pulse |= IN_LEFT; }
-    if has(ACT_OK) { pulse |= IN_OK; }
+    // confirm: a press only, not its auto-repeat while held (pulses 0.2 s then every 1/15 s; the class ignores them)
+    if has(ACT_OK) {
+        let now = tick_count();
+        if now.saturating_sub(LAST_OK.swap(now, Relaxed)) >= 250 { pulse |= IN_OK; }
+    }
     pulse
 }
+/// Time of the last confirm pulse (tick_count ms).
+static LAST_OK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Game thread, every frame: move the highlight of the page shown (that part becomes the page's pick). Confirm goes to
 /// the class's OK (next page / close): the page's handles die with it, so nothing more is written until the next fill.
 pub unsafe fn tick(base: usize) {
     if !GRID_OPEN.load(Relaxed) { for a in &ACTIONS { a.store(0, Relaxed); } return; }
     let pulse = read_input();
-    if pulse & IN_OK != 0 { GRID_OPEN.store(false, Relaxed); roll_page(base, PAGE.load(Relaxed) + 1, "confirm"); return; }
+    if pulse & IN_OK != 0 { GRID_OPEN.store(false, Relaxed); return; }
     if pulse == 0 { return; }
     let (n, mut sel) = (COUNT.load(Relaxed), SEL.load(Relaxed));
     if pulse & IN_LEFT != 0 && sel % COLS > 0 { sel -= 1; }

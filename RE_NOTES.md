@@ -941,6 +941,13 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   page 1 stayed a candidate for page 2. It now also reads the never-again bits. Verified: Terminal Armor (1 offer per
   run) forced on page 1 and not picked: before, page 2 still had it among 319 candidates; now "Bouclier terminal
   (never again)", 318.
+- **Held confirm on a reward page (2026-10-30)**: the tick took every confirm pulse as a press, but holding confirm
+  also sends its auto-repeat (0.2 s, then every 1/15 s), which the class ignores. A repeat right after page k+1 opened
+  rolled page k+2 with page k+1's pick still at its default and closed our input on page k+1 (highlight frozen).
+  Now a page is rolled only when the class opens it (content lookup hook, the path the mouse OK already used), and a
+  confirm pulse within 250 ms of the previous one is a repeat (ignored). Verified with confirm held 0.7 s on page 1
+  (3 pages): before, page 3 rolled 0.14 s after page 2 opened and Right on page 2 did nothing; now page 3 rolled
+  when opened and page 2's pick followed Right.
 - **Pad: NOT via XInput.** XInput sees the pad from outside the game (slot 0, Bluetooth Xbox), but inside the process
   the DLL's XInputGetState calls report nothing and the game never calls its XINPUT9_1_0 import: the game reads the
   pad through its own input system (probably Steam Input). Solved with the game's menu actions (below).
