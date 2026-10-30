@@ -176,8 +176,12 @@ fn flags() -> Option<(Game, usize)> {
 }
 fn level_flag(c: &Chip) -> u32 { o::CHIP_LEVELS + (c.id as u32 - 1) * o::CHIP_LEVEL_BITS }
 pub unsafe fn level(row: u16) -> Option<i32> {
-    let c = chip(row)?;
     let (g, man) = flags()?;
+    level_in(&g, man, row)
+}
+/// `level` with the flag manager already found (many reads in a row).
+pub unsafe fn level_in(g: &Game, man: usize, row: u16) -> Option<i32> {
+    let c = chip(row)?;
     Some(g.get_bits(man, level_flag(c), o::CHIP_LEVEL_BITS) as i32)
 }
 /// New level (0..max) of a chip (pick at the commit, loss on a failure). At 0 its script's saved byte is cleared too

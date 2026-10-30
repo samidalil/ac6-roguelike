@@ -104,6 +104,13 @@ unsafe fn levels(gd: usize) -> Option<usize> {
     Some(p)
 }
 
+/// `level` of many tunings in a row (a reward roll): the flag manager and the levels block found once by the caller
+/// (`lv` = mem::rd_usize(gd + GD_OS_TUNING), 0 = not loaded).
+pub unsafe fn level_in(g: &Game, man: usize, lv: usize, row: u16) -> Option<i32> {
+    let t = tuning(row)?;
+    if t.chip { chip::level_in(g, man, row) } else if lv == 0 { None } else { Some(mem::rd_i32(lv + t.off)) }
+}
+
 /// Current level of a tuning (None: unknown row, or the tuning data is not loaded).
 pub unsafe fn level(gd: usize, row: u16) -> Option<i32> {
     let t = tuning(row)?;

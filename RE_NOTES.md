@@ -925,6 +925,17 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   identical in the garage and in the mission after the sortie; page 1 rolled at the results, 2 pages (no placeholder
   page), placeholder 0x8000022 dropped, BML-G2/P03MLT-06 + ALULA/21E queued at the commit and owned after it, no
   carrier item in the inventory.
+- **Reward grid lag (2026-10-30)**: rolling at the results froze the game ~1.9 s per page (timed build): ~95 ms
+  inventory scan, ~105 ms [max_occurrences] slot read, ~630 ms recheck (run twice; each chip level re-found the flag
+  manager = 2 VirtualQuery), ~1 s tile jobs (find_content_callable: thousands of VirtualQuery). VirtualQuery is slow
+  while the game is busy. Now: the recheck runs once per page, levels read with the flag manager found once
+  (os::level_in / chip::level_in, flag_man_fast), the slot table cached (occur.rs: read at save load, changed only by
+  `record`, the only writer; emptied at the title), the content callable reached by the pointer path of the first
+  find (qword indices [15, 11] from the job, vtable checked, full search as fallback), and the DLL thread refreshes
+  the flag page cache every 5 s instead of emptying it (an emptied cache made the next game-thread read walk the map:
+  ~90 ms once). The inventory is still scanned live per page (~85-90 ms; a cache fed by the insert hooks was dropped:
+  those inserts also run for other item managers, e.g. the tester AC's loadout in the mission). Verified: grid filled
+  ~60 ms after the results list, page 2 ~80 ms, chip 9006 at LV2 picked on page 1 left out of page 2 (max level).
 - **Pad: NOT via XInput.** XInput sees the pad from outside the game (slot 0, Bluetooth Xbox), but inside the process
   the DLL's XInputGetState calls report nothing and the game never calls its XINPUT9_1_0 import: the game reads the
   pad through its own input system (probably Steam Input). Solved with the game's menu actions (below).

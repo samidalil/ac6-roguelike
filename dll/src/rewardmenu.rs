@@ -169,23 +169,41 @@ pub unsafe fn register_movie(base: usize) {
 
 // ---- the grid: our tiles filled with the game's own part view (RE_NOTES "How the class fills a part tile")
 /// Breadth-first search (3 levels, 0x400 bytes per object) from a job for a pointer P whose [P] is the content
-/// callable vtable: that P is the page's std::function _Impl.
+/// callable vtable: that P is the page's std::function _Impl. Every hidden job has the same layout, so the pointer path
+/// of the first find (qword index per level) is kept and followed directly next time (a readability check per step,
+/// the vtable checked at the end); the search runs again if it does not lead there.
 unsafe fn find_content_callable(base: usize, job: usize) -> usize {
     let want = base + o::PAGE_CONTENT_CALLABLE_VTABLE;
-    let mut level = vec![job];
+    let path = CONTENT_PATH.lock().map(|p| p.clone()).unwrap_or_default();
+    if !path.is_empty() {
+        let mut obj = job;
+        for k in &path {
+            if obj < 0x10000 || !mem::is_readable(obj + 8 * k, 8) { obj = 0; break; }
+            obj = mem::rd_usize(obj + 8 * k);
+        }
+        if obj > 0x10000 && mem::is_readable(obj, 8) && mem::rd_usize(obj) == want { return obj; }
+        logf!("grid: cached content path {:X?} missed from job {:#X}: full search", path, job);
+    }
+    // level entries: (object, path to it)
+    let mut level: Vec<(usize, Vec<usize>)> = vec![(job, Vec::new())];
     let mut seen = std::collections::HashSet::new();
     for _ in 0..4 {
         let mut next = Vec::new();
-        for obj in level {
+        for (obj, at) in level {
             if obj < 0x10000 || !seen.insert(obj) || !mem::is_readable(obj, 0x400) { continue; }
-            if mem::rd_usize(obj) == want { return obj; }
-            for k in 0..0x80 { let v = mem::rd_usize(obj + 8 * k); if v > 0x10000 && v & 7 == 0 { next.push(v); } }
+            if mem::rd_usize(obj) == want {
+                if let Ok(mut p) = CONTENT_PATH.lock() { if *p != at { logf!("grid: content path {:X?} kept", at); *p = at; } }
+                return obj;
+            }
+            for k in 0..0x80 { let v = mem::rd_usize(obj + 8 * k); if v > 0x10000 && v & 7 == 0 { let mut a = at.clone(); a.push(k); next.push((v, a)); } }
         }
         level = next;
         if level.len() > 4000 { level.truncate(4000); }
     }
     0
 }
+/// Qword indices from a hidden job to its content callable (empty until found once).
+static CONTENT_PATH: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
 
 /// Our grid is up and some of its pages were not shown yet.
 static ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
