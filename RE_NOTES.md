@@ -1698,7 +1698,7 @@ How the VENTE tutorial (TutorialParam 2002010, "Le menu VENTE permet...") is que
   every frame) or the whole movie root moved only what this movie draws (title, key guide, panel). So the cap has its
   own copies of those 4 movies too (02_eqcap, 02_gaitemstatus_capview_*), all built by tools/build_equipcap.ps1 with
   tools/build_capmovies.py: every main-timeline placement +320 px (content x 60..1220 -> 380..1540; the key guide
-  StatusBar stays). Each window is built from a name string shared with its menu table entry (the table entry of
+  StatusBar and the credits box AdditionalProperties, in 02_Equip at x ~1350, stay). Each window is built from a name string shared with its menu table entry (the table entry of
   02_Equip points at the same exe+38F2A08 the builder uses): cap.rs patches the 5 strings in place (same lengths;
   "General" -> "CapView") when it opens its screen, the list window's back 60 frames later, the others when the list
   window closes (its destructor hook). Ours are preloaded under online-only entries 0x64 / 0x65 / 0x67 / 0x69 / 0x62

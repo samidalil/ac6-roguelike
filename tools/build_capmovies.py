@@ -2,8 +2,8 @@
 right by dx pixels (the screen without the AC specs is centred).
 
 Every placement and move on the main timeline (PlaceObject tags outside the sprites) gets translateX + dx * 20 twips,
-except the depths of the kept instance names (e.g. StatusBar, the key guide, stays at its vanilla place). A new
-placement without a matrix gets one. Used for the cap's copies of the list window (02_010_EquipTop, after
+except the depths of the kept instance names (StatusBar, the key guide, and AdditionalProperties, the credits box, stay
+at their vanilla place). A new placement without a matrix gets one. Used for the cap's copies of the list window (02_010_EquipTop, after
 build_equipcap.py), the list (02_Equip) and the part info / stats (02_GaitemStatus_General_*): full-screen windows the
 game draws at fixed positions. Then: ffdec -xml2swf."""
 import re, sys

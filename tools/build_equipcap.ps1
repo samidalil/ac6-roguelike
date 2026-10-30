@@ -24,7 +24,11 @@ foreach ($v in $copies.Keys) {
         if ($LASTEXITCODE -ne 0) { exit 1 }
         $xml = "$work\cap.xml"
     }
-    python "$PSScriptRoot\build_capmovies.py" $xml "$work\$n.xml" $dx $(if ($v -eq "02_010_equiptop") { "StatusBar" }) | Out-Host
+    # kept at their vanilla place: the credits box (AdditionalProperties) top right, the key guide (StatusBar) bottom left
+    $kept = @()
+    if ($v -eq "02_010_equiptop") { $kept = @("AdditionalProperties", "StatusBar") }
+    if ($v -eq "02_equip") { $kept = @("AdditionalProperties") }
+    python "$PSScriptRoot\build_capmovies.py" $xml "$work\$n.xml" $dx @kept | Out-Host
     if ($LASTEXITCODE -ne 0) { exit 1 }
     $out = "$root\mod\menu\$n.gfx"
     if ($v -eq "02_010_equiptop") {
