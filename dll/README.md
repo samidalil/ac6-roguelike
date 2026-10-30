@@ -25,7 +25,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `lib.rs` — boot (config, param lookup, hooks), the shop (candidates, pick by `[pool.NAME]` weight then uniform in the
   pool, `= 0` / weight 0 parts out of the pools, pool sizes and unlisted parts logged at boot, reroll every `reroll_interval` cleared
   missions, state kept in event flags), saved state helpers (flags, multi-bit values, row bitsets one flag per lineup
-  row: `read_rows` / `write_rows` / `clear_rows` / `put_row` / `has_row` over `o::ROWS_*`), economy (mission pay, first mission = starting credits), mission rewards (queued at mission start through the game's give
+  row: `read_rows` / `write_rows` / `clear_rows` / `put_row` / `has_row` over `o::ROWS_SOLD` / `o::HIDE_FROM_POOL`;
+  every saved range is listed in `offsets.rs` `SAVE_RANGES`, RE_NOTES "Save layout"), economy (mission pay, first mission = starting credits), mission rewards (queued at mission start through the game's give
   path), the game-thread loop and the game-over exit sequence.
 - `penalty.rs` — failure plan built at sortie (escrow flag), penalty on the next garage load, auto-sell, game over,
   part values (shop price, stat model, `[prices]` overrides) and the sell-price hook. `[lost_on_failure]` decides per
@@ -36,9 +37,9 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   the `ROWS_SOLD` bitset, cleared at the reroll.
 - `choice.rs` — reward choice (pick 1 of `reward_choices` per reward): offers rolled at sortie with their own RNG
   (saved in event flags), queued like plain rewards; at the commit the parts not picked leave the pending list.
-- `dupshop.rs` — duplicate parts in the shop: weapons / frame parts can roll while owned; the hook on the shop's
-  "obtainable" check (exe+D2F900) lists and sells a slot's part while the player owns no more copies than when it
-  was rolled (per-slot baselines in event flags). Also clears the old "already rolled" flag ranges once per save.
+- `dupshop.rs` — the shop array: weapons / frame parts can roll while owned; the hook on the shop's "obtainable" check
+  (exe+D2F900) answers from the rolled slots (for sale until bought, `SHOP_BOUGHT` flags) and the buy-back rows, the
+  purchase hook (exe+D4E00D) marks what was bought.
 - `os.rs` — OS Tunings as rewards (never in the shop, offered while below their max level): levels at
   `[GameData+0x1368]`, a pick adds one at the commit (choice.rs); a core expansion not owned also queues its item,
   other offers queue a carrier item taken out at the commit; the vanilla OS Tuning menu stays locked (its unlock row
@@ -46,13 +47,13 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   value per level in the OsReinforce param (the game reads it at each hit; fewer levels = lower max level).
 - `chip.rs` — our own OS chips: one file per chip in `chips/` next to the DLL (`id`, `name`, `stat`, `levels`,
   `[effect]` ap / en_capacity / weight / ammo = "+" / "-"), offered and leveled like OS Tunings (rows 9000 + id; levels
-  in flags 4440..4503, used up 4504..4535). Effects on the player's AC only, through call hooks on the game's stat code:
+  in `CHIP_LEVELS`, 4 bits each; used up = `HIDE_FROM_POOL`). Effects on the player's AC only, through call hooks on the game's stat code:
   set max AP (exe+82AEC0), EN capacity (exe+88BAE0), total weight (exe+46CA70), add ammunition (exe+907750); the part
   params are untouched. Effects are modifier targets (`Target`, `modify`): the player's stats above, plus the run's own
   values looked up where they are used (pool weights, rewards per mission, parts per reward, shop size).
 - `occur.rs` — `[max_occurrences]`: offers per run of the listed items (any part or OS Tuning), counted at the mission
-  clear (rewards) or the reroll (shop) in a slot table (flags 8030..8991, 74 slots of {item, count}); at its max an
-  item gets its "never again" bit in `ROWS_LOST` (lineup parts) or `OS_GONE` (flags 4418..4434, OS Tunings).
+  clear (rewards) or the reroll (shop) in a slot table (`OCCUR_*`, 32 slots of {item, count}); at its max an item
+  gets its `HIDE_FROM_POOL` bit (one bit per pool key: lineup row, then OS Tunings, then chips).
 - `rewardmenu.rs` — the choice grid: the results screen's "Pièces obtenues" call opens our movie instead (one page per
   reward, tiles filled by the game's own part view, each with its pool's label in the pool's colour: `PoolName` text,
   colours in the `SelIdx` state), navigation from the game's menu actions (pad + keyboard).

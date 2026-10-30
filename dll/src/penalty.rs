@@ -486,11 +486,11 @@ unsafe fn unequip(gd: usize, off: usize) {
 /// Booster, generator, FCS: one copy at most (copies would share a handle), lost forever on a failure.
 pub fn unique_tag(item: u32) -> bool { matches!(item >> 28, 5 | 6 | 7) }
 
-/// Add a part to the "lost forever" row set (unique parts only: a lost weapon / frame part may roll again).
+/// Hide a lost part from the pool for the rest of the run (unique parts only: a lost weapon / frame part may roll again).
 unsafe fn mark_lost(game: &Game, item: u32) {
     if !unique_tag(item) { return; }
     let (Some(man), Some(row)) = (game.flag_man(), buyback::row_of(item)) else { return };
-    game.put_row(man, o::ROWS_LOST, row, true);
+    game.put_row(man, o::HIDE_FROM_POOL, row, true);
 }
 
 unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {

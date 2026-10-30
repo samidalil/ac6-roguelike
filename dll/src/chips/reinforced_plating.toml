@@ -4,7 +4,7 @@
 id = 1                         # 1 to 32, unique: the chip's save slot (row 9001); changing it mid-run loses its level
 name = "Blindage renforcé"     # shown on the reward tile
 stat = "PB"                    # stat shown on the tile with the level's value: "PB +5 %"
-levels = "5/10/15"             # effect value per level, in % (1 to 3 levels)
+levels = "5/10/15"             # effect value per level, in % (1 to 15 levels)
 
 [effect]
 # target = "+" (raised by the level's value in %), "-" (lowered by it), "add" (the value itself added) or "sub".
@@ -12,5 +12,5 @@ levels = "5/10/15"             # effect value per level, in % (1 to 3 levels)
 # en_capacity (EN capacity), weight (total weight), ammo (every weapon's total ammunition, filled at mission start).
 # Targets of the run: pool.<NAME>.weight (odds of a [pool.NAME] in the shop and the rewards), reward.count (rewards
 # per mission, 0 to 3), reward.choices (parts offered per reward, 1 to 12), shop.weapons / shop.parts (shop size,
-# 8 slots at most). Several chips on one target add up.
+# 16 slots at most). Several chips on one target add up.
 ap = "+"

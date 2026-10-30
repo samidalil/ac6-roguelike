@@ -79,11 +79,11 @@ impl Pool {
 /// Pools at most, the unlisted one included (u8 index in lib.rs `Part`, 0xFF = out).
 pub const MAX_POOLS: usize = 200;
 
-pub const MAX_SHOP_SLOTS: u32 = 8;
+pub const MAX_SHOP_SLOTS: u32 = o::SHOP_SLOTS_MAX;
 /// [inventory] max_parts at least the frame parts / internals an AC needs (7; weapon slots may stay empty).
 pub const MIN_PARTS: u32 = 7;
-/// [max_occurrences] values above this are read as this (4-bit count in the save, offsets OCCUR_*)
-pub const MAX_OCCURRENCES: u32 = 15;
+/// [max_occurrences] values above this are read as this (the save counts the offers below the max in OCCUR_COUNT_BITS)
+pub const MAX_OCCURRENCES: u32 = 1 << o::OCCUR_COUNT_BITS;
 
 fn defaults() -> Config {
     Config {

@@ -701,6 +701,7 @@ the DLL) → save request (bit 0 of the save mask) → file written → game kil
 set. Then cleared again.
 
 **Layout** (offsets.rs): row bitsets = flag base + lineup row index (318 flags each), avoiding the old probes —
+(Superseded 2026-10-31 by "Save layout": block 4 holds item-lot flags, every range moved.)
 `ROWS_SOLD` 4100..4417 (sold since the reroll), `ROWS_LOST` 4550..4867 (lost forever), `ROWS_ROLLED` 7100..7417
 (already rolled); `REROLL_COUNTER_BASE` 7830..7837 = missions cleared since the last reroll (8 bits, LSB first). Free
 for later: 4435..4549 (4418..4434 = OS_GONE), 4868..4899, 4901..4999, 7418..7499, 7501..7799, 7838..7899, 7945..7999. Helpers on `Game`:
@@ -1852,3 +1853,50 @@ and offered a bought slot again once a copy was sold.
   `resupply x1`: XUAN-GE 75 -> 125 (vanilla total 78), MORLEY 22 -> 40 (25), BML-G1/P20MLT-04 132 -> 224 (140); the
   slots read from memory matched (loaded + reserve). The next mission loaded with the raised totals (add_ammo hook).
 - Not seen: a partial refill (rate 0.1, three of the hooked sites); no mission event giving one is known yet.
+## Save layout (2026-10-31)
+**Why moved.** Blocks 4 and 8 were believed free (checked on early saves only). A full vanilla playthrough (a copy of
+the user's AC60000.sl2 loaded with the DLL off) has 45 flags set in block 4: ItemLotParam `getItemFlagId` ("item lot
+obtained") uses 4000..4149, 4165..4199, 4430, 4441..4487. The mod wrote some of them (ROWS_SOLD 4100.. on every sale,
+OS_GONE 4430, CHIP_LEVELS 4441..): a game item lot could count as already obtained, and the story setting them fed
+phantom rows into buy-back. Block 8: GameAreaParam `humanityPointCountFlagIdTop` (8160, 8180, 8500..8940),
+ItemLotParam `cumulateNumFlagId` (8430, 8441..8445), MissionSystemMsgCommonParam `playEventFlagId1` (8501), inside the
+old OCCUR 8030..8991 (none set in the full save). Block 7: no param flag field, nothing set in the full game.
+**How it was checked.** Static: every event script, talk script, map (.msb) and param file of the game unpacked
+(tools/ac6_unpack.py + Oodle decompression with the game's oo2core_8_win64.dll), every u32 scanned; the params read
+with Smithbox's paramdefs, every field whose name contains "flag". Live: tools/flag_blocks.py on a test save and on
+the full save.
+**Map blocks don't persist.** CSEventFlagMan has 640 blocks: 0..9 and 630 map blocks (21xxxxx / 3000xxx, three per map,
+suffix 2 / 3 / 5). 464 map blocks are referenced by no game file, but a bit set in each of them (463), saved (file
+written) and reloaded came back in none: only blocks 0..9 can hold the mod's state.
+**Layout** (offsets.rs, `SAVE_RANGES` lists every range; a compile-time check rejects overlaps, a range crossing a
+block, and the game flags above):
+
+| Flags | Name | Content |
+|---|---|---|
+| 4200 | SHOP_VALID | a shop was rolled this run |
+| 4201..4344 | SHOP_SLOTS | 16 slots x 9 bits: lineup row + 1 (0 = empty) |
+| 4345..4360 | SHOP_BOUGHT | slot bought since the reroll |
+| 4488..4854 | HIDE_FROM_POOL | one bit per pool key: lineup rows 0..317, OS Tunings 318..334, chips 335..366 |
+| 4855..4918 | REWARD_RNG | reward RNG state, 64 bits |
+| 4919..4926 | REROLL_COUNTER | missions cleared since the reroll |
+| 4927 / 4928 | FLAG_ESCROW / FLAG_RUN_OVER | mission underway / run over |
+| 7000..7383 | OCCUR | [max_occurrences] counts: 32 slots x {9-bit key = pool key + 1, 3-bit count} |
+| 7384..7639 | SCRIPT_STORE | chip scripts' byte, 8 bits per chip id |
+| 7640..7957 | ROWS_SOLD | buy-back, one bit per lineup row |
+| 8021..8148 | CHIP_LEVELS | chip level, 4 bits per chip id |
+| 8020 | FLAG_NEVER | release flag never set (read only) |
+
+Free: 4361..4417, 4929..4999, 7958..7999, 8000..8019, 8149..8159.
+- HIDE_FROM_POOL replaces ROWS_LOST + OS_GONE + CHIP_GONE: one "never offered again this run" set (max occurrences
+  reached, or a unique part lost on a failure). An OS Tuning / chip losing a level is not hidden: it is offered again
+  until its max occurrences.
+- Limits that follow: shop_weapons + shop_parts <= 16, [max_occurrences] <= 8, chip levels <= 15, 32 chips.
+- No save conversion (no players yet): saves from before keep stale bits in the old ranges and lose their shop, chip
+  levels, counts and RNG state.
+- **Verified** (2026-10-31, profile ac6-roguelike-buyback.me3, saves/ac-mission-available.sl2 with its old-layout bits
+  cleared, DLL off, then saved back into the repo): load -> "escrow clear, no penalty", nothing in blocks 4/7/8; tester-AC
+  clear -> escrow set at sortie and cleared at the clear, shop rolled into 4200..4225 and read back after a relaunch, RNG
+  in 4855..4918, no flag written outside the ranges; escrow 4927 set + relaunch -> failure plan built (this save's
+  credits end the run: back to the title); forced chip 9001 picked -> level 1 at 8021, kept after a relaunch; run-over
+  4928 set + relaunch -> "run is OVER (flag Some(true))". Build-checked only: OCCUR counts and the HIDE_FROM_POOL bits
+  of OS Tunings / chips (same code, new addresses).

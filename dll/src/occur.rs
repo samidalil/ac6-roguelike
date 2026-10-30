@@ -1,5 +1,5 @@
 //! `[max_occurrences]`: an item listed with N is offered at most N times per run (reward grid or shop, picked or
-//! not). Once at its max it gets its "never again" bit (ROWS_LOST for a lineup row, OS_GONE for an OS Tuning); until
+//! not). Once at its max it gets its "never again" bit (HIDE_FROM_POOL, by pool key: lineup row, OS Tuning or chip); until
 //! then its offer count lives in a save-backed slot table (offsets OCCUR_*), one slot per item offered and not used up.
 
 use super::*;
@@ -7,7 +7,7 @@ use super::*;
 const SLOT_BITS: u32 = o::OCCUR_KEY_BITS + o::OCCUR_COUNT_BITS;
 fn slot(k: u32) -> u32 { o::OCCUR_BASE + k * SLOT_BITS }
 
-/// Slot key of a part: lineup row + 1, or after the rows for an OS Tuning (its rank in OS_TUNINGS).
+/// Slot key of a part: its pool key + 1 (lineup row, or after the rows an OS Tuning / chip by `os::rank`).
 fn key(p: &Part) -> Option<u32> {
     if p.is_os() { os::rank(p.os).map(|r| o::ROW_COUNT as u32 + 1 + r) } else { Some(p.idx as u32 + 1) }
 }
@@ -51,7 +51,7 @@ pub unsafe fn record(g: &Game, man: usize, p: &Part) -> u32 {
     let n = mine.map_or(0, |k| table[k].1) + 1;
     let free = mine.or_else(|| table.iter().position(|s| s.0 == 0));
     let used_up = |n: u32| {
-        if p.is_os() { os::set_gone(g, man, p.os) } else { g.put_row(man, o::ROWS_LOST, p.idx, true) }
+        if p.is_os() { os::set_gone(g, man, p.os) } else { g.put_row(man, o::HIDE_FROM_POOL, p.idx, true) }
         n
     };
     if n >= p.max as u32 {

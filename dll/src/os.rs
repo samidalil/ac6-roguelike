@@ -154,20 +154,18 @@ pub unsafe fn reset(gd: usize, row: u16) {
     mem::wr_i32(lv + t.off, 0);
 }
 
-/// [max_occurrences]: the tuning was offered its max number of times this run (save bit OS_GONE + its rank in
-/// OS_TUNINGS, chips CHIP_GONE; occur.rs keeps the counts below the max). Rank: OS_TUNINGS index, then chips after
-/// them by id (occur.rs keys).
+/// Rank of an OS Tuning or chip among the pool keys after the lineup rows: OS_TUNINGS index, then chips by id.
 pub fn rank(row: u16) -> Option<u32> {
     o::OS_TUNINGS.iter().position(|t| t.0 == row).map(|k| k as u32)
         .or_else(|| chip::chip(row).map(|c| o::OS_TUNINGS.len() as u32 + c.id as u32 - 1))
 }
+/// [max_occurrences]: the tuning / chip was offered its max number of times this run (its HIDE_FROM_POOL bit; occur.rs
+/// keeps the counts below the max).
 pub unsafe fn gone(g: &Game, man: usize, row: u16) -> bool {
-    if chip::chip(row).is_some() { return chip::gone(g, man, row); }
-    o::OS_TUNINGS.iter().position(|t| t.0 == row).is_some_and(|k| g.get_flag(man, o::OS_GONE + k as u32) == Some(true))
+    rank(row).is_some_and(|r| g.get_flag(man, o::HIDE_FROM_POOL + o::ROW_COUNT as u32 + r) == Some(true))
 }
 pub unsafe fn set_gone(g: &Game, man: usize, row: u16) {
-    if chip::chip(row).is_some() { return chip::set_gone(g, man, row); }
-    if let Some(k) = o::OS_TUNINGS.iter().position(|t| t.0 == row) { g.put_flag(man, o::OS_GONE + k as u32, true); }
+    if let Some(r) = rank(row) { g.put_flag(man, o::HIDE_FROM_POOL + o::ROW_COUNT as u32 + r, true); }
 }
 /// The core expansion tuning of an item id (tag bits ignored).
 pub fn of_item(item: u32) -> Option<Tuning> { tunings().iter().find(|t| t.item != 0 && t.item == item & 0x0FFF_FFFF).copied() }
