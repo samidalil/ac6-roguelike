@@ -75,7 +75,7 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   Call hooks share cave pages (`alloc_cave`): one 64 KB allocation slot near the image per page, not per hook.
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, pools:
   `[pool.NAME]` sections + the built-in unlisted pool, `[part_rarity]` part = pool, prices, per-item tables `[lost_on_failure]` / `[max_occurrences]` read through `config::lookup` / `config::value`, `[os_tuning]` values per level).
-- `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts).
+- `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts; the ACHAT / VENTE first-time tutorials rebuilt from the settings).
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
 Game data: `data/regulation/*.toml` declarations (param edits, new rows) are compiled into `mod/regulation.bin` by

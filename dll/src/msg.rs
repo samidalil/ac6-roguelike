@@ -47,6 +47,9 @@ unsafe extern "system" fn msg_lookup(repo: usize, version: u32, category: u32, i
     if id == dialog::CUSTOM_MSG_ID {
         if let Ok(c) = CUSTOM.lock() { if !c.is_empty() { return c.as_ptr() as usize; } }
     }
+    if category == o::MSG_CAT_MENU_TEXT && (id == o::MSG_TUTO_ACHAT || id == o::MSG_TUTO_VENTE) {
+        return tutorial_text(id).as_ptr() as usize;
+    }
     if id == o::MSG_OS_UNLOCKED && (category == o::MSG_CAT_MENU_TITLE || category == o::MSG_CAT_MENU_TEXT) && config::get().os_rewards {
         if let Some(p) = os_unlock_text(repo, version, category) { return p; }
     }
@@ -92,6 +95,32 @@ unsafe fn os_unlock_text(repo: usize, version: u32, category: u32) -> Option<usi
     });
     cache.push((src, ptr));
     (ptr != 0).then_some(ptr)
+}
+
+/// The ACHAT / VENTE first-time tutorials, rewritten for the mod's shop from the settings (sale %, reroll interval,
+/// inventory cap). Built once (the settings are read once at boot).
+fn tutorial_text(id: u32) -> &'static [u16] {
+    static ACHAT: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+    static VENTE: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+    let c = config::get();
+    let renewal = if c.reroll_interval <= 1 { "après chaque mission réussie".to_string() }
+        else { format!("toutes les {} missions réussies", c.reroll_interval) };
+    let w = |t: String| t.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
+    if id == o::MSG_TUTO_ACHAT {
+        return ACHAT.get_or_init(|| w(format!(
+            "Le menu ACHAT propose des pièces d'AC tirées au hasard,\nrenouvelées {}.\n\n\
+             • Les pièces que vous avez vendues y sont de nouveau\nen vente jusqu'au prochain renouvellement.\n\
+             • Vous pouvez posséder {} pièces au plus, pièces\néquipées comprises : au-delà, l'achat est refusé.",
+            renewal, c.max_parts)));
+    }
+    let pct = if c.part_sell_percent == c.weapon_sell_percent { format!("{} % de sa valeur", c.part_sell_percent) }
+        else { format!("{} % de sa valeur\n(arme : {} %)", c.part_sell_percent, c.weapon_sell_percent) };
+    VENTE.get_or_init(|| w(format!(
+        "Le menu VENTE permet de vendre vos pièces d'AC.\n\n\
+         • Une pièce vendue rapporte {}.\n\
+         • Elle peut être rachetée à son prix dans le menu ACHAT\njusqu'au prochain renouvellement de la boutique.\n\
+         • Plus de {} pièces au garage : vendez-en jusqu'à\nrevenir à la limite.",
+        pct, c.max_parts)))
 }
 
 /// Set the module base before `install` (part names are read at boot, before the hook goes in).
