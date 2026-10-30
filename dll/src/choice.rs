@@ -83,33 +83,36 @@ fn choice_title(k: usize, n: usize) -> String { if n > 1 { format!("CHOISISSEZ U
 /// clear: left out. The same part can come back on a later page. Its offers are counted for [max_occurrences] now.
 pub unsafe fn roll_page(p: usize) -> Option<rewardmenu::Page> {
     let g = Game::new(mem::module_base());
-    let (gd, man) = (g.game_data_fast()?, g.flag_man()?);
+    let (gd, man) = (g.game_data_fast()?, g.flag_man_fast()?);
     let later = LATER.lock().ok()?;
     let l = later.as_ref()?;
     let mut armed = ARMED.lock().ok()?;
     if p != armed.len() || p >= l.pages { return None; }
     let picks: Vec<Offer> = armed.iter().enumerate().filter_map(|(s, set)| set.get(rewardmenu::picked(s).min(set.len().saturating_sub(1))).cloned()).collect();
     let picked_levels = |row: u16| picks.iter().filter(|o| o.os == row).count() as i32;
+    let lv = mem::rd_usize(gd + o::GD_OS_TUNING);
+    let level = |row: u16| os::level_in(&g, man, lv, row).unwrap_or(0);
     let owned = g.owned_ids(gd);
     let counts = occur::read(&g, man);
     let shop = g.read_state(man).unwrap_or_default();
     // why a sortie candidate is out now (None = still in)
     let out = |c: &Part| -> Option<&'static str> {
-        if c.is_os() && !os::tuning(c.os).is_some_and(|t| os::level(gd, c.os).unwrap_or(0) + picked_levels(c.os) < t.max) { return Some("max level"); }
+        if c.is_os() && !os::tuning(c.os).is_some_and(|t| level(c.os) + picked_levels(c.os) < t.max) { return Some("max level"); }
         if !c.is_os() && c.unique() && (owned.contains(&c.grant_id()) || picks.iter().any(|o| o.id == c.grant_id())) { return Some("owned"); }
         if !c.is_os() && shop.contains(&c.idx) { return Some("in the shop"); }
         if c.max > 0 && occur::count(&counts, c) >= c.max as u32 { return Some("max occurrences"); }
         None
     };
-    let left_out: Vec<String> = l.cands.iter().filter_map(|c| out(c).map(|why| format!("{} ({})", c.name(), why))).collect();
+    let (cands, gone): (Vec<(Part, Option<&str>)>, Vec<(Part, Option<&str>)>) = l.cands.iter().map(|c| (*c, out(c))).partition(|(_, why)| why.is_none());
+    let cands: Vec<Part> = cands.into_iter().map(|(c, _)| c).collect();
+    let left_out: Vec<String> = gone.iter().map(|(c, why)| format!("{} ({})", c.name(), why.unwrap_or(""))).collect();
     if !left_out.is_empty() { logf!("reward page {}: left out since the sortie: {}", p + 1, left_out.join(", ")); }
-    let cands: Vec<Part> = l.cands.iter().copied().filter(|c| out(c).is_none()).collect();
     let mut set = roll(&g, man, &cands, 1, l.k).pop().unwrap_or_default();
     if let Some(f) = l.forced.get(p) { set.retain(|c| c.idx != f.idx); set.insert(0, *f); set.truncate(l.k); }
     let offers: Vec<Offer> = set.iter().map(|c| {
         let keep = c.is_os() && c.equip_id != 0 && !owned.contains(&c.equip_id) && !picks.iter().any(|o| o.keep && o.id == c.equip_id);
         let id = if c.is_os() && !keep { o::OS_CARRIER_ITEM } else { c.grant_id() };
-        let label = if c.is_os() { Some(os::label_at(c.os, os::level(gd, c.os).unwrap_or(0) + picked_levels(c.os) + 1)) } else { None };
+        let label = if c.is_os() { Some(os::label_at(c.os, level(c.os) + picked_levels(c.os) + 1)) } else { None };
         Offer { id, handle: 0, os: c.os, keep, label, pool: c.pool_label(), queued: false }
     }).collect();
     let counted: Vec<String> = set.iter().filter(|c| c.max > 0).map(|c| { let n = occur::record(&g, man, c); format!("{} {}/{}", c.name(), n, c.max) }).collect();

@@ -255,6 +255,11 @@ impl Game {
         let gd = mem::rd_usize(gdm + o::GDM_PLAYER_GAMEDATA);
         if gd == 0 { None } else { Some(gd) }
     }
+    /// The event flag manager without the readability checks (a reward roll at the results: the manager exists).
+    unsafe fn flag_man_fast(&self) -> Option<usize> {
+        let m = mem::rd_usize(self.base + o::EVENTFLAGMAN_GLOBAL);
+        if m == 0 { None } else { Some(m) }
+    }
     unsafe fn flag_man(&self) -> Option<usize> {
         let slot = self.base + o::EVENTFLAGMAN_GLOBAL;
         if !mem::is_readable(slot, 8) { return None; }
@@ -581,6 +586,13 @@ const FORCE_OS_TAG: u32 = 0x8000_0000;
 static PAGE_CACHE_MAN: AtomicUsize = AtomicUsize::new(0);
 static PAGE_CACHE: [AtomicUsize; 16] = [const { AtomicUsize::new(0) }; 16];
 fn clear_page_cache() { for c in &PAGE_CACHE { c.store(0, Relaxed); } }
+/// The cached pages walked again (the blocks read so far).
+unsafe fn refresh_page_cache(g: &Game, man: usize) {
+    if PAGE_CACHE_MAN.load(Relaxed) != man { clear_page_cache(); return; }
+    for (block, c) in PAGE_CACHE.iter().enumerate() {
+        if c.load(Relaxed) != 0 { c.store(g.flag_page_walk(man, block as u32).unwrap_or(0), Relaxed); }
+    }
+}
 
 /// Replacement for the release predicate at the shop builder's call site. rcx = itemCtx.
 /// Must mirror the original's contract: returns al != 0 to list the row.
@@ -1109,7 +1121,9 @@ fn boot() {
         unsafe {
             let gd = match run.game.game_data() { Some(g) => g, None => { prev_defer = None; sleep_ms(250); continue; } };
             if gd != prev_gd { logf!("GameData = {:#X}", gd); prev_gd = gd; prev_defer = None; clear_page_cache(); }
-            if tick % 50 == 0 { clear_page_cache(); } // re-walk the flag map every 5 s (pages can be reallocated)
+            // re-walk the flag map every 5 s (pages can be reallocated): here, so a flag read on the game thread (a reward
+            // roll at the results) finds the cache filled instead of walking the map itself
+            if tick % 50 == 0 { match run.game.flag_man() { Some(man) => refresh_page_cache(&run.game, man), None => clear_page_cache() } }
 
             // (1) persisted shop state (flags) -> chosen ids. Handles Continue / New Game / our own writes.
             if let Some(man) = run.game.flag_man() {
@@ -1168,6 +1182,7 @@ fn boot() {
                 let loaded = run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true);
                 if loaded && !prev_loaded {
                     buyback::load(&run.game, man);
+                    occur::load(&run.game, man);
                     // dead save: flagged, or an unpaid failure (escrow) whose penalty leaves the player broke.
                     // The second case is the same outcome every time it is loaded, so nothing needs saving:
                     // leave for the title at once, before the garage shows.
@@ -1182,7 +1197,7 @@ fn boot() {
                         penalty::CLEANUP_REQUEST.store(true, Relaxed); cap::AFTER_COMMIT.store(false, Relaxed); cap::CHECK.store(true, Relaxed); run.on_garage_open(man, "save loaded");
                     }
                 }
-                if !loaded && prev_loaded { event::emit(event::Event::Title); }
+                if !loaded && prev_loaded { event::emit(event::Event::Title); occur::clear(); }
                 prev_loaded = loaded;
 
                 if penalty::RETIRED.swap(0, Relaxed) > 0 { log("death: mission retired automatically (back to the garage)"); }
