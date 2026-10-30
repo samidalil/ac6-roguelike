@@ -93,6 +93,7 @@ pub unsafe fn roll_page(p: usize) -> Option<rewardmenu::Page> {
     let lv = mem::rd_usize(gd + o::GD_OS_TUNING);
     let level = |row: u16| os::level_in(&g, man, lv, row).unwrap_or(0);
     let owned = g.owned_ids(gd);
+    let lost = g.read_rows(man, o::ROWS_LOST);
     let counts = occur::read(&g, man);
     let shop = g.read_state(man).unwrap_or_default();
     // why a sortie candidate is out now (None = still in)
@@ -100,7 +101,10 @@ pub unsafe fn roll_page(p: usize) -> Option<rewardmenu::Page> {
         if c.is_os() && !os::tuning(c.os).is_some_and(|t| level(c.os) + picked_levels(c.os) < t.max) { return Some("max level"); }
         if !c.is_os() && c.unique() && (owned.contains(&c.grant_id()) || picks.iter().any(|o| o.id == c.grant_id())) { return Some("owned"); }
         if !c.is_os() && shop.contains(&c.idx) { return Some("in the shop"); }
+        // offered its [max_occurrences] times: a count at its max, or used up (slot freed, "never again" bit) by an
+        // earlier page
         if c.max > 0 && occur::count(&counts, c) >= c.max as u32 { return Some("max occurrences"); }
+        if if c.is_os() { os::gone(&g, man, c.os) } else { lost.contains(&c.idx) } { return Some("never again"); }
         None
     };
     let (cands, gone): (Vec<(Part, Option<&str>)>, Vec<(Part, Option<&str>)>) = l.cands.iter().map(|c| (*c, out(c))).partition(|(_, why)| why.is_none());
