@@ -1175,8 +1175,8 @@ expansion's max level).
   max lowered mid-run).
 - **Block 8** (8000..8999): allocated in the shared page array like blocks 4 and 7 (`tools/flag_blocks.py`), 0 flags
   set on a save several missions in (mission 9 area, other session's save) and on saves/ac-mission-available.sl2; no
-  8xxx flag in the exported params. 8020 (FLAG_NEVER, the OS Tuning menu lock) is kept out of the range. Not yet
-  checked: survives a save + relaunch (the game's autosave), cleared by New Game.
+  8xxx flag in the exported params. 8020 (FLAG_NEVER, the OS Tuning menu lock) is kept out of the range. Survives
+  the commit autosave + a relaunch and is cleared by New Game (verified 2026-10-30, below).
 - Marking: unchanged places (5074 for every offer of the sortie, the reroll for shop slots); log
   `max occurrences, offered (<why>): <name> n/max[ (never again)]`; boot log `max occurrences (offers per run): ...`.
   Debug `occur`: count / max / used up per listed item, slots in use.
@@ -1186,7 +1186,18 @@ expansion's max level).
   8045/8046/8050/8052 = key 140, count 1); `occur` matched. Real clear with `force_os 5010 5020` (1 reward x 3
   choices): offers [Assault Armor, VE-60SNA, ZIMMERMAN 139] -> at 5074 "Bouclier d'assaut 1/3, SG-027 ZIMMERMAN 2/2
   (never again)", then the shop reroll, grid shown. Not verified (user asked to merge without more tests): the pick,
-  persistence after a relaunch, New Game clearing block 8, a second offer of an expansion raising it to level 2.
+  persistence after a relaunch, New Game clearing block 8 (all three verified 2026-10-30, below),
+  a second offer of an expansion raising it to level 2.
+- **Verified 2026-10-30** (profile ac6-roguelike-verify.me3 = osstat with its own save, copy of
+  saves/ac-mission-available.sl2, 2 rewards x 3 choices, main 669efee + the sortie fix below): `force_os 5010 5020` +
+  real clear -> "max occurrences, offered (mission rewards): Bouclier d'assaut 1/3, Bouclier à impulsions 1/2", both
+  picked (levels 0 -> 1), `occur` slots [(328, 1), (329, 1)] = flags 8033/8036/8038/8039 + 8043/8046/8049/8051/8052.
+  Relaunch + Continue: same `occur` output and flags. Continue, Retour à l'écran-titre, NOUVELLE PARTIE: block 8 empty
+  at the pilot name prompt and at the new run's first sortie (block 4 only holds the reward RNG written there).
+- **Sortie fix (2026-10-30)**: since #23 a `//` comment pasted mid-line in the sortie handler (lib.rs, "defer 0->1")
+  commented out `run.mission_ran = true` and the reward list resets, so every real clear logged "5074 rose without a
+  mission having run (stale flag on load): ignored": no [max_occurrences] marking, no MissionCleared chip event, no
+  shop reroll at the clear. Split back into statements; the clear marks, emits and rerolls again.
 
 ## OS Tunings: one level lost on failure (2026-10-29, implemented)
 User decisions (2026-10-29): `[lost_on_failure]` now applies to the 13 non-expansion OS Tunings too; a failed sortie
