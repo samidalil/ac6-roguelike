@@ -64,6 +64,13 @@ pub const FN_SHOP_PRED: usize = 0x159ACB0;
 /// the purchase confirmation exe+10A96FE, the buy step exe+D669C5, the purchasable quantity exe+D2F4DF and the adds
 /// exe+D2EC51 / D2ECE1.
 pub const FN_SHOP_OBTAINABLE: usize = 0xD2F900;
+/// The shop purchase's add (shop array, 2026-10-30; hardware breakpoint on D2EC20 during an Achat purchase: return
+/// exe+D4E012, stack D663AD < ... D640C0 jobs of the buy step exe+D66940): exe+D4DFE0(transaction) takes the item id
+/// (exe+435C90) and the count (+0x78), then `call exe+D2EC20(const u32* id, n) -> al` at exe+D4E00D. D2EC20 = n =
+/// min(D2F900, requested), then the add (exe+D30840); al = 1 also when n <= 0 (nothing added). Its 10 other callers
+/// are give paths outside the shop (and exe+10A47D3, a list window's own commit, not the Achat purchase).
+pub const PURCHASE_ADD_CALLSITE: usize = 0xD4E00D;
+pub const FN_ADD_OBTAINABLE: usize = 0xD2EC20;
 /// Shop buy step exe+D66940 (inventory cap, 2026-10-29): `call exe+D2F860(const u32* id)` (= D2F900 on a copy) at
 /// exe+D669C5; 0 -> the game's refusal dialog with message 231020 ("Vous avez acheté toutes les pièces disponibles.").
 pub const BUY_OBTAINABLE_CALLSITE: usize = 0xD669C5;
@@ -132,17 +139,9 @@ pub const STATE_FLAG_EXTRA_BASE: u32 = 7900;
 #[allow(dead_code)] // used by the buy-back, lost-forever and pool features
 pub const ROWS_SOLD: u32 = 4100;   // 4100..4417: sold since the last reroll (buy-back)
 pub const ROWS_LOST: u32 = 4550;   // 4550..4867: never offered again (lost forever, or offered [max_occurrences] times)
-// Freed when duplicates came in (the "already rolled" sets of the pool without repeats); dupshop::migrate clears
-// them once in older saves. 7100..7131 now hold the shop baselines + the save format.
-pub const OLD_ROWS_ROLLED: u32 = 7100;     // 7100..7417
-pub const OLD_REWARD_ROLLED_A: u32 = 7501; // 7501..7799
-pub const OLD_REWARD_ROLLED_A_LEN: u32 = 299;
-pub const OLD_REWARD_ROLLED_B: u32 = 7838; // 7838..7856
-/// Shop slot k: copies of its part owned when it was rolled (3 bits each, 8 slots: 7100..7123).
-pub const SHOP_BASELINE: u32 = 7100;
-/// 8-bit save format value (7124..7131): SAVE_FORMAT_DUPES once the old rolled sets are cleared.
-pub const SAVE_FORMAT: u32 = 7124;
-pub const SAVE_FORMAT_DUPES: u32 = 0xA5;
+/// Shop slot k bought since the reroll (1 flag each, 8 slots: 7100..7107; dupshop.rs). Block 7 (7100..7131 free: old
+/// saves from before the shop array may hold other bits there; not converted).
+pub const SHOP_BOUGHT: u32 = 7100;
 /// [max_occurrences] OS Tunings offered their max number of times this run (1 bit per OS_TUNINGS entry: 4418..4434;
 /// lineup parts use ROWS_LOST, chips CHIP_GONE). Block 4 was verified to hold only ROWS_SOLD / ROWS_LOST / REWARD_RNG bits several
 /// missions in.
@@ -155,8 +154,7 @@ pub const CHIP_GONE: u32 = 4504;
 pub const MAX_CHIPS: u16 = 32;
 /// [os_tuning]-style row of chip id k (used as its key in [part_rarity], [lost_on_failure], [max_occurrences]).
 pub const CHIP_ROW0: u16 = 9000;
-/// Chip scripts' saved byte (script.rs `store`): SCRIPT_STORE_BITS per chip id, LSB first, 7132..7387 (block 7, part
-/// of the old rolled sets freed by dupshop::migrate, which clears them once before the save format is set).
+/// Chip scripts' saved byte (script.rs `store`): SCRIPT_STORE_BITS per chip id, LSB first, 7132..7387 (block 7).
 pub const SCRIPT_STORE: u32 = 7132;
 pub const SCRIPT_STORE_BITS: u32 = 8;
 pub const CHIP_MAX_LEVEL: usize = 3;

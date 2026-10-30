@@ -44,6 +44,21 @@ pub unsafe fn offered(row: usize) -> bool {
     i < o::ROW_COUNT && SOLD[i / 64].load(Relaxed) & (1 << (i % 64)) != 0
 }
 
+/// Shop array: `item` sold since the reroll and not bought back.
+pub fn sold(item: u32) -> bool {
+    let Some(row) = row_of(item) else { return false };
+    SOLD[row as usize / 64].load(Relaxed) & (1 << (row % 64)) != 0
+}
+
+/// Shop array: bought back -> out of the list (flag + mirror).
+pub unsafe fn bought_back(item: u32) {
+    let Some(row) = row_of(item) else { return };
+    let game = Game::new(BASE.load(Relaxed));
+    if let Some(man) = game.flag_man() { game.put_row(man, o::ROWS_SOLD, row, false); }
+    set_bit(row, false);
+    logf!("buy-back: {} {:#X} (row {}) bought back", penalty::part_name(item), item, row);
+}
+
 /// A part left the inventory by a sale: add its row to the list (flag + mirror).
 pub unsafe fn record(item: u32, why: &str) {
     let Some(&row) = ROW_OF.get().and_then(|m| m.get(&item)) else { logf!("buy-back: sold {:#X} is not a lineup part ({})", item, why); return };
