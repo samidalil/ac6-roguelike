@@ -340,6 +340,9 @@ pub const MSG_CAT_MENU_TITLE: u32 = 73;
 pub const MSG_CAT_MENU_TEXT: u32 = 74;
 pub const MSG_OS_MENU: u32 = 2009000;      // "AMÉLIORATION OS"
 pub const MSG_OS_UNLOCKED: u32 = 2101000;  // "Accès autorisé : AMÉLIORATION OS/ARÈNE" + its text (both menus listed)
+/// First-time menu tutorials' texts (category MSG_CAT_MENU_TEXT; TutorialParam 2002000 / 2002010, same ids)
+pub const MSG_TUTO_ACHAT: u32 = 2002000;
+pub const MSG_TUTO_VENTE: u32 = 2002010;
 /// UnlockParam_MenuCommand: row of the OS Tuning menu ({type 2 = event flag, flag 3131}) and a flag nothing sets
 /// (the game's own row 99999999 uses it): pointing the row at it keeps the menu locked.
 pub const MENU_ROW_OS_TUNING: u32 = 10080;

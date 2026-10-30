@@ -1900,3 +1900,15 @@ Free: 4361..4417, 4929..4999, 7958..7999, 8000..8019, 8149..8159.
   credits end the run: back to the title); forced chip 9001 picked -> level 1 at 8021, kept after a relaunch; run-over
   4928 set + relaunch -> "run is OVER (flag Some(true))". Build-checked only: OCCUR counts and the HIDE_FROM_POOL bits
   of OS Tunings / chips (same code, new addresses).
+
+## ACHAT / VENTE tutorial texts (2026-10-31)
+- The first-time tutorials' texts are message category 74 (MSG_CAT_MENU_TEXT), ids 2002000 (ACHAT) and 2002010
+  (VENTE), titles in category 73 (found with tools/fmg_search.py on the live game). msg.rs answers both with French
+  texts built once from the settings: sale % (part_sell_percent, weapon_sell_percent added when it differs), the
+  renewal ("après chaque mission réussie" / "toutes les N missions réussies" from reroll_interval), buy-back until the
+  renewal, and the inventory cap (max_parts, garage only). Wording chosen by the user.
+- Whether a tutorial was seen is kept per save; saves/ac-mission-available.sl2 has neither seen (ACHAT / VENTE carry
+  the "new" mark in MAGASIN DE PIÈCES). Close with Tab.
+- **Verified** (2026-10-31, profile ac6-roguelike-buyback.me3, that save, debug `reroll` for a shop): both tutorials
+  show the new texts and fit their box. Side check: the cap's own sell screen (debug `vente`, screen id 0x80) opened
+  and closed -> back to the garage, no VENTE tutorial behind it (the PR #23 pop-up is gone).
