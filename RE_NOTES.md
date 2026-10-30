@@ -1760,12 +1760,18 @@ and offered a bought slot again once a copy was sold.
   exe+907540 (rcx = weapon module = character modules +0x138 (0x27), xmm1 = rate; 0x20 slots x 2 blocks, 0x110
   apart from slot +0x30). Its callers: exe+B6639E (rate 1.0, after exe+905FF0 and an assembly reset), exe+B6C2BF
   (exe+B6C290(chr, rate); its only caller exe+114E991 passes 0.1 for [WorldChrMan+A5A0], the player), exe+784A6A
-  (0.1, an id switch) and a tail jump at exe+78169F (0.1, not hooked). exe+907680 / exe+907870 have no direct callers.
+  (0.1, an id switch) and a tail jump at exe+78169F (0.1, from exe+781680, no direct caller found). exe+907680 /
+  exe+907870 have no direct callers.
 - Static reading, not seen live: before the fix a full resupply already ended raised (the vanilla cap leaves loaded + reserve = totalBulletNum and
   the add_ammo hook raises it); a partial one added rate x the vanilla total.
 - User decision (2026-10-29): a partial refill gives rate x the raised total. chip.rs `resupply_hook` on the three
   call sites: for the player's module only, the slots (equipId, loaded, reserve) are read before the call; after it,
   each weapon of known total keeps the rounds the call put into its loaded round and its reserve becomes
   old reserve + max(1, rate x raised) - those rounds, capped at raised - loaded. Log line
-  `chips: resupply xRATE of the player's weapons: id before -> after, ...` at every player resupply.
-- Verification: pending (mission "Point d'observation", first resupply point, played by the user).
+  `chips: resupply xRATE of the player's weapons: id before -> after, ...` at every player resupply. The tail jump at
+  exe+78169F is hooked too (install_call_hook takes a 5-byte jmp as well as a call).
+- **Verified, full refill** (2026-10-30, Wallclimber played by the user, profile ac6-roguelike-verify.me3, chip 9004 at
+  level 3 = +60 %, set after the mission loaded so the reserves started vanilla): the resupply point logged
+  `resupply x1`: XUAN-GE 75 -> 125 (vanilla total 78), MORLEY 22 -> 40 (25), BML-G1/P20MLT-04 132 -> 224 (140); the
+  slots read from memory matched (loaded + reserve). The next mission loaded with the raised totals (add_ammo hook).
+- Not seen: a partial refill (rate 0.1, three of the hooked sites); no mission event giving one is known yet.
