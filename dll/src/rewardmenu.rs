@@ -58,9 +58,38 @@ pub unsafe fn open_pending(base: usize) {
 struct GameVec { alloc: usize, begin: *const u32, end: *const u32, cap: *const u32 }
 type FnPartsMenu = unsafe extern "system" fn(out: *mut usize, ctx: usize, list: *const GameVec) -> *mut usize;
 
+/// A hidden single-part job (never pushed) per part: its page content callable fills that part's tile (0 = none).
+unsafe fn tile_callables(base: usize, ctx: usize, page: usize, ids: &[u32]) -> Vec<usize> {
+    let make: FnPartsMenu = core::mem::transmute(base + o::FN_GOT_REWARD_PARTS_MENU);
+    let get_alloc: unsafe extern "system" fn() -> usize = core::mem::transmute(base + o::FN_DEFAULT_ALLOCATOR);
+    ids.iter().map(|id| {
+        let one: &'static [u32] = Box::leak(vec![*id].into_boxed_slice());
+        let v1 = GameVec { alloc: get_alloc(), begin: one.as_ptr(), end: one.as_ptr().add(1), cap: one.as_ptr().add(1) };
+        let mut job = 0usize;
+        make(&mut job, ctx, &v1);
+        let c = find_content_callable(base, job);
+        if c == 0 { logf!("grid: page {} part {:#X}: no content callable", page, id); }
+        c
+    }).collect()
+}
+/// The results ctx our grid was built with (the later pages' tile jobs are made with it too).
+static BUILD_CTX: AtomicUsize = AtomicUsize::new(0);
+
+/// Game thread: page `page` of the grid, if it is a reward page not rolled yet, is rolled now (choice.rs) and its
+/// tiles made, before the class opens it. `why` for the log.
+unsafe fn roll_page(base: usize, page: usize, why: &str) {
+    if !PAGES.lock().is_ok_and(|p| p.get(page).is_some_and(|pg| pg.ids.is_empty())) { return; }
+    let Some(new) = choice::roll_page(page) else { return };
+    let row = tile_callables(base, BUILD_CTX.load(Relaxed), page, &new.ids);
+    logf!("grid: page {} rolled ({}): {:X?}", page + 1, why, new.ids);
+    if let Ok(mut p) = PAGES.lock() { if let Some(pg) = p.get_mut(page) { *pg = new; } }
+    if let Ok(mut c) = CALLABLES.lock() { if let Some(r) = c.get_mut(page) { *r = row; } }
+}
+
 /// Build our grid's job (out) from PAGES: the class gets one part per page (its pages and OK button), each page's
 /// content is then replaced by a grid (fill_hook). Every part also gets a hidden single-part job (never pushed) whose
-/// page content callable fills that part's tile.
+/// page content callable fills that part's tile. A page with no parts yet (a later reward, rolled at the page before
+/// it's OK) gives the class the first page's first part.
 unsafe fn build(base: usize, out: *mut usize, ctx: usize) -> *mut usize {
     let make: FnPartsMenu = core::mem::transmute(base + o::FN_GOT_REWARD_PARTS_MENU);
     let get_alloc: unsafe extern "system" fn() -> usize = core::mem::transmute(base + o::FN_DEFAULT_ALLOCATOR);
@@ -71,24 +100,13 @@ unsafe fn build(base: usize, out: *mut usize, ctx: usize) -> *mut usize {
         let v = GameVec { alloc: get_alloc(), begin: ids.as_ptr(), end: ids.as_ptr().add(ids.len()), cap: ids.as_ptr().add(ids.len()) };
         return make(out, ctx, &v);
     }
-    let mut callables = Vec::new();
-    for (p, page) in pages.iter().enumerate() {
-        let mut row = Vec::new();
-        for id in &page.ids {
-            let one: &'static [u32] = Box::leak(vec![*id].into_boxed_slice());
-            let v1 = GameVec { alloc: get_alloc(), begin: one.as_ptr(), end: one.as_ptr().add(1), cap: one.as_ptr().add(1) };
-            let mut job = 0usize;
-            make(&mut job, ctx, &v1);
-            let c = find_content_callable(base, job);
-            if c == 0 { logf!("grid: page {} part {:#X}: no content callable", p, id); }
-            row.push(c);
-        }
-        callables.push(row);
-    }
+    BUILD_CTX.store(ctx, Relaxed);
+    let callables: Vec<Vec<usize>> = pages.iter().enumerate().map(|(p, page)| tile_callables(base, ctx, p, &page.ids)).collect();
     if let Ok(mut c) = CALLABLES.lock() { *c = callables; }
     for p in &PICKS { p.store(0, Relaxed); }
     if let Ok(mut s) = SEEN_PAGES.lock() { s.clear(); }
-    let firsts: &'static [u32] = Box::leak(pages.iter().map(|p| p.ids[0]).collect::<Vec<_>>().into_boxed_slice());
+    let first = pages.iter().find_map(|p| p.ids.first().copied()).unwrap_or(0);
+    let firsts: &'static [u32] = Box::leak(pages.iter().map(|p| p.ids.first().copied().unwrap_or(first)).collect::<Vec<_>>().into_boxed_slice());
     let v = GameVec { alloc: get_alloc(), begin: firsts.as_ptr(), end: firsts.as_ptr().add(firsts.len()), cap: firsts.as_ptr().add(firsts.len()) };
     logf!("grid: {} page(s) {:X?}", pages.len(), pages.iter().map(|p| p.ids.clone()).collect::<Vec<_>>());
     // the class names its window with this string while it is built: ours until the last page is up
@@ -276,6 +294,8 @@ unsafe extern "system" fn content_lookup_hook(parent: usize, out: *mut usize, pa
             PAGE.store(idx, Relaxed);
         }
         ROOT_HANDLE.store(parent, Relaxed);
+        // normally rolled at the page before it's confirm (tick); an OK the tick did not see rolls it here
+        roll_page(mem::module_base(), PAGE.load(Relaxed), "page opened");
         NEW_PAGE.store(true, Relaxed);
     }
     r
@@ -415,7 +435,7 @@ unsafe fn read_input() -> u32 {
 pub unsafe fn tick(base: usize) {
     if !GRID_OPEN.load(Relaxed) { for a in &ACTIONS { a.store(0, Relaxed); } return; }
     let pulse = read_input();
-    if pulse & IN_OK != 0 { GRID_OPEN.store(false, Relaxed); return; }
+    if pulse & IN_OK != 0 { GRID_OPEN.store(false, Relaxed); roll_page(base, PAGE.load(Relaxed) + 1, "confirm"); return; }
     if pulse == 0 { return; }
     let (n, mut sel) = (COUNT.load(Relaxed), SEL.load(Relaxed));
     if pulse & IN_LEFT != 0 && sel % COLS > 0 { sel -= 1; }

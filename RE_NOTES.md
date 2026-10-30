@@ -892,6 +892,23 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   are inserted. Pages: one class, N pages (OK = next page); a page is recognised by its page object (rsi at the
   content lookup), filled at the class's next part fill. The movie name stays ours until the last page is up.
   On the "AC d'essai" results screen the parts step waits for Fermer (pending list intact until then).
+- **Later reward pages rolled at the results (2026-10-30, user: "roll one by one on the spot, rechecking the
+  conditions each time")**: the tiles never come from the pending list: a hidden single-part job (exe+10158D0) made
+  from any item id gives the tile's content callable. RE test: page 2 rebuilt at page 1's confirm with other ids and
+  the results ctx saved at the build -> shown with the new parts and order, no crash. So only the first reward is
+  rolled and queued at sortie (the results step opens on a non-empty pending list); the class gets N pages (an empty
+  page gives it the first page's first part), and page k+1 is rolled at page k's confirm (rewardmenu tick, menu action
+  0x155) or, when the tick did not see it (mouse click on OK), when the page binds its content (content lookup hook,
+  inside the class: also works). The recheck runs against the sortie's candidates with the live state and the earlier
+  picks: OS Tuning level + picks < max, unique part not owned / not picked / not in the shop rolled at the clear,
+  [max_occurrences] count (the first page counted at the clear, a later page when rolled) < max. The same part can come
+  back on a later page. At the commit the later pages' picks are given deferred (give flag 0, like the sortie grant)
+  after the prune, and the commit inserts them; OS levels still rise at the commit.
+  Verified (profile ac6-roguelike-zen.me3, 2 rewards x 3 choices): chip 9006 at LV2 forced on page 1 and picked ->
+  "reward page 2: left out since the sortie: ... Prime de performance (max level)", page 2 rolled at the confirm,
+  chip 2 -> 3 and the page 2 pick ALULA/21E queued at the commit, in the inventory after it (17 -> 18 parts); page 1
+  confirmed with a mouse click -> page 2 rolled when it opened, shown "CHOISISSEZ UNE PIÈCE (2/2)", both picks owned
+  after the commit (17 -> 19).
 - **Pad: NOT via XInput.** XInput sees the pad from outside the game (slot 0, Bluetooth Xbox), but inside the process
   the DLL's XInputGetState calls report nothing and the game never calls its XINPUT9_1_0 import: the game reads the
   pad through its own input system (probably Steam Input). Solved with the game's menu actions (below).
