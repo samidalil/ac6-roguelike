@@ -1589,6 +1589,34 @@ each time it closes while still over (no auto-sell); with several rewards the ch
 - **VENTE tutorial.** The first Vente of a save queues 02_Tutorial_Modal; with Vente opened by the DLL (a child) it
   shows after the list closes. Its seen state is saved (no event flag 0..9999 changes; after a save + relaunch the
   tutorial and the "!" badge are gone): at most once per save.
+  Showing it OVER a DLL-opened Vente (2026-10-30, not done; where it stands):
+  - The tutorial window is created (window map insert, rsi -> {flags 0x1_00000012, "02_Tutorial_Modal"}) from the
+    menu manager's update of its component list manager_sub+0xE0 (exe+D8461D, every frame) -> ... exe+D61E74 /
+    D622EB (the same window creation as Vente's). Write watch on the window map size manager+0xA8 found it.
+  - NOT the gate: the manager state mask exe+CD24D0 / "busy" exe+CD2880 (0x800008 / 1 in the idle garage, with the
+    vanilla Vente and with ours alike), the job queue (manager_sub+0x1C0 deque, size +0x1E8: empty in every case),
+    the child slots' update (exe+D840DD / D84118 update +0x78 and +0x68 every frame).
+  - The difference: the vanilla Vente is NOT a manager child ("next" slot +0x78/+0x80 empty while it is open, and
+    while its tutorial is up): it is hosted inside the garage menu job (the "current" child +0x68). The garage
+    builds the Vente job (same factory, ctx = its own component stack, e.g. 7FF397D7B160, not manager+0x10), then
+    exe+D3FABE calls exe+16C48B0(out, &jobRef, parent ctx = rbp+0x7B0): a 0x58-byte host component (vtable
+    exe+3B3A100) made by exe+16C2DF0(host, &jobRef, ctx), which stores the job at host+0x10; then exe+16C3510(host,
+    ...) attaches it. A DLL Vente sits in the manager's "next" slot, and the tutorial only shows once it is gone.
+  - Hosting, read further (2026-10-30): exe+16C48B0(out, &job, &callback) = new 0x58-byte host {vtable exe+3B3A100,
+    refcount, job +0x10, std::function copy +0x18} (16C2DF0 builds it; the 3rd argument is a callback, not a parent);
+    16C3510 only copies a reference. The garage then composes it into its own task chain (exe+D5B260 / A63060 /
+    16C3560 -> the garage's next state): the host runs because the garage job updates it. The manager's slots hold
+    tasks updated by exe+D5B440 (update returns the successor): +0x68 current child (the garage, itself in a host,
+    vtable exe+3B3A0D8), +0x78 next child, +0xE0 (the tutorial while shown), +0x278 / +0x280. Opening is
+    exe+D83BA0(slot, out handle, &flags, &job) (D83350 = it on +0x78). Test: Vente opened with D83BA0 in +0x278 ->
+    its list was built, nothing shown, the game crashed seconds later. A raw job written into +0x278 was dropped.
+  - Conclusion: the vanilla context is the garage job's own task chain; it cannot be reproduced outside the garage
+    (nothing to host the task over the results screen). Given up (user's call: replicate or give up); the other route
+    would be moving the reward choice to the garage. The AC model missing in Vente over the results has the same root:
+    the garage scene (3D AC) does not exist on the results screen.
+  - Correction: the "frozen garage menus" seen with breakpoints / entry hooks on exe+DA3410 / DC2A70 were most likely
+    Enter presses the garage did not take (it later needed 2-3 presses without any hook).
+  - Debug used: `menustate` (mask + busy, removed), window-map write watch, garage-job diff (tools: scratchpad).
 - **Nothing to sell** (counted parts all equipped or priced 0, e.g. the Worm Killer): the dialog says to take parts off
   the AC in ASSEMBLAGE and sell them; no Vente (it would reopen at once forever); the check runs again when a list
   window closes. Not reproduced in game (needs an unsellable spare).
@@ -1603,3 +1631,11 @@ each time it closes while still over (no auto-sell); with several rewards the ch
   actions (same AddItem path, not run), mouse clicks on the hidden grid's OK while Vente is open, reward_choices = 1
   without OS offers (no grid: only the after-commit check). Tutorial texts: separate task. Breakpoints on per-frame menu functions (exe+DC2A70,
   exe+D834E0) froze the UI: watch only functions that run once per menu.
+
+## Hook memory reserved at load (2026-10-30, fix)
+Some launches logged "shop hook FAILED: no near page for the cave -- aborting" (2 of 4 in a row) and ran without the
+mod. The game's heaps fill nearly all of +-1.75 GB around the image (VirtualQueryEx in such a launch: 281 free 64 KB
+slots left in that range), and the hooks are installed ~10 s after load. Now DllMain reserves 1 MB of RWX memory
+within rel32 reach before the game allocates (`alloc_near`, below the image then above), and every cave / trampoline
+page comes from it (`alloc_near_page`, then the old scan as a fallback); the shop predicate hook, which had its own
+below-only scan, uses `alloc_cave` too. Verified: 3 launches in a row, every hook inside the block (0x13FF00000).

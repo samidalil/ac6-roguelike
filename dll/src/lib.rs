@@ -607,16 +607,30 @@ fn chosen() -> Vec<u32> { CHOSEN.iter().map(|c| c.load(Relaxed)).collect() }
 /// The cave must sit within +-2 GB of the call site, so it is allocated just below the module.
 /// A fresh RWX page within +-2 GB below the image (for 5-byte rel32 jumps/calls).
 unsafe fn alloc_near_page(base: usize) -> Option<usize> {
-    let mut hint = base - 0x10000;
+    // the block reserved at load time first: by the time the hooks are installed the game's heaps can fill every
+    // 64 KB slot within rel32 reach of the image (seen: the DLL aborted at boot on some launches)
+    let used = POOL_USED.fetch_add(0x1000, Relaxed);
+    if POOL.load(Relaxed) != 0 && used + 0x1000 <= POOL_SIZE { return Some(POOL.load(Relaxed) + used); }
+    alloc_near(base, 0x1000)
+}
+
+/// Hook memory reserved next to the image when the DLL is loaded, carved into pages by `alloc_near_page`.
+static POOL: AtomicUsize = AtomicUsize::new(0);
+static POOL_USED: AtomicUsize = AtomicUsize::new(0);
+const POOL_SIZE: usize = 0x10_0000;
+
+/// `size` bytes of executable memory within rel32 reach of the image (below it first, then above).
+unsafe fn alloc_near(base: usize, size: usize) -> Option<usize> {
+    let mut hint = base - ((size + 0xFFFF) & !0xFFFF);
     while hint > base.saturating_sub(0x7000_0000) {
-        let p = VirtualAlloc(hint as *mut c_void, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+        let p = VirtualAlloc(hint as *mut c_void, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
         if !p.is_null() { return Some(p as usize); }
         hint -= 0x10000;
     }
     // below the image is full (every page takes a 64 KB allocation slot): above it, still within rel32 reach
     let mut hint = (base + o::IMAGE_SIZE + 0xFFFF) & !0xFFFF;
-    while hint < base + 0x7000_0000 {
-        let p = VirtualAlloc(hint as *mut c_void, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    while hint < base + 0x7000_0000 - size {
+        let p = VirtualAlloc(hint as *mut c_void, size, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
         if !p.is_null() { return Some(p as usize); }
         hint += 0x10000;
     }
@@ -709,15 +723,7 @@ unsafe fn install_shop_hook(base: usize) -> Result<usize, String> {
     if mem::rd_u8(site) != 0xE8 || mem::rd_i32(site + 1) != expect_rel {
         return Err(format!("unexpected bytes at call site: {:02X} rel={:#X}", mem::rd_u8(site), mem::rd_i32(site + 1)));
     }
-    // find a free page below the image
-    let mut cave = 0usize;
-    let mut hint = base - 0x10000;
-    while hint > base.saturating_sub(0x7000_0000) {
-        let p = VirtualAlloc(hint as *mut c_void, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-        if !p.is_null() { cave = p as usize; break; }
-        hint -= 0x10000;
-    }
-    if cave == 0 { return Err("no near page for the cave".into()); }
+    let cave = alloc_cave(base, 12).ok_or("no near page for the cave")?;
     let target = shop_pred as *const () as usize as u64;
     let mut code = [0u8; 12];
     code[0] = 0x48; code[1] = 0xB8; // mov rax, imm64
@@ -968,7 +974,7 @@ fn boot() {
     let _ = std::fs::remove_file(log_path());
     log("=== ac6_roguelike DLL boot ===");
     let base = mem::module_base();
-    logf!("module base = {:#X}", base);
+    logf!("module base = {:#X}, hook memory reserved at load: {:#X}", base, POOL.load(Relaxed));
     config::load();
     chip::load();
     msg::set_base(base);
@@ -1463,7 +1469,11 @@ const DLL_PROCESS_ATTACH: u32 = 1;
 #[no_mangle]
 pub extern "system" fn DllMain(module: *mut c_void, reason: u32, _reserved: *mut c_void) -> i32 {
     if reason == DLL_PROCESS_ATTACH {
-        unsafe { DisableThreadLibraryCalls(module); }
+        unsafe {
+            DisableThreadLibraryCalls(module);
+            // hook memory next to the image now, before the game's heaps take the space within rel32 reach
+            if let Some(p) = alloc_near(mem::module_base(), POOL_SIZE) { POOL.store(p, Relaxed); }
+        }
         std::thread::spawn(boot);
     }
     1
