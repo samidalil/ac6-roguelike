@@ -697,11 +697,13 @@ unsafe fn install_coam_hook(base: usize) -> Result<usize, String> {
     Ok(cave)
 }
 
-/// Replace a 5-byte `call target` at `site_rva` with `call cave`, cave = `mov rax, f; jmp rax`.
+/// Replace a 5-byte `call target` (or tail `jmp target`) at `site_rva` with `call cave` (`jmp cave`), cave = `mov rax,
+/// f; jmp rax`.
 unsafe fn install_call_hook(base: usize, site_rva: usize, target_rva: usize, f: usize) -> Result<usize, String> {
     let site = base + site_rva;
     let expect_rel = (target_rva as i64 - (site_rva as i64 + 5)) as i32;
-    if mem::rd_u8(site) != 0xE8 || mem::rd_i32(site + 1) != expect_rel {
+    let op = mem::rd_u8(site);
+    if (op != 0xE8 && op != 0xE9) || mem::rd_i32(site + 1) != expect_rel {
         return Err(format!("unexpected bytes at exe+{:X}: {:02X} rel={:#X}", site_rva, mem::rd_u8(site), mem::rd_i32(site + 1)));
     }
     let cave = alloc_cave(base, 12).ok_or("no near page for the cave")?;
@@ -711,7 +713,7 @@ unsafe fn install_call_hook(base: usize, site_rva: usize, target_rva: usize, f: 
     code[10] = 0xFF; code[11] = 0xE0;
     core::ptr::copy_nonoverlapping(code.as_ptr(), cave as *mut u8, code.len());
     let mut patch = [0u8; 5];
-    patch[0] = 0xE8;
+    patch[0] = op;
     patch[1..5].copy_from_slice(&((cave as i64 - (site as i64 + 5)) as i32).to_le_bytes());
     if !write_code(site, &patch) { return Err("VirtualProtect failed".into()); }
     Ok(cave)

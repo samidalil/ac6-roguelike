@@ -272,6 +272,7 @@ pub unsafe fn install(base: usize) {
     hooks.push((o::TOTAL_WEIGHT_CALLSITE, o::FN_TOTAL_WEIGHT, total_weight_hook as *const () as usize));
     hooks.push((o::ADD_AMMO_CALLSITES[0], o::FN_ADD_AMMO, add_ammo_hook as *const () as usize));
     hooks.push((o::ADD_AMMO_CALLSITES[1], o::FN_ADD_AMMO, add_ammo_hook as *const () as usize));
+    for &s in &o::RESUPPLY_CALLSITES { hooks.push((s, o::FN_RESUPPLY, resupply_hook as *const () as usize)); }
     for (site, target, f) in hooks {
         match install_call_hook(base, site, target, f) {
             Ok(_) => {}
@@ -323,3 +324,30 @@ unsafe fn add_ammo(ammo: usize, rounds: i32) -> u64 {
     r
 }
 unsafe extern "system" fn add_ammo_hook(ammo: usize, rounds: i32) -> u64 { add_ammo(ammo, rounds) }
+
+/// Resupply (exe+907540: rcx = a character's weapon module, xmm1 = rate; each slot gets max(1, rate x total)
+/// rounds, capped at the total). For the player's module, each weapon with a known total ends with what the game
+/// would give with the raised total: the rounds the call put into the loaded round stay, the rest goes to the
+/// reserve, capped at the raised total.
+unsafe extern "system" fn resupply_hook(module: usize, rate: f32) -> u64 {
+    let base = mem::module_base();
+    let orig: unsafe extern "system" fn(usize, f32) -> u64 = core::mem::transmute(base + o::FN_RESUPPLY);
+    if module == 0 || module != player_module(base, o::CHR_MOD_WEAPONS) { return orig(module, rate); }
+    let slots: Vec<(usize, u32, i32, i32)> = (0..o::WEAPON_SLOTS).map(|k| module + o::WEAPON_SLOT0 + k * o::WEAPON_SLOT_STRIDE)
+        .map(|s| (s, mem::rd_u32(s + o::SLOT_ID), mem::rd_i32(s + o::SLOT_LOADED), mem::rd_i32(s + o::SLOT_RESERVE))).collect();
+    let r = orig(module, rate);
+    let mut out = Vec::new();
+    for (s, id, loaded, reserve) in slots {
+        let Some(&total) = AMMO.get().and_then(|t| t.get(&id)) else { continue };
+        if loaded < 0 || reserve < 0 { continue; }
+        let raised = modify(Target::Ammo, total as f64).round() as i32;
+        let now = mem::rd_i32(s + o::SLOT_LOADED);
+        if raised != total && now >= 0 {
+            let rest = ((raised as f32 * rate) as i32).max(1) - (now - loaded).max(0);
+            mem::wr_i32(s + o::SLOT_RESERVE, (reserve + rest.max(0)).min(raised - now).max(0));
+        }
+        out.push(format!("{} {} -> {}", id, loaded + reserve, now + mem::rd_i32(s + o::SLOT_RESERVE)));
+    }
+    logf!("chips: resupply x{} of the player's weapons: {}", rate, out.join(", "));
+    r
+}
