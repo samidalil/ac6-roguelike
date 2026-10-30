@@ -65,6 +65,7 @@ unsafe extern "system" fn screen_id_hook(out: *mut u16, id: u32) -> *mut u16 {
 unsafe extern "system" fn list_closed_hook(this: usize, flags: u32) -> usize {
     let orig: unsafe extern "system" fn(usize, u32) -> usize = core::mem::transmute(BASE.load(Relaxed) + o::FN_LIST_WINDOW_DTOR);
     if OVER.load(Relaxed) { CHECK.store(true, Relaxed); }
+    if NAMES_SWAPPED.load(Relaxed) { swap_names(false, false); log("inventory cap: vanilla list and stats movie names restored"); }
     orig(this, flags)
 }
 
@@ -106,28 +107,50 @@ pub fn refused_text(category: u32, id: u32) -> Option<usize> {
     Some(TEXT.get_or_init(|| format!("Inventaire plein ({} pièces maximum).\nVendez une pièce pour en acheter une autre.\0", max).encode_utf16().collect()).as_ptr() as usize)
 }
 
-// ---- the cap's sell screen: its own movie (RE_NOTES "Cap sell screen: own movie")
-/// Movie names (same length: the class's string is patched in place).
-const VANILLA_MOVIE: &str = "02_010_EquipTop";
-const SELL_MOVIE: &str = "02_010_EquipCap";
-static mut SELL_NAME_W: [u16; 16] = [0; 16];
-/// Frames left before the vanilla window name is written back (0 = nothing pending).
+// ---- the cap's sell screen: its own movies (RE_NOTES "Cap sell screen: own movie")
+/// (vanilla menu table entry, vanilla name, ours): ours = the list movie without the 3D AC and the AC specs, the list
+/// and the part info / stats moved right to centre the screen. Same lengths: the shared name strings are patched in place.
+const MOVIES: [(usize, &str, &str); 5] = [
+    (o::MENU_ENTRY_EQUIP_TOP, "02_010_EquipTop", "02_010_EquipCap"),
+    (o::MENU_ENTRY_EQUIP, "02_Equip", "02_EqCap"),
+    (o::MENU_ENTRY_GAITEM_STATUS[0], "02_GaitemStatus_General_Normal", "02_GaitemStatus_CapView_Normal"),
+    (o::MENU_ENTRY_GAITEM_STATUS[1], "02_GaitemStatus_General_DetailComparison", "02_GaitemStatus_CapView_DetailComparison"),
+    (o::MENU_ENTRY_GAITEM_STATUS[2], "02_GaitemStatus_General_ModelViewer", "02_GaitemStatus_CapView_ModelViewer"),
+];
+/// Each movie's name string (the vanilla entry's), read at boot.
+static NAME_AT: [AtomicUsize; 5] = [const { AtomicUsize::new(0) }; 5];
+/// Frames left before the list window name is written back (0 = nothing pending); the others go back when it closes.
 static MOVIE_RESTORE_IN: AtomicU32 = AtomicU32::new(0);
-/// Boot: make the game preload our movie, under the menu table entry of 02_OnlineArena_MatchLog (online only).
+static NAMES_SWAPPED: AtomicBool = AtomicBool::new(false);
+/// Boot: make the game preload our movies, under online-only menu table entries (layer of the vanilla entry).
 pub unsafe fn register_movie(base: usize) {
-    let names = core::ptr::addr_of_mut!(SELL_NAME_W) as *mut u16;
-    for (k, c) in SELL_MOVIE.encode_utf16().enumerate() { *names.add(k) = c; }
-    let entry = base + o::MENU_TABLE_SELL_ENTRY;
-    let old = mem::rd_usize(entry);
-    core::ptr::write_unaligned(entry as *mut usize, names as usize);
-    logf!("inventory cap: sell movie {} registered in menu table entry exe+{:X} (was {:#X})", SELL_MOVIE, o::MENU_TABLE_SELL_ENTRY, old);
+    for (k, &(vanilla, old, ours)) in MOVIES.iter().enumerate() {
+        let (from, to) = (base + o::MENU_TABLE + vanilla * 16, base + o::MENU_TABLE + o::MENU_ENTRY_ONLINE[k] * 16);
+        let at = mem::rd_usize(from + 8);
+        let name: String = (0..old.len()).map(|i| char::from_u32(mem::rd_u16(at + 2 * i) as u32).unwrap_or('?')).collect();
+        if name != old { logf!("inventory cap: menu entry {:#X} is {:?}, not {} (movie not registered)", vanilla, name, old); continue; }
+        NAME_AT[k].store(at, Relaxed);
+        let w: &'static mut Vec<u16> = Box::leak(Box::new(ours.encode_utf16().chain([0]).collect()));
+        let was = mem::rd_usize(to + 8);
+        core::ptr::write_unaligned(to as *mut usize, mem::rd_usize(from));
+        core::ptr::write_unaligned((to + 8) as *mut usize, w.as_ptr() as usize);
+        logf!("inventory cap: movie {} registered in menu entry {:#X} (was {:#X})", ours, o::MENU_ENTRY_ONLINE[k], was);
+    }
 }
-/// Game thread, every frame: the vanilla window name back once our window is built.
+/// The window names: ours (opening the cap's screen) or the vanilla ones; `list` = the list window's name too.
+unsafe fn swap_names(ours: bool, list: bool) {
+    for (k, &(_, old, new)) in MOVIES.iter().enumerate() {
+        let at = NAME_AT[k].load(Relaxed);
+        if at != 0 && (k > 0 || list) { rewardmenu::write_wide(at, if ours { new } else { old }); }
+    }
+    NAMES_SWAPPED.store(ours, Relaxed);
+}
+/// Game thread, every frame: the vanilla list window name back once our window is built.
 pub unsafe fn tick_any() {
     let left = MOVIE_RESTORE_IN.load(Relaxed);
     if left == 0 { return; }
     MOVIE_RESTORE_IN.store(left - 1, Relaxed);
-    if left == 1 { rewardmenu::write_wide(BASE.load(Relaxed) + o::EQUIP_TOP_MOVIE_NAME, VANILLA_MOVIE); log("inventory cap: vanilla list movie name restored"); }
+    if left == 1 { let at = NAME_AT[0].load(Relaxed); if at != 0 { rewardmenu::write_wide(at, MOVIES[0].1); } log("inventory cap: vanilla list movie name restored"); }
 }
 
 /// Open the Vente list on the next frame.
@@ -144,8 +167,8 @@ struct StdFunction { storage: [usize; 7], callable: usize }
 /// callable around the sell-menu factory, opened on top of the current menu like the dialog (exe+DC4B60: the job is
 /// made by the menu manager and opened as its child at once).
 unsafe fn open_sell(base: usize) {
-    // our movie (menu/02_010_equipcap.gfx: no 3D AC view, no AC specs) for this window; vanilla name back a second later
-    rewardmenu::write_wide(base + o::EQUIP_TOP_MOVIE_NAME, SELL_MOVIE);
+    // our movies for this screen: the list window's name back a second later, the others when it closes
+    swap_names(true, true);
     MOVIE_RESTORE_IN.store(60, Relaxed);
     let mut f = StdFunction { storage: [0; 7], callable: 0 };
     f.storage[0] = base + o::FN_PTR_FUNCTION_VTABLE;

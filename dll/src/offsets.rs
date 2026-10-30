@@ -80,10 +80,16 @@ pub const FN_SELL_MENU: usize = 0x10A5C00;
 pub const FN_MENU_JOB_OPEN_ON_TOP: usize = 0xDC4B60;
 /// exe+DC4AE0(job, id) -> 1 while that job is the manager's open child (+0x68/+0x70) or the next one (+0x78/+0x80).
 pub const FN_MENU_JOB_IS_OPEN: usize = 0xDC4AE0;
-/// UTF-16 "02_010_EquipTop": the name the part-list window class (ctor exe+10A2E60) builds its window with; the menu
-/// table entry {flags, name} of 02_OnlineArena_MatchLog (id 0x64, online only) preloads the cap's own sell movie.
-pub const EQUIP_TOP_MOVIE_NAME: usize = 0x3901B60;
-pub const MENU_TABLE_SELL_ENTRY: usize = 0x4E28CF0 + 0x64 * 16 + 8;
+/// Menu table: {flags, UTF-16 name} entries of 16 bytes (flags low byte = draw layer); the game preloads each movie.
+/// A window is built from a name string shared with its entry (02_010_EquipTop exe+3901B60: the part-list window class,
+/// ctor exe+10A2E60; 02_Equip exe+38F2A08, built by the list builder exe+10A618B; 02_GaitemStatus_General_* the part
+/// info and stats). The cap's sell screen patches those strings to its own movies, preloaded under online-only entries.
+pub const MENU_TABLE: usize = 0x4E28CF0;
+pub const MENU_ENTRY_EQUIP_TOP: usize = 0x16;
+pub const MENU_ENTRY_EQUIP: usize = 0x17;
+pub const MENU_ENTRY_GAITEM_STATUS: [usize; 3] = [0x2E, 0x2F, 0x30]; // Normal, DetailComparison, ModelViewer (0x2D Minimum: no file)
+/// 02_OnlineArena_MatchLog, _PlayerDetails, _RankMatch, _NamePlateList, _RoomList.
+pub const MENU_ENTRY_ONLINE: [usize; 5] = [0x64, 0x65, 0x67, 0x69, 0x62];
 /// The VENTE factory's screen id (RE_NOTES "Screen ids and the first-time menu tutorials"): `mov edx, 0x23;
 /// call exe+CD74F0(u16* out, id)` at exe+10A5EBE (ACHAT's 0x22 at exe+10A5B59). The cap's screen gets 0x80 instead:
 /// no MenuBehaviorParam row (switch exe+15A5BF0 default: no tutorial request, no help) and outside the manager's

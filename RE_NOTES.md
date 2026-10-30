@@ -1691,11 +1691,18 @@ How the VENTE tutorial (TutorialParam 2002010, "Le menu VENTE permet...") is que
   placeholder from the movie removes it (the game finds no slot and draws no panel). Vanilla screens all keep it.
 - **Panel (2026-10-30).** The AS3 draws a dialog panel under the movie instead of a full-screen backdrop: the vanilla
   dialogs' blue (vertical gradient #3F506B -> #2D3B54, sampled from the Vente confirmation), a thin border and corner
-  marks like the tutorial window, around x 60..1220 / y 20..1000; the rest of the screen (garage, credits) stays
-  visible. Not centred: the list, the part info and the part stats are other movies (the list window's builder also
-  makes "02_Equip", exe+10A618B; the stats 02_GaitemStatus_*), full-screen windows drawn at fixed positions. Moving
-  the ItemList placement (XML), ItemList.x (AS3, every frame) or the whole movie root moved only what this movie draws
-  (title, key guide, panel). Centring them needs our own copies of those movies.
+  marks like the tutorial window; the rest of the screen (garage, credits) stays visible.
+- **Centred (2026-10-30).** The list, the part info and the part stats are other movies (the list window's builder
+  also makes "02_Equip", exe+10A618B; the stats 02_GaitemStatus_General_Normal / _DetailComparison / _ModelViewer;
+  _Minimum has a table entry but no file), full-screen windows drawn at fixed positions: moving the ItemList placement (XML), ItemList.x (AS3,
+  every frame) or the whole movie root moved only what this movie draws (title, key guide, panel). So the cap has its
+  own copies of those 4 movies too (02_eqcap, 02_gaitemstatus_capview_*), all built by tools/build_equipcap.ps1 with
+  tools/build_capmovies.py: every main-timeline placement +320 px (content x 60..1220 -> 380..1540; the key guide
+  StatusBar stays). Each window is built from a name string shared with its menu table entry (the table entry of
+  02_Equip points at the same exe+38F2A08 the builder uses): cap.rs patches the 5 strings in place (same lengths;
+  "General" -> "CapView") when it opens its screen, the list window's back 60 frames later, the others when the list
+  window closes (its destructor hook). Ours are preloaded under online-only entries 0x64 / 0x65 / 0x67 / 0x69 / 0x62
+  (flags copied from the vanilla entry: the stats are layer 0x10).
 - **GFX = Scaleform (SWF):** binary tags (shapes, sprites, text fields, PlaceObject placements per frame with depth and
   name, AS3 bytecode). FFDec converts to XML and back and replaces AS3 classes; the reward grid (build_rwdchoice) and
   this screen are both built that way.

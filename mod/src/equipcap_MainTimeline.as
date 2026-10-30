@@ -28,9 +28,9 @@ package _02_010_EquipTop_fla
          this.addChildAt(this.panel(), 0);
       }
 
-      // panel bounds (stage pixels): around the title, the list and the part panels (x 60..1220; those are other
-      // movies at fixed positions: 02_Equip, 02_GaitemStatus_*)
-      private static const PX:Number = 60;
+      // panel bounds (stage pixels): around the title, the list and the part panels, centred (the vanilla x 60..1220
+      // moved right by 320 in this movie and in our copies of 02_Equip and 02_GaitemStatus_*: build_capmovies.py)
+      private static const PX:Number = 380;
       private static const PY:Number = 20;
       private static const PW:Number = 1160;
       private static const PH:Number = 980;

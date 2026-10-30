@@ -5,7 +5,8 @@ From the vanilla part list movie (FFDec -swf2xml), on the main timeline: every t
 its 02_050_DetailStatus_Player window on DetailStatusView/AdjustPosTop/Status_Player) is removed, the placement and
 its animation moves. The rest (category tabs, title, key guide) is untouched: the game binds those names. The list,
 part info and part stats are other movies (02_Equip, 02_GaitemStatus_*: full-screen windows at fixed positions).
-Then: ffdec -xml2swf, and -importScript for MainTimeline (see equipcap_MainTimeline.as)."""
+Then: build_capmovies.py (centred, like the cap's copies of those), ffdec -xml2swf, and -importScript for MainTimeline
+(see equipcap_MainTimeline.as)."""
 import re, sys
 
 src, dst = sys.argv[1], sys.argv[2]
