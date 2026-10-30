@@ -16,8 +16,8 @@ use super::*;
 use std::sync::atomic::AtomicBool;
 
 /// Shop slot -> grant id (0 = empty, or a part the game decides for).
-static SLOT_ID: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
-static SLOT_BOUGHT: [AtomicBool; 8] = [const { AtomicBool::new(false) }; 8];
+static SLOT_ID: [AtomicU32; o::SHOP_SLOTS_MAX as usize] = [const { AtomicU32::new(0) }; o::SHOP_SLOTS_MAX as usize];
+static SLOT_BOUGHT: [AtomicBool; o::SHOP_SLOTS_MAX as usize] = [const { AtomicBool::new(false) }; o::SHOP_SLOTS_MAX as usize];
 static TRAMPOLINE: AtomicUsize = AtomicUsize::new(0);
 static GAME_BASE: AtomicUsize = AtomicUsize::new(0);
 

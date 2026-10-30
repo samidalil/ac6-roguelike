@@ -8,7 +8,7 @@
 
 use super::*;
 
-// ---- saved state (free flag range of block 4, RE_NOTES "Save storage")
+// ---- saved state (offsets REWARD_RNG, RE_NOTES "Save layout")
 unsafe fn load_rng(g: &Game, man: usize) -> Rng {
     let s = g.get_bits(man, o::REWARD_RNG, 32) as u64 | (g.get_bits(man, o::REWARD_RNG + 32, 32) as u64) << 32;
     if s == 0 { Rng::seeded() } else { Rng(s) }
@@ -93,7 +93,7 @@ pub unsafe fn roll_page(p: usize) -> Option<rewardmenu::Page> {
     let lv = mem::rd_usize(gd + o::GD_OS_TUNING);
     let level = |row: u16| os::level_in(&g, man, lv, row).unwrap_or(0);
     let owned = g.owned_ids(gd);
-    let lost = g.read_rows(man, o::ROWS_LOST);
+    let lost = g.read_rows(man, o::HIDE_FROM_POOL);
     let counts = occur::read(&g, man);
     let shop = g.read_state(man).unwrap_or_default();
     // why a sortie candidate is out now (None = still in)

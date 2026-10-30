@@ -1,17 +1,17 @@
 # Armored Core VI roguelike settings. Edit and restart the game.
 
 [economy]
-mission_pay_percent = 0          # % of the game's mission pay you receive (0 = selling parts is the only income)
-arena_repeat_pay_percent = 0     # % of the arena's pay for repeat fights
-ammo_cost_percent = 100          # % of the game's ammunition costs charged after a mission
-repair_cost_percent = 100        # % of the game's repair costs charged after a mission
-starting_credits = 100000        # pay of the first mission of a run (Illegal Entry), the run's starting money
+mission_pay_percent = 0          # % of the game's mission pay you receive, 0 or more (0 = selling parts is the only income)
+arena_repeat_pay_percent = 0     # % of the arena's pay for repeat fights, 0 or more
+ammo_cost_percent = 100          # % of the game's ammunition costs charged after a mission, 0 or more
+repair_cost_percent = 100        # % of the game's repair costs charged after a mission, 0 or more
+starting_credits = 100000        # pay of the first mission of a run (Illegal Entry), the run's starting money (0 to 999999999)
 
 [rewards]
 parts_per_mission = 1            # rewards at the end of each cleared mission (0 to 3)
 reward_choices = 3               # parts offered for each reward, you pick one (1 to 12; 1 = given directly)
-os_rewards = 1                   # 1 = OS Tunings are rewards: each pick adds one level (up to the tuning's max; a
-                                 # core expansion also gives its part), and the OS Tuning menu stays locked
+os_rewards = 1                   # 0 or 1. 1 = OS Tunings are rewards: each pick adds one level (up to the tuning's max;
+                                 # a core expansion also gives its part), and the OS Tuning menu stays locked
 
 [shop]
 # A part's value is the game's shop price; [prices] gives values to the parts the game prices at 0 (starter
@@ -19,19 +19,20 @@ os_rewards = 1                   # 1 = OS Tunings are rewards: each pick adds on
 # Core expansions cannot be sold.
 # charge = what buying costs: the shop price, and on a failed sortie each starter part bought to fill an emptied
 # slot (no spare part for it).
-part_sell_percent = 25           # frame parts and internals sell for this % of their value
-weapon_sell_percent = 25         # weapons sell for this % of their value
-item_charge_percent = 100        # every part (weapons included) costs this % of its value
-shop_weapons = 1                 # weapons offered after each cleared mission
-shop_parts = 2                   # other parts offered after each cleared mission (weapons + parts: 8 at most)
-reroll_interval = 1              # cleared missions between shop rerolls (1 = every mission; rewards still come every mission)
+part_sell_percent = 25           # frame parts and internals sell for this % of their value, 0 or more
+weapon_sell_percent = 25         # weapons sell for this % of their value, 0 or more
+item_charge_percent = 100        # every part (weapons included) costs this % of its value, 0 or more
+shop_weapons = 1                 # weapons offered after each cleared mission (0 to 16)
+shop_parts = 2                   # other parts offered after each cleared mission (0 to 16; weapons + parts: 16 at most)
+reroll_interval = 1              # cleared missions between shop rerolls, 1 to 255 (1 = every mission; rewards still
+                                 # come every mission)
 # Shop offers and rewards can repeat. Weapons and frame parts (head, core, arms, legs) are offered even when you own
 # them (each copy is its own part); boosters, generators and FCS are not offered while owned or once lost for good.
 
 [inventory]
 max_parts = 20                   # parts you can own: weapons, frame parts and internals, equipped ones included (each
                                  # copy counts; core expansions don't). Full: the shop refuses purchases; a reward that
-                                 # goes over asks you to sell parts until you are back at the limit (7 at least)
+                                 # goes over asks you to sell parts until you are back at the limit (7 or more)
 
 [rarity]
 # Shop offers and mission rewards are drawn from pools: a pool by its weight, then a part uniformly within it. Each
@@ -42,9 +43,9 @@ max_parts = 20                   # parts you can own: weapons, frame parts and i
 unlisted_pool = unlisted         # pool of the parts [part_rarity] does not list (a name with no [pool.NAME] section
                                  # gets a pool like [pool.unlisted]: weight 0, no label)
 
-# [pool.NAME]: weight = odds of the pool (any scale; a pool with no part left is skipped, 0 = out), color = its label
-# colour on the reward tiles ("#RRGGBB" or 0xRRGGBB), show_name = 1 to show the label on the tiles, label = the text
-# shown (default: the pool's name; always shown in upper case).
+# [pool.NAME]: weight = odds of the pool, 0 or more (any scale; a pool with no part left is skipped, 0 = out), color =
+# its label colour on the reward tiles ("#RRGGBB" or 0xRRGGBB), show_name = 0 or 1 (1 shows the label on the tiles),
+# label = the text shown (default: the pool's name; always shown in upper case). 200 pools at most.
 [pool.unlisted]                  # always there, even without this section
 weight = 0
 color = "#6E7378"
@@ -67,8 +68,8 @@ weight = 10
 color = "#FFC23D"
 
 [lost_on_failure]
-# What a failed sortie takes from the equipped AC, per item: equipId, "part name", or an OS Tuning row = 1 (lost) or
-# 0 (kept). Unlisted: every weapon and frame part / internal is lost, the OS Tunings are kept.
+# What a failed sortie takes from the equipped AC, per item: equipId, "part name", or an OS Tuning row = 0 (kept) or
+# 1 (lost). Unlisted: every weapon and frame part / internal is lost, the OS Tunings are kept.
 # Core expansions (5010 Assault Armor, 5020 Pulse Armor, 5030 Pulse Protection, 5040 Terminal Armor): the equipped one
 # loses its item and its OS Tuning level (back to 0). The other OS Tunings and our own chips (9001..): each installed
 # one loses ONE level.
@@ -117,8 +118,8 @@ color = "#FFC23D"
 
 [max_occurrences]
 # How many times per run an item can be offered: every reward choice or shop that shows it counts, picked or not;
-# after that it never comes back. Keys: equipId, "part name" or OS Tuning row (any OS Tuning), value 1 to 15
-# (0 = no limit, like unlisted). Losing an item on a failed sortie does not change its count. Shipped: each core
+# after that it never comes back. Keys: equipId, "part name" or OS Tuning row (any OS Tuning), value 1 to 8
+# (0 = no limit, like unlisted; above 8 reads as 8). Losing an item on a failed sortie does not change its count. Shipped: each core
 # expansion as many times as it has levels, so it can be raised to its max over several picks.
 5010 = 3    # Assault Armor
 5020 = 2    # Pulse Armor
@@ -382,7 +383,7 @@ color = "#FFC23D"
 9010 = epic      # Dernier recours (damage below 30 % AP)
 
 [prices]
-# Value of a part: equipId = price, or "part name" = price (spacing and case do not matter; a name also matches
+# Value of a part, 0 or more: equipId = price, or "part name" = price (spacing and case do not matter; a name also matches
 # the other-side copy of a weapon, e.g. the right-arm 10xxxxxx and left-arm 15xxxxxx RF-024 TURNER).
 # Parts the game prices at 0 (starter parts and a few special ones), estimated from their stats by
 # tools/price_model (a weapon whose other-side copy is sold takes that copy's price):

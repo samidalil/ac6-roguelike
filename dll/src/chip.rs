@@ -168,7 +168,7 @@ fn parse(text: &str) -> Result<Chip, String> {
     Ok(c)
 }
 
-// ---- levels (event flags, saved with the run; New Game clears block 4)
+// ---- levels (event flags CHIP_LEVELS, saved with the run; New Game clears them)
 fn flags() -> Option<(Game, usize)> {
     let g = unsafe { Game::new(mem::module_base()) };
     let man = unsafe { g.flag_man()? };
@@ -193,9 +193,6 @@ pub unsafe fn set_level(row: u16, lv: i32) -> bool {
     if lv == 0 { g.put_bits(man, o::SCRIPT_STORE + (c.id as u32 - 1) * o::SCRIPT_STORE_BITS, o::SCRIPT_STORE_BITS, 0); }
     true
 }
-/// [max_occurrences] used up (CHIP_GONE + id - 1).
-pub unsafe fn gone(g: &Game, man: usize, row: u16) -> bool { chip(row).is_some_and(|c| g.get_flag(man, o::CHIP_GONE + c.id as u32 - 1) == Some(true)) }
-pub unsafe fn set_gone(g: &Game, man: usize, row: u16) { if let Some(c) = chip(row) { g.put_flag(man, o::CHIP_GONE + c.id as u32 - 1, true); } }
 
 /// Effect value of a chip at a level (0: none).
 pub fn value(row: u16, lv: i32) -> i32 { chip(row).and_then(|c| c.values.get((lv - 1).max(0) as usize).copied()).filter(|_| lv > 0).unwrap_or(0) }

@@ -126,38 +126,94 @@ pub fn id_tag(equip_type: u8) -> u32 {
     match equip_type { 0 => 0, 1 => 0x1000_0000, 4 => 0x6000_0000, 5 => 0x7000_0000, 6 => 0x5000_0000, _ => 0 }
 }
 
-// --- persistence: our state lives in (hopefully unused) event flags, saved in the .sl2 ---
-/// first flag id of the 28-bit payload (3 x 9-bit lineup row indices + valid bit).
-/// 9900+ turned out to be game-owned (9901/9902/9904/9915/9924 set at mission end); block 8 is
-/// empty on a fresh save through mission 2 — verify further with tools/flag_monitor.py.
-pub const STATE_FLAG_BASE: u32 = 7800; // block 7: probes 7000/7500/7900 untouched over 2 missions + reload
-pub const STATE_FLAG_BITS: u32 = 27; // bits 0..26 = indices, bit 27 = valid
-/// Shop slots 3.. (config shop size above 3): 9 flags each from here, value = row index + 1 (0 = empty)
-pub const STATE_FLAG_EXTRA_BASE: u32 = 7900;
-/// Row bitsets: flag base + lineup row index (ROW_COUNT flags each). Blocks 4 and 7 hold no game flag (only old
-/// probes 4000/4500/4900/7000/7500, avoided); set + save + relaunch + read back verified 2026-10-27.
-#[allow(dead_code)] // used by the buy-back, lost-forever and pool features
-pub const ROWS_SOLD: u32 = 4100;   // 4100..4417: sold since the last reroll (buy-back)
-pub const ROWS_LOST: u32 = 4550;   // 4550..4867: never offered again (lost forever, or offered [max_occurrences] times)
-/// Shop slot k bought since the reroll (1 flag each, 8 slots: 7100..7107; dupshop.rs). Block 7 (7100..7131 free: old
-/// saves from before the shop array may hold other bits there; not converted).
-pub const SHOP_BOUGHT: u32 = 7100;
-/// [max_occurrences] OS Tunings offered their max number of times this run (1 bit per OS_TUNINGS entry: 4418..4434;
-/// lineup parts use ROWS_LOST, chips CHIP_GONE). Block 4 was verified to hold only ROWS_SOLD / ROWS_LOST / REWARD_RNG bits several
-/// missions in.
-pub const OS_GONE: u32 = 4418;
-/// Our own chips (chip.rs), by chip id 1..MAX_CHIPS: level (2 bits, LSB first: 4440..4503) and "offered its max
-/// number of times" (1 bit: 4504..4535). Block 4, unused range 4435..4549.
-pub const CHIP_LEVELS: u32 = 4440;
-pub const CHIP_LEVEL_BITS: u32 = 2;
-pub const CHIP_GONE: u32 = 4504;
+// --- save layout: the mod's state lives in event flags, saved in the .sl2 with the game's own (RE_NOTES "Save layout").
+// Only the global blocks 0..9 persist (the map blocks 21xxxxx are dropped at a reload). Blocks 4, 7 and 8 hold no game
+// flag except ItemLotParam's "obtained" flags (4000..4199, 4430..4487) and a few param counters in block 8 (8160..),
+// which every range below avoids (`SAVE_RANGES`, checked at compile time). New Game re-creates the blocks: every run
+// starts from cleared flags.
+// block 4
+/// Shop: valid bit (a shop was rolled this run), then SHOP_SLOTS_MAX slots of SHOP_SLOT_BITS (lineup row + 1, 0 =
+/// empty), then one "bought since the reroll" bit per slot (dupshop.rs).
+pub const SHOP_VALID: u32 = 4200;
+pub const SHOP_SLOTS: u32 = 4201;            // 4201..4344
+pub const SHOP_SLOT_BITS: u32 = 9;
+pub const SHOP_SLOTS_MAX: u32 = 16;
+pub const SHOP_BOUGHT: u32 = 4345;           // 4345..4360
+/// Hidden from the pool for the rest of the run, one bit per pool key (`pool_key`): a lineup part / OS Tuning / chip
+/// offered its [max_occurrences] times, or a unique part (booster, generator, FCS) lost on a failure.
+pub const HIDE_FROM_POOL: u32 = 4488;        // 4488..4854
+/// Reward RNG state (choice.rs), 64 bits.
+pub const REWARD_RNG: u32 = 4855;            // 4855..4918
+/// Missions cleared since the last shop reroll (8 bits, LSB first).
+pub const REROLL_COUNTER_BASE: u32 = 4919;   // 4919..4926
+pub const REROLL_COUNTER_BITS: u32 = 8;
+/// Escrow: set at sortie, cleared when the mission is cleared. Still set when the garage loads = the mission was
+/// failed (death) or the game was killed mid-mission -> penalty.
+pub const FLAG_ESCROW: u32 = 4927;
+/// Run over: set at game over; a save loaded with it goes straight back to the title.
+pub const FLAG_RUN_OVER: u32 = 4928;
+// block 7
+/// [max_occurrences] items offered but not used up yet (occur.rs): OCCUR_SLOTS slots of {key: pool_key + 1, 0 = free;
+/// offer count}, LSB first.
+pub const OCCUR_BASE: u32 = 7000;            // 7000..7383
+pub const OCCUR_SLOTS: u32 = 32;
+pub const OCCUR_KEY_BITS: u32 = 9;
+pub const OCCUR_COUNT_BITS: u32 = 3;
+/// Chip scripts' saved byte (script.rs `store`): SCRIPT_STORE_BITS per chip id, LSB first.
+pub const SCRIPT_STORE: u32 = 7384;          // 7384..7639
+pub const SCRIPT_STORE_BITS: u32 = 8;
+/// Sold since the last reroll (buy-back), one bit per lineup row.
+pub const ROWS_SOLD: u32 = 7640;             // 7640..7957
+// block 8
+/// Our own chips' levels (chip.rs): CHIP_LEVEL_BITS per chip id, LSB first.
+pub const CHIP_LEVELS: u32 = 8021;           // 8021..8148
+pub const CHIP_LEVEL_BITS: u32 = 4;
+pub const CHIP_MAX_LEVEL: usize = 15;
 pub const MAX_CHIPS: u16 = 32;
 /// [os_tuning]-style row of chip id k (used as its key in [part_rarity], [lost_on_failure], [max_occurrences]).
 pub const CHIP_ROW0: u16 = 9000;
-/// Chip scripts' saved byte (script.rs `store`): SCRIPT_STORE_BITS per chip id, LSB first, 7132..7387 (block 7).
-pub const SCRIPT_STORE: u32 = 7132;
-pub const SCRIPT_STORE_BITS: u32 = 8;
-pub const CHIP_MAX_LEVEL: usize = 3;
+/// Pool keys (HIDE_FROM_POOL bit, OCCUR key - 1): lineup row 0..ROW_COUNT-1, then the OS Tunings by OS_TUNINGS
+/// index, then the chips by id.
+pub const POOL_KEYS: u32 = ROW_COUNT as u32 + OS_TUNINGS.len() as u32 + MAX_CHIPS as u32;
+
+/// Every saved range (name, first flag, flag count), and the game's flags they must stay clear of.
+pub const SAVE_RANGES: [(&str, u32, u32); 13] = [
+    ("SHOP_VALID", SHOP_VALID, 1),
+    ("SHOP_SLOTS", SHOP_SLOTS, SHOP_SLOTS_MAX * SHOP_SLOT_BITS),
+    ("SHOP_BOUGHT", SHOP_BOUGHT, SHOP_SLOTS_MAX),
+    ("HIDE_FROM_POOL", HIDE_FROM_POOL, POOL_KEYS),
+    ("REWARD_RNG", REWARD_RNG, 64),
+    ("REROLL_COUNTER", REROLL_COUNTER_BASE, REROLL_COUNTER_BITS),
+    ("FLAG_ESCROW", FLAG_ESCROW, 1),
+    ("FLAG_RUN_OVER", FLAG_RUN_OVER, 1),
+    ("OCCUR", OCCUR_BASE, OCCUR_SLOTS * (OCCUR_KEY_BITS + OCCUR_COUNT_BITS)),
+    ("SCRIPT_STORE", SCRIPT_STORE, MAX_CHIPS as u32 * SCRIPT_STORE_BITS),
+    ("ROWS_SOLD", ROWS_SOLD, ROW_COUNT as u32),
+    ("CHIP_LEVELS", CHIP_LEVELS, MAX_CHIPS as u32 * CHIP_LEVEL_BITS),
+    ("FLAG_NEVER", FLAG_NEVER, 1),
+];
+/// Game flags in blocks 4 / 8 (ItemLotParam getItemFlagId 4000..4199 / 4430..4487; GameAreaParam,
+/// ItemLotParam cumulateNumFlagId and MissionSystemMsgCommonParam from 8160 up), as inclusive ranges.
+pub const GAME_FLAGS: [(u32, u32); 3] = [(4000, 4199), (4430, 4487), (8160, 8999)];
+const _: () = {
+    let mut i = 0;
+    while i < SAVE_RANGES.len() {
+        let (a, n) = (SAVE_RANGES[i].1, SAVE_RANGES[i].2);
+        let end = a + n - 1;
+        assert!(a / 1000 == end / 1000, "a saved range crosses a flag block");
+        assert!(matches!(a / 1000, 4 | 7 | 8), "saved ranges live in blocks 4, 7 and 8");
+        let mut j = 0;
+        while j < GAME_FLAGS.len() { assert!(end < GAME_FLAGS[j].0 || a > GAME_FLAGS[j].1, "a saved range covers a game flag"); j += 1; }
+        let mut k = i + 1;
+        while k < SAVE_RANGES.len() {
+            let (b, m) = (SAVE_RANGES[k].1, SAVE_RANGES[k].2);
+            assert!(end < b || a > b + m - 1, "two saved ranges overlap");
+            k += 1;
+        }
+        i += 1;
+    }
+    assert!(POOL_KEYS < 1 << OCCUR_KEY_BITS, "OCCUR keys too short");
+};
 /// Own chips' stat hooks (RE 2026-10-29, RE_NOTES "Own OS chips"): per-frame stat code, every character; the hooks
 /// change the player's only. Set max AP (rcx = AP block = player module 0, edx = value; clamps and writes +0x27C):
 pub const FN_SET_MAX_AP: usize = 0x82AEC0;
@@ -212,18 +268,6 @@ pub const RESUPPLY_CALLSITES: [usize; 4] = [0xB6639E, 0xB6C2BF, 0x784A6A, 0x7816
 pub const CHR_MOD_WEAPONS: usize = 0x27;
 /// EquipParamWeapon totalBulletNum (s32)
 pub const WEAPON_TOTAL_AMMO: usize = 0x2A8;
-/// [max_occurrences] items offered but not used up yet (occur.rs): OCCUR_SLOTS slots of {9-bit key: lineup row + 1,
-/// or ROW_COUNT + 1 + rank in OS_TUNINGS, 0 = free; 4-bit count}, LSB first, 8030..8991. Block 8 holds no game flag
-/// (0 set on a fresh save and several missions in; 8020 = FLAG_NEVER is never set and stays out of the range).
-pub const OCCUR_BASE: u32 = 8030;
-pub const OCCUR_SLOTS: u32 = 74;
-pub const OCCUR_KEY_BITS: u32 = 9;
-pub const OCCUR_COUNT_BITS: u32 = 4;
-/// reward choice (choice.rs): the reward RNG state, 64 bits
-pub const REWARD_RNG: u32 = 4901;          // 4901..4964
-/// Missions cleared since the last shop reroll (8 bits, LSB first).
-pub const REROLL_COUNTER_BASE: u32 = 7830;
-pub const REROLL_COUNTER_BITS: u32 = 8;
 
 // --- param repository (RE 2026-10-26): the shop builder exe+159AAE0 does [exe+4E27300] -> exe+15C8980(repo, 0x29, 0) ---
 pub const PARAM_REPO_GLOBAL: usize = 0x4E27300;
@@ -321,9 +365,6 @@ pub const PLAYER_MODULES: usize = 0x320;
 pub const CHR_AP: usize = 0x278;
 pub const CHR_AP_MAX: usize = 0x27C;
 
-/// Escrow flag (saved in the .sl2): set at sortie, cleared when the mission is cleared. Still set when the
-/// garage loads = the mission was failed (death) or the game was killed mid-mission -> penalty.
-pub const FLAG_ESCROW: u32 = 7828;
 
 // --- save requests (RE 2026-10-26): per-frame save step exe+1272440 picks the highest-priority set bit of
 // [[exe+4E140B0]+0xCB4] and saves; RequestSave() exe+B90140 does `|= 1` when saving is allowed. ---
@@ -403,8 +444,6 @@ pub const FN_INPUT_REPEAT: usize = 0x29F23F0;
 pub const INPUT_ACTION_BITS: usize = 0x7C8;
 
 // --- game over ---
-/// Run-over flag (saved): set at game over; a save loaded with it goes straight back to the title.
-pub const FLAG_RUN_OVER: u32 = 7829;
 
 // --- return to title (RE 2026-10-26, VERIFIED): the in-game update (exe+1271A30) ORs several "leave map" conditions;
 // one is byte [[[exe+4E15530]+8]+0x173] (menu manager). Setting it to 1 in the garage (destination

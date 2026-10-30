@@ -61,7 +61,7 @@ ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restar
 mission pay %, starting credits, ammo/repair cost %, sell and buy %, shop size, reroll interval, parts per mission,
 parts offered per reward, OS Tunings as rewards, part prices, the pools parts are drawn from, what a failed sortie
 takes ([lost_on_failure]) and how many times per run an item can be offered ([max_occurrences]: any part or OS Tuning,
-1 to 15, every shop or reward choice that shows it counts).
+1 to 8, every shop or reward choice that shows it counts). Each setting's allowed values are in the file's comments.
 Pools: each [pool.NAME] section is a pool with a weight (its odds), a color ("#RRGGBB" or 0xRRGGBB) and optionally a
 label and show_name; [part_rarity] puts parts in them ("SG-027 ZIMMERMAN" = epic). Shipped: common, uncommon, rare,
 epic, and the built-in unlisted pool (weight 0) for every part [part_rarity] does not list. The reward choice shows

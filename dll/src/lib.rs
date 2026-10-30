@@ -405,7 +405,7 @@ impl Game {
         for b in 0..bits { self.put_flag(man, base + b, (v >> b) & 1 != 0); }
     }
 
-    // --- row bitsets: one flag per EquipmentLineupParam row index from `set` (o::ROWS_SOLD / LOST / ROLLED) ---
+    // --- row bitsets: one flag per EquipmentLineupParam row index from `set` (o::ROWS_SOLD, o::HIDE_FROM_POOL) ---
     /// Row indices present in the set.
     #[allow(dead_code)]
     unsafe fn read_rows(&self, man: usize, set: u32) -> Vec<u16> {
@@ -426,37 +426,23 @@ impl Game {
     #[allow(dead_code)]
     unsafe fn has_row(&self, man: usize, set: u32, row: u16) -> bool { self.get_flag(man, set + row as u32) == Some(true) }
 
-    // --- persisted shop state: slots 0..2 = 3 x 9-bit row indices + valid bit (flags 7800..7827, the original
-    // layout); slots 3.. = 9 bits each from STATE_FLAG_EXTRA_BASE holding row index + 1 (0 = empty) ---
+    // --- persisted shop state: SHOP_VALID once a shop was rolled this run, then one slot per offer holding its lineup
+    // row + 1 (0 = empty slot) ---
     unsafe fn read_state(&self, man: usize) -> Option<Vec<u16>> {
-        let mut bits: u32 = 0;
-        for b in 0..=o::STATE_FLAG_BITS {
-            if self.get_flag(man, o::STATE_FLAG_BASE + b) == Some(true) { bits |= 1 << b; }
-        }
-        if bits & (1 << o::STATE_FLAG_BITS) == 0 { return None; }
-        let mut v = vec![(bits & 0x1FF) as u16, ((bits >> 9) & 0x1FF) as u16, ((bits >> 18) & 0x1FF) as u16];
-        for s in 0..(config::MAX_SHOP_SLOTS - 3) {
-            let mut x: u32 = 0;
-            for b in 0..9 { if self.get_flag(man, o::STATE_FLAG_EXTRA_BASE + s * 9 + b) == Some(true) { x |= 1 << b; } }
-            if x != 0 { v.push((x - 1) as u16); }
-        }
-        Some(v)
+        if self.get_flag(man, o::SHOP_VALID) != Some(true) { return None; }
+        Some((0..o::SHOP_SLOTS_MAX).map(|s| self.get_bits(man, o::SHOP_SLOTS + s * o::SHOP_SLOT_BITS, o::SHOP_SLOT_BITS))
+            .filter(|&x| x != 0).map(|x| (x - 1) as u16).collect())
     }
     unsafe fn write_state(&self, man: usize, idx: &[u16]) {
-        let at = |k: usize| idx.get(k).copied().unwrap_or(0x1FF) as u32 & 0x1FF; // 0x1FF = no row (empty slot)
-        for s in 0..(config::MAX_SHOP_SLOTS - 3) {
-            let x = idx.get(3 + s as usize).map(|i| *i as u32 + 1).unwrap_or(0);
-            for b in 0..9 { self.put_flag(man, o::STATE_FLAG_EXTRA_BASE + s * 9 + b, (x >> b) & 1 != 0); }
+        for s in 0..o::SHOP_SLOTS_MAX {
+            let x = idx.get(s as usize).map_or(0, |i| *i as u32 + 1);
+            self.put_bits(man, o::SHOP_SLOTS + s * o::SHOP_SLOT_BITS, o::SHOP_SLOT_BITS, x);
         }
-        let bits = at(0) | (at(1) << 9) | (at(2) << 18) | (1 << o::STATE_FLAG_BITS);
-        for b in 0..=o::STATE_FLAG_BITS {
-            if !self.put_flag(man, o::STATE_FLAG_BASE + b, (bits >> b) & 1 != 0) { logf!("put_flag failed for {}", o::STATE_FLAG_BASE + b); }
+        self.put_flag(man, o::SHOP_VALID, true);
+        let back = self.read_state(man).unwrap_or_default();
+        if back[..] != idx[..idx.len().min(o::SHOP_SLOTS_MAX as usize)] {
+            logf!("STATE WRITE MISMATCH: wrote {:?} read {:?} (flags {}..)", idx, back, o::SHOP_VALID);
         }
-        let mut back: u32 = 0;
-        for b in 0..=o::STATE_FLAG_BITS {
-            if self.get_flag(man, o::STATE_FLAG_BASE + b) == Some(true) { back |= 1 << b; }
-        }
-        if back != bits { logf!("STATE WRITE MISMATCH: wrote {:#X} read {:#X} (flags {}..)", bits, back, o::STATE_FLAG_BASE); }
     }
 }
 
@@ -577,7 +563,7 @@ unsafe extern "system" fn pause_hook(this: usize) {
 
 // ---------------------------------------------------------------- shop predicate hook
 /// The chosen shop rows as their `equipId` (row +0). 0 = empty slot.
-static CHOSEN: [AtomicU32; 8] = [const { AtomicU32::new(0) }; 8];
+static CHOSEN: [AtomicU32; o::SHOP_SLOTS_MAX as usize] = [const { AtomicU32::new(0) }; o::SHOP_SLOTS_MAX as usize];
 static PRED_CALLS: AtomicUsize = AtomicUsize::new(0);
 /// DEBUG: item id forced as the next sortie's reward (0 = none).
 static FORCE_REWARD: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
@@ -785,13 +771,13 @@ impl Run {
 
     /// Parts that can roll: the shop's weapons (`Some(true)`) or other parts (`Some(false)`), or both (`None`,
     /// rewards), not in `exclude`. Weapons and frame parts roll even when owned (each copy is its own inventory
-    /// entry); unique parts not while owned. Never again: a part in ROWS_LOST (lost forever, or offered its
-    /// [max_occurrences] times), an OS Tuning with its OS_GONE bit; nor a part whose offer count already reached its
+    /// entry); unique parts not while owned. Never again: anything with its HIDE_FROM_POOL bit (offered its
+    /// [max_occurrences] times, or a unique part lost on a failure); nor a part whose offer count already reached its
     /// max (a max lowered mid-run). OS Tunings: rewards only (never in the shop), while below
     /// their max level. Each lineup row is its own part (left and right weapon versions included). Parts out of
     /// the pools (`= 0`, weight 0) never roll.
     unsafe fn candidates(&self, gd: usize, man: usize, owned: &[u32], weapon: Option<bool>, exclude: &[u16]) -> Vec<Part> {
-        let lost = self.game.read_rows(man, o::ROWS_LOST);
+        let lost = self.game.read_rows(man, o::HIDE_FROM_POOL);
         let counts = occur::read(&self.game, man);
         self.pool.iter().copied().filter(|p| p.in_pool() && weapon.map_or(true, |w| !p.is_os() && p.is_weapon() == w)
             && !exclude.contains(&p.idx)
@@ -1262,11 +1248,11 @@ fn boot() {
                             g.clear_rows(man, o::ROWS_SOLD);
                             logf!("DEBUG: rows after clear {:?}", g.read_rows(man, o::ROWS_SOLD));
                         }
-                        "lost" => logf!("DEBUG: lost forever rows {:?}", run.game.read_rows(man, o::ROWS_LOST)),
+                        "hidden" => logf!("DEBUG: rows hidden from the pool {:?}", run.game.read_rows(man, o::HIDE_FROM_POOL)),
                         "occur" => {
                             // [max_occurrences]: offers so far of every listed part, and the used-up ones
                             let counts = occur::read(&run.game, man);
-                            let lost = run.game.read_rows(man, o::ROWS_LOST);
+                            let lost = run.game.read_rows(man, o::HIDE_FROM_POOL);
                             for p in run.pool.iter().filter(|p| p.max > 0) {
                                 let gone = if p.is_os() { os::gone(&run.game, man, p.os) } else { lost.contains(&p.idx) };
                                 logf!("DEBUG: occur {} ({}): offered {}/{}{}", p.name(), p.idx, occur::count(&counts, p), p.max, if gone { ", never again" } else { "" });
