@@ -69,8 +69,10 @@ pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
         title: if s.len() < 2 { "PIÈCE OBTENUE".to_string() } else { k += 1; if n > 1 { format!("CHOISISSEZ UNE PIÈCE ({}/{})", k, n) } else { "CHOISISSEZ UNE PIÈCE".to_string() } },
     }).collect();
     let handles: Vec<u32> = sets.iter().flatten().map(|x| x.id).collect();
+    // goods (0x4.. ids: combat logs, mission pickups) get no page from the game's class: leaving them out keeps our
+    // pages in step with the class's when a part comes after them
     for id in ids {
-        if !handles.contains(id) { pages.push(rewardmenu::Page::part(*id, "PIÈCE OBTENUE")); }
+        if !handles.contains(id) && id >> 28 != 4 { pages.push(rewardmenu::Page::part(*id, "PIÈCE OBTENUE")); }
     }
     Some(pages)
 }

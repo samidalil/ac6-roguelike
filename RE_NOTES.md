@@ -892,6 +892,9 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   are inserted. Pages: one class, N pages (OK = next page); a page is recognised by its page object (rsi at the
   content lookup), filled at the class's next part fill. The movie name stays ours until the last page is up.
   On the "AC d'essai" results screen the parts step waits for Fermer (pending list intact until then).
+  Goods in the list (combat logs 0x40C6B..., mission pickups) get no page from the class: on the BAWS return the list
+  was [3 offers, 8 combat logs], the class showed only the offer page and the commit kept the logs. Our pages leave
+  goods out too (0x4 top nibble), so a part after them (a story reward) keeps its page in step with the class.
 - **Pad: NOT via XInput.** XInput sees the pad from outside the game (slot 0, Bluetooth Xbox), but inside the process
   the DLL's XInputGetState calls report nothing and the game never calls its XINPUT9_1_0 import: the game reads the
   pad through its own input system (probably Steam Input). Solved with the game's menu actions (below).
@@ -1075,8 +1078,8 @@ next, see "Core expansions: lost on failure, offered once" below.
   and with the economy re-apply. Verified: 3131 = 1, menu absent after a mission and after quit + Continue.
   Notification: the msg hook serves 2101000 without the menu (title: "<menu>/" cut; text: lines naming it dropped),
   built from the game's own texts per source string (they are reloaded in the game language after the title):
-  "Access Granted: ARENA" / "...• ARENA" checked by debug `osnote`. The real notification (the mission whose end
-  sets 3130/3131: the user recalls the Balteus one, Attack the Watchpoint, not checked) is NOT seen yet.
+  "Access Granted: ARENA" / "...• ARENA" checked by debug `osnote`. The real notification: see "Real return from
+  the unlocking mission" below.
 - **Texts naming OS Tuning / AOS chips** (full dump of the live MsgRepository; `fmg_search.py` cuts texts at 300 chars):
   ALLMIND's garage message granting OS Tuning + Arena (cat 1, 913001010..070: service record updated / **OS Tuning granted** /
   "En outre..." / Arena invitation x4), the Arena tutorial (74/2004000: arena wins give AOS chips), the OS menu
@@ -1087,8 +1090,7 @@ next, see "Core expansions: lost on failure, offered once" below.
   message (910450010..013) play the next rows in the array (another message's lines, and "Réception d'un message"
   instead of "Trois nouveaux messages"). Blanking a row (msgId and voiceId -1) skips it cleanly: Walter went from line
   1 straight to line 4, same notification count, no gap. `os::cut_allmind_talk` (boot + param re-apply) blanks rows
-  011/012 -> ALLMIND plays lines 1, 4-7. Verified on Walter's message (same code path), the ALLMIND one itself not
-  seen (needs a real return from the unlocking mission).
+  011/012 -> ALLMIND plays lines 1, 4-7. Verified on Walter's message (same code path), then on the real return (below).
 - **Garage return after the unlocking mission** = the garage talk script (EzState, found by scanning memory for 913001010): it
   queues the ALLMIND message (speaker 91000010) and itself sets 3130/3131 + shows notification 2101000 (lists "3130 1
   3131 1 2101000 7"; mission 2's block likewise sets 3127/6200 + 2100000). Setting 3130/3131/3451 during the tester AC
@@ -1111,6 +1113,13 @@ next, see "Core expansions: lost on failure, offered once" below.
 - Penalty unchanged here (expansions keep no slot in FRAME_SLOTS / WEAPON_SLOTS, price 0): kept after a failed sortie. Superseded by [lost_on_failure] (section below).
 - Debug: `os` (level / max / rollable / item owned per tuning), `osnote`, `force_os <rows>`, `force_reward <hex ids>`
   (now several: first offer of each reward).
+- **Real return from the unlocking mission (2026-10-30)**: the mission whose return sets 3130/3131 is the BAWS arsenal
+  investigation (combat logs to collect before a timer; not Wallclimber, not the Watchpoint), seen in a vanilla
+  playthrough. Save just before it: before-os-unlock.sl2 (kept outside the repo, %APPDATA%\ArmoredCore6ackups\keep).
+  Replayed with the DLL on (profile ac6-roguelike-verify.me3, main 669efee + the sortie fix): log "OS Tuning locked:
+  unlock notification 73 -> Accès autorisé : ARÈNE / 74 -> ...• ARÈNE"; ALLMIND played line 1 (service record
+  updated), then the Arena lines (screen captures), no OS Tuning line; garage menu DESIGN D'AC, MAGASIN DE PIÈCES,
+  ARÈNE, DÉPLOIEMENT (no AMÉLIORATION OS). The user confirmed the return in game.
 
 ## Core expansions: lost on failure, offered once (2026-10-29, implemented)
 User decisions (2026-10-28): two per-item config tables instead of one switch, keys like [part_rarity] (equipId,
