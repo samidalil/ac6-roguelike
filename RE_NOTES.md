@@ -1075,8 +1075,8 @@ next, see "Core expansions: lost on failure, offered once" below.
   and with the economy re-apply. Verified: 3131 = 1, menu absent after a mission and after quit + Continue.
   Notification: the msg hook serves 2101000 without the menu (title: "<menu>/" cut; text: lines naming it dropped),
   built from the game's own texts per source string (they are reloaded in the game language after the title):
-  "Access Granted: ARENA" / "...• ARENA" checked by debug `osnote`. The real notification (the mission whose end
-  sets 3130/3131: the user recalls the Balteus one, Attack the Watchpoint, not checked) is NOT seen yet.
+  "Access Granted: ARENA" / "...• ARENA" checked by debug `osnote`. The real notification: see "Real return from
+  the unlocking mission" below.
 - **Texts naming OS Tuning / AOS chips** (full dump of the live MsgRepository; `fmg_search.py` cuts texts at 300 chars):
   ALLMIND's garage message granting OS Tuning + Arena (cat 1, 913001010..070: service record updated / **OS Tuning granted** /
   "En outre..." / Arena invitation x4), the Arena tutorial (74/2004000: arena wins give AOS chips), the OS menu
@@ -1087,8 +1087,7 @@ next, see "Core expansions: lost on failure, offered once" below.
   message (910450010..013) play the next rows in the array (another message's lines, and "Réception d'un message"
   instead of "Trois nouveaux messages"). Blanking a row (msgId and voiceId -1) skips it cleanly: Walter went from line
   1 straight to line 4, same notification count, no gap. `os::cut_allmind_talk` (boot + param re-apply) blanks rows
-  011/012 -> ALLMIND plays lines 1, 4-7. Verified on Walter's message (same code path), the ALLMIND one itself not
-  seen (needs a real return from the unlocking mission).
+  011/012 -> ALLMIND plays lines 1, 4-7. Verified on Walter's message (same code path), then on the real return (below).
 - **Garage return after the unlocking mission** = the garage talk script (EzState, found by scanning memory for 913001010): it
   queues the ALLMIND message (speaker 91000010) and itself sets 3130/3131 + shows notification 2101000 (lists "3130 1
   3131 1 2101000 7"; mission 2's block likewise sets 3127/6200 + 2100000). Setting 3130/3131/3451 during the tester AC
@@ -1111,6 +1110,13 @@ next, see "Core expansions: lost on failure, offered once" below.
 - Penalty unchanged here (expansions keep no slot in FRAME_SLOTS / WEAPON_SLOTS, price 0): kept after a failed sortie. Superseded by [lost_on_failure] (section below).
 - Debug: `os` (level / max / rollable / item owned per tuning), `osnote`, `force_os <rows>`, `force_reward <hex ids>`
   (now several: first offer of each reward).
+- **Real return from the unlocking mission (2026-10-30)**: the mission whose return sets 3130/3131 is the BAWS arsenal
+  investigation (combat logs to collect before a timer; not Wallclimber, not the Watchpoint), seen in a vanilla
+  playthrough. Save just before it: before-os-unlock.sl2 (kept outside the repo, %APPDATA%\ArmoredCore6\backups\keep).
+  Replayed with the DLL on (profile ac6-roguelike-verify.me3, main 669efee + the sortie fix): log "OS Tuning locked:
+  unlock notification 73 -> Accès autorisé : ARÈNE / 74 -> ...• ARÈNE"; ALLMIND played line 1 (service record
+  updated), then the Arena lines (screen captures), no OS Tuning line; garage menu DESIGN D'AC, MAGASIN DE PIÈCES,
+  ARÈNE, DÉPLOIEMENT (no AMÉLIORATION OS). The user confirmed the return in game.
 
 ## Core expansions: lost on failure, offered once (2026-10-29, implemented)
 User decisions (2026-10-28): two per-item config tables instead of one switch, keys like [part_rarity] (equipId,
@@ -1175,8 +1181,8 @@ expansion's max level).
   max lowered mid-run).
 - **Block 8** (8000..8999): allocated in the shared page array like blocks 4 and 7 (`tools/flag_blocks.py`), 0 flags
   set on a save several missions in (mission 9 area, other session's save) and on saves/ac-mission-available.sl2; no
-  8xxx flag in the exported params. 8020 (FLAG_NEVER, the OS Tuning menu lock) is kept out of the range. Not yet
-  checked: survives a save + relaunch (the game's autosave), cleared by New Game.
+  8xxx flag in the exported params. 8020 (FLAG_NEVER, the OS Tuning menu lock) is kept out of the range. Survives
+  the commit autosave + a relaunch and is cleared by New Game (verified 2026-10-30, below).
 - Marking: unchanged places (5074 for every offer of the sortie, the reroll for shop slots); log
   `max occurrences, offered (<why>): <name> n/max[ (never again)]`; boot log `max occurrences (offers per run): ...`.
   Debug `occur`: count / max / used up per listed item, slots in use.
@@ -1186,7 +1192,18 @@ expansion's max level).
   8045/8046/8050/8052 = key 140, count 1); `occur` matched. Real clear with `force_os 5010 5020` (1 reward x 3
   choices): offers [Assault Armor, VE-60SNA, ZIMMERMAN 139] -> at 5074 "Bouclier d'assaut 1/3, SG-027 ZIMMERMAN 2/2
   (never again)", then the shop reroll, grid shown. Not verified (user asked to merge without more tests): the pick,
-  persistence after a relaunch, New Game clearing block 8, a second offer of an expansion raising it to level 2.
+  persistence after a relaunch, New Game clearing block 8 (all three verified 2026-10-30, below),
+  a second offer of an expansion raising it to level 2.
+- **Verified 2026-10-30** (profile ac6-roguelike-verify.me3 = osstat with its own save, copy of
+  saves/ac-mission-available.sl2, 2 rewards x 3 choices, main 669efee + the sortie fix below): `force_os 5010 5020` +
+  real clear -> "max occurrences, offered (mission rewards): Bouclier d'assaut 1/3, Bouclier à impulsions 1/2", both
+  picked (levels 0 -> 1), `occur` slots [(328, 1), (329, 1)] = flags 8033/8036/8038/8039 + 8043/8046/8049/8051/8052.
+  Relaunch + Continue: same `occur` output and flags. Continue, Retour à l'écran-titre, NOUVELLE PARTIE: block 8 empty
+  at the pilot name prompt and at the new run's first sortie (block 4 only holds the reward RNG written there).
+- **Sortie fix (2026-10-30)**: since #23 a `//` comment pasted mid-line in the sortie handler (lib.rs, "defer 0->1")
+  commented out `run.mission_ran = true` and the reward list resets, so every real clear logged "5074 rose without a
+  mission having run (stale flag on load): ignored": no [max_occurrences] marking, no MissionCleared chip event, no
+  shop reroll at the clear. Split back into statements; the clear marks, emits and rerolls again.
 
 ## OS Tunings: one level lost on failure (2026-10-29, implemented)
 User decisions (2026-10-29): `[lost_on_failure]` now applies to the 13 non-expansion OS Tunings too; a failed sortie
