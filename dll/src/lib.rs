@@ -859,7 +859,7 @@ impl Run {
             let new_handle = after.iter().copied().find(|h| !before.contains(h));
             if let Some(h) = new_handle { self.reward_handles.push(h); }
             let label = if p.is_os() { Some(os::label(gd, p.os)) } else { None };
-            offers.push(choice::Offer { id, handle: new_handle.unwrap_or(0), os: p.os, keep, label, pool: p.pool_label() });
+            offers.push(choice::Offer { id, handle: new_handle.unwrap_or(0), os: p.os, keep, label, pool: p.pool_label(), queued: true });
             logf!("{}: reward {} {} pool {} item {:#X} -> rax={} err={} handle={:?} pending={}",
                 why, if p.is_os() { format!("OS {}", p.os) } else { format!("row {}", p.idx) }, p.name(), p.pool_name(), id, r, err, new_handle.map(|h| format!("{:#X}", h)), after.len());
         }
@@ -891,15 +891,18 @@ impl Run {
     }
 
     /// Roll this sortie's parts_per_mission rewards. Reward choice: each reward is an offer of reward_choices parts
-    /// (choice.rs).
+    /// (choice.rs), only the first one rolled here.
     unsafe fn roll_rewards(&mut self, gd: usize, man: usize, why: &str) {
         let cfg = config::get();
         // rewards per mission (0..3) and parts per reward (1..12) after the chips' reward.count / reward.choices
         let count = chip::modify_count(chip::Target::RewardCount, cfg.parts_per_mission, 0, 3);
         let choices = chip::modify_count(chip::Target::RewardChoices, cfg.reward_choices, 1, 12);
         if choices > 1 {
+            // the first page now (the results step opens on a non-empty pending list); each later page when the page
+            // before it is confirmed, among these candidates with the conditions checked again then (choice.rs)
             let cands = self.reward_candidates(gd, man, &[]);
-            self.reward_sets = choice::roll(&self.game, man, &cands, count, choices as usize);
+            self.reward_sets = choice::roll(&self.game, man, &cands, count.min(1), choices as usize);
+            choice::arm_later(self.candidates(gd, man, &self.game.owned_ids(gd), None, &[]), count as usize, choices as usize);
             self.reward_parts = self.reward_sets.iter().flatten().copied().collect();
             logf!("{}: reward offers {:?}", why, self.reward_sets.iter().map(|s| s.iter().map(|p| p.idx).collect::<Vec<_>>()).collect::<Vec<_>>());
             return;
@@ -1426,7 +1429,8 @@ fn boot() {
                     log("escrow flag CLEARED (mission cleared)");
                     trace::reapply("mission cleared");
                     logf!("5074 rose (mission cleared); reward queued={}", format!("{:X?}", run.reward_handles));
-                    // the results screen shows every offer of this sortie (before the commit autosave)
+                    // the results screen shows the first page's offers (before the commit autosave; a later page's
+                    // offers count when it is rolled)
                     if run.mission_ran { let parts = run.reward_parts.clone(); run.mark_offered(man, &parts, "mission rewards"); }
                     // Reroll NOW: the game autosaves at the commit (~10 s later), so the new shop state
                     // (direct flag writes, no game call) is included in that save.
