@@ -790,8 +790,8 @@ impl Run {
     }
 
     /// config shop_weapons weapons + shop_parts other parts, by rarity, all different. The parts being awarded right
-    /// now are left out: the shop is rolled at the mission clear, before the commit inserts them, so their copies
-    /// would be missing from the slot's baseline (dupshop.rs).
+    /// now (plain rewards) are left out; a reward choice is rolled after the shop and leaves the shop's parts out
+    /// (choice.rs).
     unsafe fn pick_shop(&mut self, gd: usize, man: usize) -> Vec<Part> {
         let cfg = config::get();
         let owned = self.game.owned_ids(gd);
@@ -847,6 +847,17 @@ impl Run {
         self.last_grant_tick = tick_count();
         if self.reward_parts.is_empty() { self.roll_rewards(gd, man, why); self.force_reward(why); }
         self.reward_handles.clear();
+        if choice::later_armed() {
+            // reward choice: rolled at the results screen (a failed sortie uses no roll); one placeholder item makes the
+            // results open their parts step, taken out at the commit
+            let before = self.game.pending(gd);
+            let (r, err) = self.game.give_deferred(gd, o::OS_CARRIER_ITEM);
+            let h = self.game.pending(gd).iter().copied().find(|h| !before.contains(h));
+            if let Some(h) = h { self.reward_handles.push(h); }
+            choice::set_placeholder(h.unwrap_or(0));
+            logf!("{}: reward choice rolled at the results; placeholder item {:#X} -> rax={} err={} handle={:?}", why, o::OS_CARRIER_ITEM, r, err, h.map(|h| format!("{:#X}", h)));
+            return;
+        }
         let owned = self.game.owned_ids(gd);
         let mut offers = Vec::new();
         for p in self.reward_parts.clone() {
@@ -876,10 +887,12 @@ impl Run {
     /// owned or not (duplicate tests). `force_os <rows>` (FORCE_OS_TAG | row): these OS Tunings.
     fn force_reward(&mut self, why: &str) {
         let ids = FORCE_REWARD.lock().map(|mut f| core::mem::take(&mut *f)).unwrap_or_default();
+        let mut forced = Vec::new();
         for (k, id) in ids.into_iter().enumerate() {
             let found = if id & FORCE_OS_TAG != 0 { self.pool.iter().copied().find(|p| p.is_os() && p.os as u32 == id & 0xFFFF) }
                 else { self.pool.iter().copied().find(|p| !p.is_os() && p.grant_id() == id) };
             let Some(p) = found else { logf!("{}: forced reward {:#X} not in the pool", why, id); continue };
+            if choice::later_armed() { forced.push(p); logf!("{}: DEBUG forced reward {} (first offer of page {}): {} {}", why, k, k + 1, p.idx, p.name()); continue; }
             if !self.reward_sets.is_empty() {
                 let Some(s) = self.reward_sets.get_mut(k).filter(|s| !s.is_empty()) else { break };
                 s[0] = p;
@@ -888,23 +901,21 @@ impl Run {
             } else if k < self.reward_parts.len() { self.reward_parts[k] = p; } else { self.reward_parts.push(p); }
             logf!("{}: DEBUG forced reward {}: {} {} ({:#X})", why, k, p.idx, p.name(), id);
         }
+        if !forced.is_empty() { choice::force(forced); }
     }
 
     /// Roll this sortie's parts_per_mission rewards. Reward choice: each reward is an offer of reward_choices parts
-    /// (choice.rs), only the first one rolled here.
+    /// (choice.rs), rolled at the results screen.
     unsafe fn roll_rewards(&mut self, gd: usize, man: usize, why: &str) {
         let cfg = config::get();
         // rewards per mission (0..3) and parts per reward (1..12) after the chips' reward.count / reward.choices
         let count = chip::modify_count(chip::Target::RewardCount, cfg.parts_per_mission, 0, 3);
         let choices = chip::modify_count(chip::Target::RewardChoices, cfg.reward_choices, 1, 12);
         if choices > 1 {
-            // the first page now (the results step opens on a non-empty pending list); each later page when the page
+            // rolled at the results screen, the first page right before the grid opens, each later one when the page
             // before it is confirmed, among these candidates with the conditions checked again then (choice.rs)
-            let cands = self.reward_candidates(gd, man, &[]);
-            self.reward_sets = choice::roll(&self.game, man, &cands, count.min(1), choices as usize);
             choice::arm_later(self.candidates(gd, man, &self.game.owned_ids(gd), None, &[]), count as usize, choices as usize);
-            self.reward_parts = self.reward_sets.iter().flatten().copied().collect();
-            logf!("{}: reward offers {:?}", why, self.reward_sets.iter().map(|s| s.iter().map(|p| p.idx).collect::<Vec<_>>()).collect::<Vec<_>>());
+            logf!("{}: reward choice: {} page(s) of {} part(s), rolled at the results", why, count, choices);
             return;
         }
         for _ in 0..count {

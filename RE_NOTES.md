@@ -909,6 +909,16 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   chip 2 -> 3 and the page 2 pick ALULA/21E queued at the commit, in the inventory after it (17 -> 18 parts); page 1
   confirmed with a mouse click -> page 2 rolled when it opened, shown "CHOISISSEZ UNE PIÈCE (2/2)", both picks owned
   after the commit (17 -> 19).
+- **All reward pages rolled at the results (2026-10-30, user: "don't waste rolls: roll once it's a success, right
+  before the dialog")**: nothing is rolled at sortie, so a failed sortie (death, quit, game killed) uses no roll and
+  the reward RNG (flags 4901..4964) only moves on a clear. The sortie queues one placeholder item (OS_CARRIER_ITEM)
+  so the results open their parts step; page 1 is rolled in the results parts hook right before our grid is built,
+  later pages as above; the placeholder gets no page and is dropped at the commit, every pick is given there. The
+  shop (rolled at the clear) can no longer leave the rewards out, so the rewards leave the shop's parts out (all of
+  them, as before the overlap was avoided the other way). Verified (profile ac6-roguelike-zen.me3, 2 x 3): block 4
+  identical in the garage and in the mission after the sortie; page 1 rolled at the results, 2 pages (no placeholder
+  page), placeholder 0x8000022 dropped, BML-G2/P03MLT-06 + ALULA/21E queued at the commit and owned after it, no
+  carrier item in the inventory.
 - **Pad: NOT via XInput.** XInput sees the pad from outside the game (slot 0, Bluetooth Xbox), but inside the process
   the DLL's XInputGetState calls report nothing and the game never calls its XINPUT9_1_0 import: the game reads the
   pad through its own input system (probably Steam Input). Solved with the game's menu actions (below).
