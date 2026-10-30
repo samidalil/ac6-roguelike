@@ -936,6 +936,11 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   ~90 ms once). The inventory is still scanned live per page (~85-90 ms; a cache fed by the insert hooks was dropped:
   those inserts also run for other item managers, e.g. the tester AC's loadout in the mission). Verified: grid filled
   ~60 ms after the results list, page 2 ~80 ms, chip 9006 at LV2 picked on page 1 left out of page 2 (max level).
+- **Used-up offers on later pages (2026-10-30)**: an offer that reaches its [max_occurrences] frees its count slot and
+  sets the item's "never again" bit (ROWS_LOST / OS_GONE); the recheck only read the counts, so an item used up on
+  page 1 stayed a candidate for page 2. It now also reads the never-again bits. Verified: Terminal Armor (1 offer per
+  run) forced on page 1 and not picked: before, page 2 still had it among 319 candidates; now "Bouclier terminal
+  (never again)", 318.
 - **Pad: NOT via XInput.** XInput sees the pad from outside the game (slot 0, Bluetooth Xbox), but inside the process
   the DLL's XInputGetState calls report nothing and the game never calls its XINPUT9_1_0 import: the game reads the
   pad through its own input system (probably Steam Input). Solved with the game's menu actions (below).
