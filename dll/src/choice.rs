@@ -140,9 +140,11 @@ pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
     for _ in 0..later { pages.push(rewardmenu::Page::parts(Vec::new(), String::new())); }
     let handles: Vec<u32> = sets.iter().flatten().map(|x| x.id).collect();
     let mut placeholder = PLACEHOLDER.load(Relaxed) != 0;
+    // goods (0x4.. ids: combat logs, mission pickups) get no page from the game's class: leaving them out keeps our
+    // pages in step with the class's when a part comes after them
     for id in ids {
         if placeholder && *id == o::OS_CARRIER_ITEM { placeholder = false; continue; }
-        if !handles.contains(id) { pages.push(rewardmenu::Page::part(*id, "PIÈCE OBTENUE")); }
+        if !handles.contains(id) && id >> 28 != 4 { pages.push(rewardmenu::Page::part(*id, "PIÈCE OBTENUE")); }
     }
     Some(pages)
 }
