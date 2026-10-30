@@ -330,6 +330,8 @@ unsafe extern "system" fn results_parts_hook(out: *mut usize, ctx: usize, list: 
     let l = &*list;
     let n = (l.end as usize).saturating_sub(l.begin as usize) / 4;
     let ids: Vec<u32> = if n > 0 && n < 256 { core::slice::from_raw_parts(l.begin, n).to_vec() } else { Vec::new() };
+    // a reward choice's first page is rolled now, right before the grid (the sortie was cleared)
+    choice::roll_page(0);
     if let Some(pages) = choice::pages(&ids) {
         logf!("results: parts list {:X?} -> reward choice grid", ids);
         event::emit(event::Event::Results);

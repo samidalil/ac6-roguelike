@@ -1,10 +1,10 @@
-//! Reward choice (pick 1 of K): each of a mission's rewards (parts_per_mission) offers `reward_choices` parts. The
-//! first reward's offers are rolled and queued at sortie like plain rewards (the game's pending obtained-items list); at
-//! the results screen the game's "Pièces obtenues" opens our grid instead (rewardmenu.rs, one page per reward), each
-//! later page rolled when the page before it is confirmed (the earlier picks counted), and just before the game
-//! commits the pending list the parts not picked are taken out of it and the later pages' picks put in. The offers are
-//! drawn by rarity from the reward candidates (lib.rs `candidates`) with their own random generator, saved in event
-//! flags.
+//! Reward choice (pick 1 of K): each of a mission's rewards (parts_per_mission) offers `reward_choices` parts. Nothing
+//! is rolled at sortie (a failed sortie uses no roll): one placeholder item queued in the game's pending obtained-items
+//! list makes the results open their parts step, where the game's "Pièces obtenues" opens our grid instead
+//! (rewardmenu.rs, one page per reward). The first page is rolled right before the grid opens, each later page when
+//! the page before it is confirmed (the earlier picks counted); just before the game commits the pending list the
+//! placeholder is taken out of it and the picks put in. The offers are drawn by rarity from the reward candidates
+//! (lib.rs `candidates`) with their own random generator, saved in event flags.
 
 use super::*;
 
@@ -52,13 +52,19 @@ static ARMED: std::sync::Mutex<Vec<Vec<Offer>>> = std::sync::Mutex::new(Vec::new
 
 /// The later pages of the sortie's rewards: rolled one by one at the results screen, each when the page before it is
 /// confirmed, among `cands` (the reward candidates at the sortie) with the conditions checked again then.
-struct Later { cands: Vec<Part>, pages: usize, k: usize }
+struct Later { cands: Vec<Part>, pages: usize, k: usize, forced: Vec<Part> }
 static LATER: std::sync::Mutex<Option<Later>> = std::sync::Mutex::new(None);
-/// Sortie: `pages` rewards of `k` parts each, the first one rolled and queued.
+/// Sortie: `pages` rewards of `k` parts each, all rolled at the results.
 pub fn arm_later(cands: Vec<Part>, pages: usize, k: usize) {
-    if let Ok(mut l) = LATER.lock() { *l = if pages > 1 { Some(Later { cands, pages, k }) } else { None }; }
+    if let Ok(mut l) = LATER.lock() { *l = if pages > 0 { Some(Later { cands, pages, k, forced: Vec::new() }) } else { None }; }
 }
+pub fn later_armed() -> bool { LATER.lock().is_ok_and(|l| l.is_some()) }
 fn later_pages() -> usize { LATER.lock().ok().and_then(|l| l.as_ref().map(|l| l.pages)).unwrap_or(0) }
+/// DEBUG `force_reward` / `force_os`: the first offer of page k is the k-th of these parts (owned or not).
+pub fn force(parts: Vec<Part>) { if let Ok(mut l) = LATER.lock() { if let Some(l) = l.as_mut() { l.forced = parts; } } }
+/// Pending handle of the sortie's placeholder item (0 = none), taken out at the commit.
+static PLACEHOLDER: AtomicU32 = AtomicU32::new(0);
+pub fn set_placeholder(h: u32) { PLACEHOLDER.store(h, Relaxed); }
 
 fn page_of(s: &[Offer], title: String) -> rewardmenu::Page {
     rewardmenu::Page {
@@ -71,9 +77,9 @@ fn page_of(s: &[Offer], title: String) -> rewardmenu::Page {
 }
 fn choice_title(k: usize, n: usize) -> String { if n > 1 { format!("CHOISISSEZ UNE PIÈCE ({}/{})", k, n) } else { "CHOISISSEZ UNE PIÈCE".to_string() } }
 
-/// Results screen, game thread: roll reward page `p` (0-based) if it is a later page not rolled yet, the earlier pages'
-/// picks counted (not committed yet): an OS Tuning at its max level with them, a unique part owned or picked, a part
-/// offered its [max_occurrences] times (the earlier pages' offers included), a unique part of the shop rolled at the
+/// Results screen, game thread: roll reward page `p` (0-based) if it is the next page not rolled yet, the earlier
+/// pages' picks counted (not committed yet): an OS Tuning at its max level with them, a unique part owned or picked, a
+/// part offered its [max_occurrences] times (the earlier pages' offers included), a part of the shop rolled at the
 /// clear: left out. The same part can come back on a later page. Its offers are counted for [max_occurrences] now.
 pub unsafe fn roll_page(p: usize) -> Option<rewardmenu::Page> {
     let g = Game::new(mem::module_base());
@@ -81,7 +87,7 @@ pub unsafe fn roll_page(p: usize) -> Option<rewardmenu::Page> {
     let later = LATER.lock().ok()?;
     let l = later.as_ref()?;
     let mut armed = ARMED.lock().ok()?;
-    if p == 0 || p != armed.len() || p >= l.pages { return None; }
+    if p != armed.len() || p >= l.pages { return None; }
     let picks: Vec<Offer> = armed.iter().enumerate().filter_map(|(s, set)| set.get(rewardmenu::picked(s).min(set.len().saturating_sub(1))).cloned()).collect();
     let picked_levels = |row: u16| picks.iter().filter(|o| o.os == row).count() as i32;
     let owned = g.owned_ids(gd);
@@ -91,14 +97,15 @@ pub unsafe fn roll_page(p: usize) -> Option<rewardmenu::Page> {
     let out = |c: &Part| -> Option<&'static str> {
         if c.is_os() && !os::tuning(c.os).is_some_and(|t| os::level(gd, c.os).unwrap_or(0) + picked_levels(c.os) < t.max) { return Some("max level"); }
         if !c.is_os() && c.unique() && (owned.contains(&c.grant_id()) || picks.iter().any(|o| o.id == c.grant_id())) { return Some("owned"); }
-        if !c.is_os() && c.unique() && shop.contains(&c.idx) { return Some("in the shop"); }
+        if !c.is_os() && shop.contains(&c.idx) { return Some("in the shop"); }
         if c.max > 0 && occur::count(&counts, c) >= c.max as u32 { return Some("max occurrences"); }
         None
     };
     let left_out: Vec<String> = l.cands.iter().filter_map(|c| out(c).map(|why| format!("{} ({})", c.name(), why))).collect();
     if !left_out.is_empty() { logf!("reward page {}: left out since the sortie: {}", p + 1, left_out.join(", ")); }
     let cands: Vec<Part> = l.cands.iter().copied().filter(|c| out(c).is_none()).collect();
-    let set = roll(&g, man, &cands, 1, l.k).pop().unwrap_or_default();
+    let mut set = roll(&g, man, &cands, 1, l.k).pop().unwrap_or_default();
+    if let Some(f) = l.forced.get(p) { set.retain(|c| c.idx != f.idx); set.insert(0, *f); set.truncate(l.k); }
     let offers: Vec<Offer> = set.iter().map(|c| {
         let keep = c.is_os() && c.equip_id != 0 && !owned.contains(&c.equip_id) && !picks.iter().any(|o| o.keep && o.id == c.equip_id);
         let id = if c.is_os() && !keep { o::OS_CARRIER_ITEM } else { c.grant_id() };
@@ -118,11 +125,11 @@ pub fn arm(sets: Vec<Vec<Offer>>) {
     logf!("reward choice armed: {:X?}", sets.iter().map(|s| s.iter().map(|x| (x.id, x.handle, x.os)).collect::<Vec<_>>()).collect::<Vec<_>>());
     if let Ok(mut a) = ARMED.lock() { *a = sets; }
 }
-pub fn disarm() { if let Ok(mut a) = ARMED.lock() { a.clear(); } if let Ok(mut l) = LATER.lock() { *l = None; } }
+pub fn disarm() { if let Ok(mut a) = ARMED.lock() { a.clear(); } if let Ok(mut l) = LATER.lock() { *l = None; } PLACEHOLDER.store(0, Relaxed); }
 
 /// Results screen: the pages of our grid for the game's pending parts list `ids` (None = no choice armed: the vanilla
 /// dialog). One page per offer (a later reward's page empty until rolled), then one per other part of the list (a
-/// mission's own reward).
+/// mission's own reward; not the placeholder).
 pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
     let sets = ARMED.lock().ok()?.clone();
     if sets.is_empty() { return None; }
@@ -132,7 +139,9 @@ pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
     let mut pages: Vec<rewardmenu::Page> = sets.iter().map(|s| page_of(s, if s.len() < 2 { "PIÈCE OBTENUE".to_string() } else { k += 1; choice_title(k, n) })).collect();
     for _ in 0..later { pages.push(rewardmenu::Page::parts(Vec::new(), String::new())); }
     let handles: Vec<u32> = sets.iter().flatten().map(|x| x.id).collect();
+    let mut placeholder = PLACEHOLDER.load(Relaxed) != 0;
     for id in ids {
+        if placeholder && *id == o::OS_CARRIER_ITEM { placeholder = false; continue; }
         if !handles.contains(id) { pages.push(rewardmenu::Page::part(*id, "PIÈCE OBTENUE")); }
     }
     Some(pages)
@@ -142,9 +151,11 @@ pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
 /// carrier items of OS Tuning offers; a picked OS Tuning gains a level.
 pub unsafe fn prune(mgr: usize) {
     let sets = match ARMED.lock() { Ok(mut a) => core::mem::take(&mut *a), Err(_) => return };
-    if sets.is_empty() { return; }
+    let placeholder = PLACEHOLDER.swap(0, Relaxed);
+    if sets.is_empty() && placeholder == 0 { return; }
     let gd = mgr - o::GD_ITEM_MGR;
     let mut drop = Vec::new();
+    if placeholder != 0 { drop.push(placeholder); }
     let mut kept = Vec::new();
     for (s, set) in sets.iter().enumerate() {
         let pick = rewardmenu::picked(s).min(set.len().saturating_sub(1));
@@ -163,11 +174,11 @@ pub unsafe fn prune(mgr: usize) {
     let keep: Vec<u32> = all.iter().copied().filter(|h| !drop.contains(h)).collect();
     for (i, h) in keep.iter().enumerate() { mem::wr_u32(b + 4 * i, *h); }
     core::ptr::write_unaligned((mgr + o::MGR_PENDING_END) as *mut usize, b + 4 * keep.len());
-    // later pages' picks were never queued: into the list now, the commit inserts them with the rest
+    // the picks were never queued: into the list now, the commit inserts them with the rest
     let g = Game::new(mem::module_base());
     for x in sets.iter().enumerate().filter_map(|(s, set)| set.get(rewardmenu::picked(s).min(set.len().saturating_sub(1)))).filter(|x| !x.queued && (x.os == 0 || x.keep)) {
         let (r, err) = g.give_deferred(gd, x.id);
-        logf!("reward choice: later page pick {:#X} queued at the commit -> rax={} err={}", x.id, r, err);
+        logf!("reward choice: pick {:#X} queued at the commit -> rax={} err={}", x.id, r, err);
     }
     logf!("reward choice: picked {:X?}; pending {:X?} -> {:X?} at the commit", kept, all, g.pending(gd));
 }
