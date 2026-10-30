@@ -892,6 +892,12 @@ from UXM's exe, AES ranges); FFDec 26.4 in `Modding\PC\Tools\ffdec` decompiles t
   are inserted. Pages: one class, N pages (OK = next page); a page is recognised by its page object (rsi at the
   content lookup), filled at the class's next part fill. The movie name stays ours until the last page is up.
   On the "AC d'essai" results screen the parts step waits for Fermer (pending list intact until then).
+  Goods in the list (combat logs 0x40C6B..., mission pickups) get no page from the class: on the BAWS return the list
+  was [3 offers, 8 combat logs], the class showed only the offer page and the commit kept the logs. The results
+  list puts parts before goods (pending [offers, 2 logs, a part] -> list [offers, part, logs], local test queueing them
+  mid-mission with the sortie grant's call), so a part never got a log's page; ours had extra "no content callable"
+  pages after it. Our pages now leave goods out (0x4 top nibble) and match the class's (2 pages, logs kept, verified
+  2026-10-30).
 - **Later reward pages rolled at the results (2026-10-30, user: "roll one by one on the spot, rechecking the
   conditions each time")**: the tiles never come from the pending list: a hidden single-part job (exe+10158D0) made
   from any item id gives the tile's content callable. RE test: page 2 rebuilt at page 1's confirm with other ids and
