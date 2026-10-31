@@ -44,6 +44,7 @@ unsafe extern "system" fn msg_lookup(repo: usize, version: u32, category: u32, i
         return GAME_OVER_W.as_ptr() as usize;
     }
     if let Some(p) = cap::refused_text(category, id) { return p; }
+    if let Some(p) = buyback::confirm_text(category, id) { return p; }
     if id == dialog::CUSTOM_MSG_ID {
         if let Ok(c) = CUSTOM.lock() { if !c.is_empty() { return c.as_ptr() as usize; } }
     }
@@ -119,8 +120,9 @@ fn tutorial_text(id: u32) -> &'static [u16] {
         "Le menu VENTE permet de vendre vos pièces d'AC.\n\n\
          • Une pièce vendue rapporte {}.\n\
          • Elle peut être rachetée à son prix dans le menu ACHAT\njusqu'au prochain renouvellement de la boutique.\n\
+         • Au plus {} pièces vendues restent rachetables : au-delà,\nla plus ancienne ne l'est plus.\n\
          • Plus de {} pièces au garage : vendez-en jusqu'à\nrevenir à la limite.",
-        pct, c.max_parts)))
+        pct, o::SOLD_COPY_SLOTS, c.max_parts)))
 }
 
 /// Set the module base before `install` (part names are read at boot, before the hook goes in).

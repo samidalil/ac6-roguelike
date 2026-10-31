@@ -405,7 +405,7 @@ impl Game {
         for b in 0..bits { self.put_flag(man, base + b, (v >> b) & 1 != 0); }
     }
 
-    // --- row bitsets: one flag per EquipmentLineupParam row index from `set` (o::ROWS_SOLD, o::HIDE_FROM_POOL) ---
+    // --- row bitsets: one flag per EquipmentLineupParam row index from `set` (o::HIDE_FROM_POOL) ---
     /// Row indices present in the set.
     #[allow(dead_code)]
     unsafe fn read_rows(&self, man: usize, set: u32) -> Vec<u16> {
@@ -1239,15 +1239,11 @@ fn boot() {
                     match cmd.trim() {
                         "reroll" => { log("DEBUG: reroll"); run.reroll(gd, man); prev_state = None; }
                         "mission_end" => { log("DEBUG: mission end"); run.on_mission_end(gd, man); prev_state = None; }
-                        "rows_test" => {
-                            let g = &run.game;
-                            g.write_rows(man, o::ROWS_SOLD, &[0, 5, 317]);
-                            g.put_row(man, o::ROWS_SOLD, 100, true);
-                            g.put_row(man, o::ROWS_SOLD, 5, false);
-                            logf!("DEBUG: rows {:?} has(100)={} has(5)={}", g.read_rows(man, o::ROWS_SOLD), g.has_row(man, o::ROWS_SOLD, 100), g.has_row(man, o::ROWS_SOLD, 5));
-                            g.clear_rows(man, o::ROWS_SOLD);
-                            logf!("DEBUG: rows after clear {:?}", g.read_rows(man, o::ROWS_SOLD));
-                        }
+                        "sold" => logf!("DEBUG: buy-back list {:?} (full: {})", buyback::rows(), buyback::full()),
+                        c if c.starts_with("sold_fill ") => match c[10..].trim().parse::<u16>() {
+                            Ok(row) if (row as usize) < o::ROW_COUNT => buyback::fill(row),
+                            _ => logf!("DEBUG: bad lineup row {:?}", c),
+                        },
                         "hidden" => logf!("DEBUG: rows hidden from the pool {:?}", run.game.read_rows(man, o::HIDE_FROM_POOL)),
                         "occur" => {
                             // [max_occurrences]: offers so far of every listed part, and the used-up ones

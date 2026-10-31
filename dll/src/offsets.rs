@@ -77,6 +77,8 @@ pub const BUY_OBTAINABLE_CALLSITE: usize = 0xD669C5;
 pub const FN_SHOP_OBTAINABLE_REF: usize = 0xD2F860;
 pub const MSG_SHOP_NONE_LEFT: u32 = 231020;
 pub const MSG_CAT_SHOP: u32 = 204;
+/// VENTE sale confirmation (category MSG_CAT_SHOP): "Vendre <?itemName?> pour <?price?> crédits ?"
+pub const MSG_SELL_CONFIRM: u32 = 1005;
 /// The garage's VENTE entry (inventory cap, 2026-10-30): the menu manager runs a std::function whose callable is the
 /// game's function-pointer wrapper (vtable exe+3912780, pointer at +8) around exe+10A5C00(out RefPtr<MenuJob>, ctx),
 /// which builds the shared part-list window 02_010_EquipTop (builder exe+10A6F20) in sell mode 0x23 (Achat = 0x22).
@@ -162,8 +164,11 @@ pub const OCCUR_COUNT_BITS: u32 = 3;
 /// Chip scripts' saved byte (script.rs `store`): SCRIPT_STORE_BITS per chip id, LSB first.
 pub const SCRIPT_STORE: u32 = 7384;          // 7384..7639
 pub const SCRIPT_STORE_BITS: u32 = 8;
-/// Sold since the last reroll (buy-back), one bit per lineup row.
-pub const ROWS_SOLD: u32 = 7640;             // 7640..7957
+/// Copies sold since the last reroll (buyback.rs): SOLD_COPY_SLOTS entries of SOLD_COPY_BITS (lineup row + 1, 0 =
+/// empty), oldest first.
+pub const SOLD_COPIES: u32 = 7640;           // 7640..7927
+pub const SOLD_COPY_SLOTS: u32 = 32;
+pub const SOLD_COPY_BITS: u32 = 9;
 // block 8
 /// Our own chips' levels (chip.rs): CHIP_LEVEL_BITS per chip id, LSB first.
 pub const CHIP_LEVELS: u32 = 8021;           // 8021..8148
@@ -188,7 +193,7 @@ pub const SAVE_RANGES: [(&str, u32, u32); 13] = [
     ("FLAG_RUN_OVER", FLAG_RUN_OVER, 1),
     ("OCCUR", OCCUR_BASE, OCCUR_SLOTS * (OCCUR_KEY_BITS + OCCUR_COUNT_BITS)),
     ("SCRIPT_STORE", SCRIPT_STORE, MAX_CHIPS as u32 * SCRIPT_STORE_BITS),
-    ("ROWS_SOLD", ROWS_SOLD, ROW_COUNT as u32),
+    ("SOLD_COPIES", SOLD_COPIES, SOLD_COPY_SLOTS * SOLD_COPY_BITS),
     ("CHIP_LEVELS", CHIP_LEVELS, MAX_CHIPS as u32 * CHIP_LEVEL_BITS),
     ("FLAG_NEVER", FLAG_NEVER, 1),
 ];
@@ -213,6 +218,7 @@ const _: () = {
         i += 1;
     }
     assert!(POOL_KEYS < 1 << OCCUR_KEY_BITS, "OCCUR keys too short");
+    assert!(ROW_COUNT < 1 << SOLD_COPY_BITS, "SOLD_COPIES entries too short");
 };
 /// Own chips' stat hooks (RE 2026-10-29, RE_NOTES "Own OS chips"): per-frame stat code, every character; the hooks
 /// change the player's only. Set max AP (rcx = AP block = player module 0, edx = value; clamps and writes +0x27C):

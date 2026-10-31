@@ -5,7 +5,7 @@
 //! frame a shop menu is up.
 //!
 //! The shop array answers it without reading the inventory (RE_NOTES "Shop array"): each rolled slot is for sale until
-//! it is bought, each part sold since the reroll (buy-back, ROWS_SOLD) until it is bought back. Only actions change it:
+//! it is bought, each part sold since the reroll (buy-back, SOLD_COPIES) until it is bought back. Only actions change it:
 //! the reroll, a purchase (the purchase's add, exe+D4E00D), a sale (buyback.rs). A copy of the same part coming
 //! from anywhere else (reward, chip) leaves it alone. Starters and unique parts (booster / generator / FCS: copies would
 //! share a handle) keep the game's answer (not owned).
