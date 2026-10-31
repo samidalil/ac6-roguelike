@@ -2158,3 +2158,282 @@ User report: killing an enemy while still locked on it sent Essaim's drones to t
 - Verified (ESSAI AC, MT bipedes + drones, AI off, Essaim LV3): air unit b destroyed -> 3 drones 0.9 s later -> MT 3
   destroyed -> 3 drones -> MT 4 destroyed, each by the previous kill's drones. Once (the first air unit killed by an AP
   write while locked) the drones hit nothing.
+- Not seen: a partial refill (rate 0.1, three of the hooked sites); no mission event giving one is known yet.
+## Save layout (2026-10-31)
+**Why moved.** Blocks 4 and 8 were believed free (checked on early saves only). A full vanilla playthrough (a copy of
+the user's AC60000.sl2 loaded with the DLL off) has 45 flags set in block 4: ItemLotParam `getItemFlagId` ("item lot
+obtained") uses 4000..4149, 4165..4199, 4430, 4441..4487. The mod wrote some of them (ROWS_SOLD 4100.. on every sale,
+OS_GONE 4430, CHIP_LEVELS 4441..): a game item lot could count as already obtained, and the story setting them fed
+phantom rows into buy-back. Block 8: GameAreaParam `humanityPointCountFlagIdTop` (8160, 8180, 8500..8940),
+ItemLotParam `cumulateNumFlagId` (8430, 8441..8445), MissionSystemMsgCommonParam `playEventFlagId1` (8501), inside the
+old OCCUR 8030..8991 (none set in the full save). Block 7: no param flag field, nothing set in the full game.
+**How it was checked.** Static: every event script, talk script, map (.msb) and param file of the game unpacked
+(tools/ac6_unpack.py + Oodle decompression with the game's oo2core_8_win64.dll), every u32 scanned; the params read
+with Smithbox's paramdefs, every field whose name contains "flag". Live: tools/flag_blocks.py on a test save and on
+the full save.
+**Map blocks don't persist.** CSEventFlagMan has 640 blocks: 0..9 and 630 map blocks (21xxxxx / 3000xxx, three per map,
+suffix 2 / 3 / 5). 464 map blocks are referenced by no game file, but a bit set in each of them (463), saved (file
+written) and reloaded came back in none: only blocks 0..9 can hold the mod's state.
+**Layout** (offsets.rs, `SAVE_RANGES` lists every range; a compile-time check rejects overlaps, a range crossing a
+block, and the game flags above):
+
+| Flags | Name | Content |
+|---|---|---|
+| 4200 | SHOP_VALID | a shop was rolled this run |
+| 4201..4344 | SHOP_SLOTS | 16 slots x 9 bits: lineup row + 1 (0 = empty) |
+| 4345..4360 | SHOP_BOUGHT | slot bought since the reroll |
+| 4488..4854 | HIDE_FROM_POOL | one bit per pool key: lineup rows 0..317, OS Tunings 318..334, chips 335..366 |
+| 4855..4918 | REWARD_RNG | reward RNG state, 64 bits |
+| 4919..4926 | REROLL_COUNTER | missions cleared since the reroll |
+| 4927 / 4928 | FLAG_ESCROW / FLAG_RUN_OVER | mission underway / run over |
+| 7000..7383 | OCCUR | [max_occurrences] counts: 32 slots x {9-bit key = pool key + 1, 3-bit count} |
+| 7384..7639 | SCRIPT_STORE | chip scripts' byte, 8 bits per chip id |
+| 7640..7927 | SOLD_COPIES | buy-back: 32 sold copies x 9 bits, lineup row + 1 (0 = empty), oldest first |
+| 8021..8148 | CHIP_LEVELS | chip level, 4 bits per chip id |
+| 8020 | FLAG_NEVER | release flag never set (read only) |
+
+Free: 4361..4417, 4929..4999, 7928..7999, 8000..8019, 8149..8159.
+- HIDE_FROM_POOL replaces ROWS_LOST + OS_GONE + CHIP_GONE: one "never offered again this run" set (max occurrences
+  reached, or a unique part lost on a failure). An OS Tuning / chip losing a level is not hidden: it is offered again
+  until its max occurrences.
+- Limits that follow: shop_weapons + shop_parts <= 16, [max_occurrences] <= 8, chip levels <= 15, 32 chips.
+- No save conversion (no players yet): saves from before keep stale bits in the old ranges and lose their shop, chip
+  levels, counts and RNG state.
+- **Verified** (2026-10-31, profile ac6-roguelike-buyback.me3, saves/ac-mission-available.sl2 with its old-layout bits
+  cleared, DLL off, then saved back into the repo): load -> "escrow clear, no penalty", nothing in blocks 4/7/8; tester-AC
+  clear -> escrow set at sortie and cleared at the clear, shop rolled into 4200..4225 and read back after a relaunch, RNG
+  in 4855..4918, no flag written outside the ranges; escrow 4927 set + relaunch -> failure plan built (this save's
+  credits end the run: back to the title); forced chip 9001 picked -> level 1 at 8021, kept after a relaunch; run-over
+  4928 set + relaunch -> "run is OVER (flag Some(true))". Build-checked only: OCCUR counts and the HIDE_FROM_POOL bits
+  of OS Tunings / chips (same code, new addresses).
+
+## ACHAT / VENTE tutorial texts (2026-10-31)
+- The first-time tutorials' texts are message category 74 (MSG_CAT_MENU_TEXT), ids 2002000 (ACHAT) and 2002010
+  (VENTE), titles in category 73 (found with tools/fmg_search.py on the live game). msg.rs answers both with French
+  texts built once from the settings: sale % (part_sell_percent, weapon_sell_percent added when it differs), the
+  renewal ("après chaque mission réussie" / "toutes les N missions réussies" from reroll_interval), buy-back until the
+  renewal, and the inventory cap (max_parts, garage only). Wording chosen by the user.
+- Whether a tutorial was seen is kept per save; saves/ac-mission-available.sl2 has neither seen (ACHAT / VENTE carry
+  the "new" mark in MAGASIN DE PIÈCES). Close with Tab.
+- **Verified** (2026-10-31, profile ac6-roguelike-buyback.me3, that save, debug `reroll` for a shop): both tutorials
+  show the new texts and fit their box. Side check: the cap's own sell screen (debug `vente`, screen id 0x80) opened
+  and closed -> back to the garage, no VENTE tutorial behind it (the PR #23 pop-up is gone).
+
+## SpEffect damage fields (2026-10-31, measured)
+Question: which SpEffectParam rates change an AC's weapon damage, `*AttackPowerRate` (+0x4C..) or `*AttackRate`
+(+0x3C..)? Static: the stat loop at exe+963BD5 (per active entry: skip stateInfo 197 and flags +0x64 & 0x800C0003,
+entry filter exe+96EDE0 on wepParamChange +0x160 by the weapon's category) multiplies the `*AttackPowerRate` getters
+(exe+96E170 by damage type) into the weapon attack values; the vanilla damage-up rows (29000000.., +5..25 %) use
+`*AttackRate`. Live, both answered by hits:
+- **Method** (the player's scripted shots rarely hit): apply rows to the tester AC instead and count its hits on the
+  player. Test rows `copy = 9405`, `effectEndurance` -1, applied to any character through the game's apply call
+  (exe+968EA0 with the character's own manager, target = source = that character; a local debug command, not
+  shipped). The player is teleported 60 m from the tester's spawn (module 13 +0x60 after module 4 +0x210: chr +0x150
+  alone is a copy); the tester engages and its hits are the drops of the player's AP (+0x278), the player kept alive by
+  writing its AP back. Writing the tester's own position (module 13 +0x60/+0x70) breaks it: no hit registers after.
+- Tester baseline per hit: 70 (bullets), 451, 903, 1487, 3487.
+- `*AttackPowerRate` x2 (all four): 70 x21, 451 x8, 1487 x3 = **unchanged**.
+- `*AttackRate` x2 on top: 70 -> 141, 451 -> 902, 903 -> 1806 = **x2**.
+- `conditionHp` 30 + `*AttackRate` x1.3 (fresh tester): its AP pinned at 90 %: 70, 451, 1487 (unchanged); at 20 %:
+  586 (451 x 1.3), 1933 (1487 x 1.3), 1174 (903 x 1.3) = **x1.3 only at or below 30 %**.
+-> Dernier recours (9010) rows use `*AttackRate` (1.1 / 1.2 / 1.3).
+- Inputs that work for tests: mouse buttons through mouse_event (RMB = right arm), lock-on = middle click, Q / E =
+  left / right back weapons only as scan-code SendInput (computer-use keys and VK-only input are ignored for them),
+  Space / Shift as virtual-key SendInput or computer-use hold_key. Held direction + quick left Shift = quick boost.
+
+## SpEffect stagger fields (2026-10-31, measured)
+Impact amplifié (9011) raises the stagger (ACS impact) the player's hits deal. Candidates: `atkImpactCorrectRate`
+(+0x38C), `atkEnemyImpactCorrectRate` (+0x370), `atkPlayerImpactCorrectRate` (+0x36C).
+- Static: `atkImpactCorrectRate` is multiplied in the stat loop (exe+963F91) only for rows with `wepParamChange` 5
+  (SP_EFE_WEP_CHANGE_PARAM: 0 no restriction, 1 / 2 right / left weapon only, 3 ignored, 4 kick, 5 assault boost
+  bonus attacks only). The impact of a hit is computed by exe+9A8FE0(?, attacker, target): exe+BA93A0(chr) tells a
+  player character; target a player -> the attacker's product of `atkPlayerImpactCorrectRate` (exe+963710), else
+  `atkEnemyImpactCorrectRate` (exe+9636E0); then the target's defPlayer/defEnemy rate by the attacker (exe+963770 /
+  exe+963740). Products over the active entries (flags +0x64 & 0x800C0003 = 0).
+- ACS gauge of a character: module 20 +0x12C (f32, copy at +0x1A4): rises by the hit's impact, decays every frame.
+- Live, tester AC hitting the player (method in "SpEffect damage fields"), gauge rise per hit: 25 (70-damage bullets),
+  378 / 450 / 650 baseline; `atkEnemyImpactCorrectRate` x2 on the tester: unchanged; `atkPlayerImpactCorrectRate` x2:
+  25 -> 50, 378 -> 756, 450 -> 900; `atkImpactCorrectRate` x2 on top: unchanged.
+- Live, player hitting the tester AC (tester left where it spawned, player teleported 60 m from it on the line the
+  camera faces at the sortie, lock-on + E / Q / RMB): 620-damage hit +765, 390 +344; with `atkEnemyImpactCorrectRate`
+  x2: 620 -> +1530; with the chip's LV3 row (x1.2) on top: 620 -> +1836 (765 x 2.4), 71 -> +103 (86 x 1.2).
+-> Impact amplifié rows use `atkEnemyImpactCorrectRate` 1.08 / 1.15 / 1.2, applied at mission_start (verified: chip
+  at LV3 in the garage -> `speffect 900000113 applied to the player` at the sortie).
+
+## Boost EN: SpEffect fields and the quick boost hook (2026-10-31, measured)
+Propulseurs économes (9012): boosting draws less EN.
+- `energyDrawRate_GroundBoost / _FlyBoost / _UpBoost` (+0x350 / +0x354 / +0x358): products exe+9663F0 / exe+9663A0 /
+  exe+966440 multiply the booster's `f05_consumeEN_boostMove` (+0x34), `f11_consumeEN_boostMoveAir` (+0x4C) and
+  `consumeEN_BoostUp` (+0x50) in the cost functions exe+88AA70 / exe+88A760 / exe+88B1E0. **Every booster has 0 in
+  the first two** (ground and air boosting cost no EN), so only the rising one does anything.
+- `consumeEnergyRate` (+0x328, product exe+966110) multiplies every EN spending (exe+88C0E0 and the one-off
+  exe+88A0F0).
+- The quick boost: exe+88B130 = booster `consumeFixedEN_QB` (+0x54) x a factor (exe+BA25D0), then `jmp` exe+88C0E0
+  at exe+88B1CA. Shift alone is another action: an animation event (exe+7792BD -> exe+88A6C0) spends the booster's
+  `bladeHoming_DrainEnPointPerSec` (+0x134) for a few frames (-252 EN on the test AC).
+- EN of a character: module 0x2A (EN object), capacity +0x20, current +0x24.
+- Live (tester AC mission, starter AC, EN logged at every change): rising (Space held) 632 EN/s; with
+  `energyDrawRate_*` x0.5: 316; with `consumeEnergyRate` x0.5 on top: 144 (and the Shift action 252 -> 126).
+- User decision: rising + quick boost. Rising = the row's `energyDrawRate_UpBoost` 0.92 / 0.85 / 0.8 (mission
+  start); quick boost = the `quick_boost_en` target, a call hook on the jmp at exe+88B1CA scaling the amount for the
+  player's EN object. Verified at LV3: rising 632 -> 505 EN/s; quick boost (direction held + quick left Shift)
+  480 -> 384 EN, back to 480 with the chip at level 0.
+
+## EN recovery: energyRecoverSpeedRate and the net recovery (2026-10-31, measured)
+Adrénaline (9013): each enemy destroyed -> the level's row (`effectEndurance` 10, `energyRecoverSpeedRate`
+1.2 / 1.35 / 1.5) through `[on.enemy_destroyed]`.
+- Re-applying an active row restarts it: one entry, its remaining time (entry +0x48, f32) back to ~10, no stacking;
+  it is gone at 10 s (debug `speffect 900000133` twice 4 s apart).
+- The game's EN recovery, every frame (exe+88B7A0, EN object = module 0x2A): gross = exe+88BC40 = the parts' recovery
+  x the product of `energyRecoverSpeedRate` (exe+9664F0); net = gross - a load term (exe+88B9B0, exe+BA0360 subss);
+  exe+88B920(net) -> the amount added. So the rate scales the gross, before the load: on the starter AC (EN 2300,
+  ~120 updates/s) 23.5 EN per update at 1.0, 42.1 / 56.7 / 70.2 at 1.2 / 1.35 / 1.5 = 23.5 + 94 x (rate - 1): +79 /
+  141 / 199 % instead of +20 / 35 / 50, and the factor depends on the build (gross 11 280/s, net 2 820/s here).
+- User decision: exact via the DLL. Two call hooks for the player's EN object: at exe+88B7E7 (gross) the product of
+  `energyRecoverSpeedRate` over the player's active entries of the mod's own rows (ids 900000000..900000999, the
+  game's filter +0x64 & 0x800C0003) is divided out; at exe+88B80B (net) the net, when > 0, is multiplied by it.
+  Vanilla rows keep the game's behaviour.
+- Verified: 23.5 -> 35.3 per update with 900000133 (x1.50); chip at LV3 + the tester AC zeroed ->
+  `enemy destroyed`, `event enemy_destroyed: chip Adrénaline (LV 3)`, `speffect 900000133 applied to the player`.
+
+## Weapon heat cooling (2026-10-31, implemented)
+Dissipateurs thermiques (9014): the player's weapons shed heat faster. A static search for `heat_SubValuePerSec`
+(EquipParamWeapon +0x58C) found nothing usable; a read watch (in-DLL tracer, 4-8 hits, cleared after 1.5-3 s; the
+readers run every frame) on the pulse blade row's field gave two readers: exe+90B03E (a heat > 0 test) and
+**exe+90887F in exe+908810(heat state, frame time)**: heat (state +8) -= `heat_SubValuePerSec` x
+`heat_OverHeatSubValueScalePercent` / 100 while overheated (state +0x10) x dt (frame time +8), floored at 0. Its
+only caller exe+907F5F passes rcx = slot + 0x30 + 0xC8 (slot + 0xF8 for a weapon slot's first ammunition block), every
+frame for every weapon of every character.
+- `cooling` target: a call hook on exe+907F5F; for a heat state inside the player's weapon module (module 0x27, slots
+  0x20 + k x 0x480), the heat shed this frame (before - after) gets the cooling chips' %. The param row is untouched
+  (enemies use the same rows).
+- Live (starter AC's pulse blade 20010000, `heat_SubValuePerSec` 282; one swing heats it to 1000, cooling starts
+  after `heat_ShootDelay` 1.5 s; slope over 800..200): level 0 282.7 /s (one run 301.4: frame hitches, also seen
+  without the chip), LV1 ~321 /s (median of 0.25 s segments; +14 %), LV3 423.4 / 423.0 /s (x1.50).
+
+## AC test (ESSAI AC) is not a sortie (2026-10-31, fix)
+DÉPLOIEMENT > ESSAI AC sets the game's mission byte too (`defer 0->1`, no pre-mission talk so no escrow). The DLL took
+it for a sortie: `mission_start` fired, the pause menu was blocked (no way out of the test but closing the game), a
+death there ran the death / game over logic, and leaving it (`defer 1->0` without a clear) would have been charged
+as a failed mission.
+- The player character's map id (u32 at ChrIns +0x38) has 0x5A in byte 2 on the AC test map (`CHR_MAP_ID`,
+  `AC_TEST_MAP`). The player there is the test's own character only after the load, so the main loop marks the
+  "sortie" as the AC test when it first sees it there: deaths ignored, the exit logged "AC test left: not a
+  mission, nothing charged". The pause hook checks the map itself (pause allowed in the test).
+- `mission_start` still fires at the flip (chips' mission rows apply to the test AC: handy to try them).
+- Verified: the log shows "AC test (ESSAI AC): not a sortie, its exit and deaths are not charged" a second after
+  the flip. The in-mission pause key is Esc (pad Menu); leaving through the test's menu was not exercised.
+
+## Prospecteur: chip odds in the rewards (2026-10-31, implemented)
+Chip 9015 "Prospecteur" (user decision: 15 / 30 / 50 %): `reward.chips` target. `pick_weighted` still picks a pool by
+its weight, then inside the pool our own chips weigh 100 + the target's % against 100 for every other part (pool odds
+unchanged). Debug `odds N` now also prints the share of chips.
+- Verified (garage, `odds 20000`): chips 5.7 % of the picks at level 0, 7.2 % at LV3; pools 50 / 25 / 15 / 10 % both
+  times.
+
+## Pillage: ammunition per enemy destroyed, enemy tiers, script params (2026-10-31, implemented)
+Chip 9016 "Pillage" (user decisions: tiers by enemy max AP, values per tier and level in the chip file).
+- Enemy AP archetypes (NpcParam `hp`, 1 222 rows, regulation dump): drones / helicopters 28-300, walker / flying MTs
+  100-900, heavy MTs / LCs / emplacements 3 800-13 000, bosses 15 000-64 000 (Juggernaut 63 985). Enemy ACs read 1 700
+  there (their AP comes from their parts: the tester AC has 12 300 live), so tiers use the live max AP the
+  enemy_destroyed hook reads. `[enemy_tiers]` in the settings (name = lowest max AP): small 0, medium 1 000, large
+  10 000, boss 30 000; `config::enemy_tier` -> `e.tier` (1-based), `game.tier_name(n)` in scripts.
+- `resupply` action (TOML `resupply = %`, Lua `resupply(pct)`): queued, run by the frame hook through `resupply_hook`
+  on the player's weapon module (the game's resupply exe+907540 with rate = % / 100, so the ammo chips' raised totals
+  apply; each weapon gets max(1, rate x total) rounds, capped).
+- Chip files: `[params]` (any key = number, "a/b/c" or text) -> `chip.params` in the script. scavenger.toml holds
+  small 1/2/3, medium 3/5/8, large 8/12/16, boss 15/25/35; scavenger.lua picks the tier's list at the level.
+- Verified (tester AC mission, LV3, missiles and back unit fired first): tester destroyed (12 300 AP = large) ->
+  `script Pillage: Resupply(Fixed(16))`, `resupply x0.16 ...: 35200000 23 -> 25, 30020100 124 -> 140`.
+
+## Core expansion event and Cœur libre (2026-10-31, implemented)
+Chip 9017 "Cœur libre" (user decision: no EN spent for 10 / 15 / 20 s after a core expansion).
+- Keys: the core expansion is pressed as assault boost + aim assist together (pad LS + RS, "Commandes d'extension de
+  torse" Type B): Ctrl + middle click on the default keyboard. Ctrl alone = assault boost.
+- In the AC test with Assault Armor, a SpEffect log of the player (ids every 10 ms): Ctrl + middle click -> 9210,
+  200001640, 200001650 (the assault boost rows) replaced the same frame by **9230**, then 9100 / 9105 at the burst,
+  all gone within ~4 s; HUD EXPANSION 1 -> 0. 9230 / 9100 / 9105 / 9210 are identical marker rows (spCategory 20, no
+  effect). A plain assault boost never adds 9230. Expansion charge counter: not found (memory diffs gave only the
+  character update scheduler, chr +0x3B0).
+- Hook: the game's SpEffect add exe+96B6C0 (manager, id, *params, ?, u8, f32, u8, u8; its 4 call sites exe+965D0E,
+  +965D4E, +968F95, +969080, call-site hooks installed only when a chip uses the event): the player's manager getting
+  9230 -> `core_expansion`.
+- Rows 900000171..173: copy of 9405, `effectEndurance` 10 / 15 / 20, `consumeEnergyRate` 0 (every EN spending).
+- Verified (AC test, LV3): `core expansion fired (player)` -> `speffect 900000173 applied`; quick boost 480 EN before,
+  0 right after the expansion, 480 again 20 s later. Only Assault Armor was tried (the other three expansions are
+  expected to add the same marker, not checked).
+
+## Drone on kill: spawning the Vvc-700LD's drones from the DLL (2026-10-31, implemented)
+Chip 9018 "Essaim" (user decision: the laser drone Vvc-700LD, from where the enemy died): levels = drones per kill.
+- **Behavior call.** Firing a weapon or an animation event runs exe+6F9430(chr + 0x1F8 = producer, BehaviorParam_PC
+  id, -1, *location, 2, weapon slot, *a7, f32, f32, 1, weapon slot, *a12, *a13, *a14, index, *a16) (16 arguments; call
+  sites exe+8F1324 = weapon fire, exe+6F9859 = animation-event behaviors). The bazooka DF-BA-06 is behavior 110420000
+  (slot 1); the drone unit fires behavior 131410000 six times (slot 3, index 1..6, dummy polys 11301..11306). Capturing
+  one call (a local call-site hook) and replaying it works: the bazooka fires with no ammo spent, a drone flies out.
+- **Producer = team**: replayed with the training AC as producer, the shot hits the player.
+- **Location** (arg 4 -> exe+6F71A0 copies 0x40 bytes to the spawn record +0x20): +0 dummy poly id, +4 mode (0 = the
+  producer's dummy poly), +0x10..0x3F a 3x4 matrix (rows with the translation in w). Mode 1 + dummy poly -1 + that
+  matrix = any point (layouts "pos first", "pos last", "pos middle" gave nothing; drone next to the target hit 2 s
+  after the spawn instead of 4-5 s from the player).
+- **Weapon slot**: args 6 and 11 are the weapon slot; the slot must hold the drone weapon (replayed with the missiles
+  back in slot 3: nothing). The player's weapon module (module 0x27) has 0x20 slots: 0-3 the arms and backs, 8-9 kicks
+  (299xxx), 14 (80070400), 15 the core expansion's weapon (75101000), 16-18 placeholders (100000), 19-31 unset. The
+  game's setup loop (exe+903D40, slots 0..0x12) loads each: descriptor exe+15D6BE0(desc + 0x18, -1) /
+  exe+15D3370(desc, 0, equipId), exe+906590(slot - 0x10, &desc, 0), then exe+905AA0(module). Done the same way from the
+  DLL: slot 19 loads (id and ammo right) but cannot fire; slots 16-18 fire once the module refresh exe+905AA0 runs.
+  Slot 16 shows its ammo in the HUD's left-arm cell (left click still swings the blade); slot 18 shows nothing:
+  `DRONE_SLOT` = 18.
+- **Other structs** (a7, a12, a13, a16): a template of one real drone call, patched: the owner handle (chr + 8), the
+  slot (a7 +0x30/+0x50, a12 +0x50/+0x70, a13 +0x10, a16 +0x08) and a pointer to the slot's entry in player module 38
+  (+0x140 + 0x40 x slot; a7 +0x10, a12 +0x30). a14 (an animation-event object) can be null.
+- drone.rs: `drone::queue(pos)` (scripts: `drone(x, y, z)`; debug `drone_at x y z`), run by the frame hook: the slot
+  is (re)loaded before the first spawn after each load. `enemy_destroyed` now gives e.x / e.y / e.z (ChrIns +0x150).
+- Verified (ESSAI AC with the Assault Armor save, which owns no drone weapon; training AC with its AI off): `drone_at`
+  next to it -> 3 hits of 86 about 2 s later; Essaim at LV3, training AC destroyed -> `drone: weapon slot 18 loaded`,
+  3 drones spawned around its position; the arm weapons and the HUD unchanged.
+- Test tooling learned on the way: the ESSAI AC pause menu opens by writing 7 to [[[exe+4E15530]+0x18]+8]+0xD0 (its
+  PARAMÈTRES ENNEMIS spawn a training AC, AI off possible; its Assemblage changes the AC live); right-click "back" in
+  the test fires the right arm.
+## Enemy staggered event and Surcharge (2026-11-01, implemented)
+Chip 9019 "Surcharge" (user decision: full EN on an enemy stagger, one level).
+- Scripted stagger (AC test, training AC with AI off, bazooka hits 722 AP / ~765 ACS each, limit ~1645): writing the
+  ACS gauge (module 20 +0x12C, copy +0x1A4) alone does nothing, it decays. Holding it at 1600 until the next hit lands
+  overloads the AC: the gauge resets to 0 and module 20 gets +0x135 / +0x1AD = 1 (staggered bytes), +0x1C0 = 1 (flag,
+  ~1.7 s), +0x1C4 + 1 (stagger count, kept), +0x260 = 1 (stays set), +0x2E0..+0x2E8 a direction (~0.8 s). A plain hit
+  only sets +0x128 / +0x1A0 (0xD7, ~1.5 s) and +0x228 (the damage, 0.5 s). A third plain hit staggers it the same way.
+- Write watch on +0x1C0: exe+86F000(flag struct, bool) sets it on a rising edge (count +1, time stamp). Its only caller
+  exe+870B40(module 20, staggered byte) runs every frame for every character from the character update (call sites
+  exe+8138FC, and exe+810B6A on a reset with 0); it latches the byte at +0x135 / +0x1AD first. Module 20 +8 = its
+  owner character.
+- Hook: both call sites; the byte at +0x1AD 0 before the call and the new value 1, owner not the player (and its own
+  module 20) -> `enemy_staggered` (e.max_ap, e.tier like enemy_destroyed). Installed only when a chip uses the event.
+- Action `energy = %`: the player's EN object (module CHR_MOD_EN) +0x24 (current EN) raised by that % of +0x20 (the
+  capacity), on the game thread (frame hook), capped. A refill right after the EN ran out (rising until -1) is used at
+  once: the AC kept rising and spending from 2250.
+- Verified (AC test, LV1): `enemy staggered: character ... (max AP 11250)` -> `Energy(Value)` -> `player EN refilled to
+  2300 / 2300` (EN held at 200 before); two plain hits gave no event, the natural stagger on the third gave one.
+
+## Drone targets: Essaim waits for the lock, script timers (2026-11-01, implemented)
+User report: killing an enemy while still locked on it sent Essaim's drones to the spot where it died.
+- A drone keeps the target it takes when it appears: spawned locked on MT 4, the lock moved to an air unit 2 s
+  later, the drone still hit MT 4 (3 x 140). Spawned with no lock: no hits.
+- It does not take it in the spawn call: a read watch armed on the game thread around exe+6F9430 (the call reads
+  the owner handle chr +8 from exe+6F6C58) caught no read of the player's lock fields. Writing another enemy into
+  every lock spot during the call (chr +0x2F0 / +0x3E8 / +0x5D8 handles, +0x470 / +0x640 and the 31 entries from
+  +0x810 (stride 0x1D0) with the position 0x10 before, WorldChrMan +0x12260 (4 entries, stride 0x40), and every other
+  spot of a locked / unlocked handle scan diff) changed nothing. The target is read in the drone's first frames; the
+  readers of chr +0x2F0 then (exe+B6840B, exe+C3D552, exe+C3DE3D...) are shared with the HUD and the lock system, the
+  drone's own was not isolated.
+- Player lock (found on the way): chr +0x2F0 = the locked enemy's handle (-1: none), its position at chr +0x2E0; the
+  lock-on candidates are 0x230-byte entries (handle at +0, owner at +0x88, position at +0x210). WorldChrMan +0xA760 /
+  +0xA768 = begin / end of the map's characters (0x18-byte entries, the ChrIns at +0): every enemy of a map (ESSAI
+  AC: training AC, MTs, air units).
+- Fix: the drones wait until the lock has left the destroyed enemy. Scripts got `after(seconds, fn)` (script.rs:
+  timers run on the game thread in the call's context, dropped at death / clear / failure / title / save load, 64
+  pending per chip), `game.lock_id()` (low 32 bits of chr +0x2F0, nil at -1) and `e.id` (low 32 bits of the
+  character's handle, chr +8) on enemy_destroyed / enemy_staggered (which now also gives e.x / e.y / e.z). swarm.lua
+  checks every `step` (0.1 s) for `wait` (2 s) at most. The lock leaves a destroyed enemy 0.67-0.72 s after its AP
+  reaches 0 (5 kills measured), for the next target in view or none.
+- Verified (ESSAI AC, MT bipedes + drones, AI off, Essaim LV3): MT 2 destroyed by an AP write while locked -> drones
+  0.72 s later -> air unit a destroyed -> drones -> air unit b -> drones -> MT 3, each by the previous kill's drones.
+  (A first version with a fixed 0.8 s delay missed once.)

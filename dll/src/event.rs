@@ -105,6 +105,9 @@ static DIALOG: Mutex<(Vec<String>, u64)> = Mutex::new((Vec::new(), 0));
 pub fn emit(e: Event) { emit_with(e, &[]) }
 /// `emit` with fields for the scripts' event table (`e.<name>`).
 pub fn emit_with(e: Event, data: &[(&'static str, f64)]) {
+    if matches!(e, Event::Death | Event::MissionCleared | Event::MissionFailed | Event::GameOver | Event::Title | Event::SaveLoaded) {
+        script::cancel_timers();
+    }
     let subs: Vec<&chip::Chip> = chip::chips().iter().filter(|c| c.on.iter().any(|h| h.0 == e) || c.script_on.contains(&e)).collect();
     if subs.is_empty() { return; }
     let base = mem::module_base();
@@ -230,7 +233,8 @@ unsafe extern "system" fn ap_changed_hook(chr: usize) -> u64 {
         if ap <= 0 && prev > 0 && chr != player_chr(base) {
             logf!("enemy destroyed: character {:#X} (max AP {})", chr, max);
             let pos = |k: usize| f32::from_bits(mem::rd_u32(chr + o::CHR_POS + 4 * k)) as f64;
-            emit_with(Event::EnemyDestroyed, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64), ("x", pos(0)), ("y", pos(1)), ("z", pos(2))]);
+            let id = mem::rd_u32(chr + o::CHR_HANDLE) as f64;
+            emit_with(Event::EnemyDestroyed, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64), ("x", pos(0)), ("y", pos(1)), ("z", pos(2)), ("id", id)]);
         }
     }
     r
@@ -276,7 +280,9 @@ unsafe extern "system" fn stagger_set_hook(module: usize, staggered: u8) -> u64 
             let blk = mem::rd_usize(mods);
             let max = if blk == 0 { 0 } else { mem::rd_i32(blk + o::CHR_AP_MAX) };
             logf!("enemy staggered: character {:#X} (max AP {})", chr, max);
-            emit_with(Event::EnemyStaggered, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64)]);
+            let pos = |k: usize| f32::from_bits(mem::rd_u32(chr + o::CHR_POS + 4 * k)) as f64;
+            let id = mem::rd_u32(chr + o::CHR_HANDLE) as f64;
+            emit_with(Event::EnemyStaggered, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64), ("x", pos(0)), ("y", pos(1)), ("z", pos(2)), ("id", id)]);
         }
     }
     r

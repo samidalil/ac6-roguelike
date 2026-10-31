@@ -416,6 +416,10 @@ pub const WCM_PLAYER: usize = 0xA5A0;
 pub const PLAYER_MODULES: usize = 0x320;
 pub const CHR_AP: usize = 0x278;
 pub const CHR_AP_MAX: usize = 0x27C;
+/// The player's lock target: its handle (-1: none), its position at +0x2E0 (exe+B68400 reads both; RE_NOTES "Drone targets")
+pub const CHR_LOCK_TARGET: usize = 0x2F0;
+/// A character's own handle (its low 32 bits = `e.id` of the enemy events)
+pub const CHR_HANDLE: usize = 8;
 
 
 // --- save requests (RE 2026-10-26): per-frame save step exe+1272440 picks the highest-priority set bit of
