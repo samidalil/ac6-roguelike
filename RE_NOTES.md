@@ -1975,3 +1975,22 @@ Impact amplifié (9011) raises the stagger (ACS impact) the player's hits deal. 
   x2: 620 -> +1530; with the chip's LV3 row (x1.2) on top: 620 -> +1836 (765 x 2.4), 71 -> +103 (86 x 1.2).
 -> Impact amplifié rows use `atkEnemyImpactCorrectRate` 1.08 / 1.15 / 1.2, applied at mission_start (verified: chip
   at LV3 in the garage -> `speffect 900000113 applied to the player` at the sortie).
+
+## Boost EN: SpEffect fields and the quick boost hook (2026-10-31, measured)
+Propulseurs économes (9012): boosting draws less EN.
+- `energyDrawRate_GroundBoost / _FlyBoost / _UpBoost` (+0x350 / +0x354 / +0x358): products exe+9663F0 / exe+9663A0 /
+  exe+966440 multiply the booster's `f05_consumeEN_boostMove` (+0x34), `f11_consumeEN_boostMoveAir` (+0x4C) and
+  `consumeEN_BoostUp` (+0x50) in the cost functions exe+88AA70 / exe+88A760 / exe+88B1E0. **Every booster has 0 in
+  the first two** (ground and air boosting cost no EN), so only the rising one does anything.
+- `consumeEnergyRate` (+0x328, product exe+966110) multiplies every EN spending (exe+88C0E0 and the one-off
+  exe+88A0F0).
+- The quick boost: exe+88B130 = booster `consumeFixedEN_QB` (+0x54) x a factor (exe+BA25D0), then `jmp` exe+88C0E0
+  at exe+88B1CA. Shift alone is another action: an animation event (exe+7792BD -> exe+88A6C0) spends the booster's
+  `bladeHoming_DrainEnPointPerSec` (+0x134) for a few frames (-252 EN on the test AC).
+- EN of a character: module 0x2A (EN object), capacity +0x20, current +0x24.
+- Live (tester AC mission, starter AC, EN logged at every change): rising (Space held) 632 EN/s; with
+  `energyDrawRate_*` x0.5: 316; with `consumeEnergyRate` x0.5 on top: 144 (and the Shift action 252 -> 126).
+- User decision: rising + quick boost. Rising = the row's `energyDrawRate_UpBoost` 0.92 / 0.85 / 0.8 (mission
+  start); quick boost = the `quick_boost_en` target, a call hook on the jmp at exe+88B1CA scaling the amount for the
+  player's EN object. Verified at LV3: rising 632 -> 505 EN/s; quick boost (direction held + quick left Shift)
+  480 -> 384 EN, back to 480 with the chip at level 0.

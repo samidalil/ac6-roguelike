@@ -46,9 +46,10 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   points at a never-set flag, the unlock notification no longer names it). `[os_tuning]` rewrites a tuning's effect
   value per level in the OsReinforce param (the game reads it at each hit; fewer levels = lower max level).
 - `chip.rs` — our own OS chips: one file per chip in `chips/` next to the DLL (`id`, `name`, `stat`, `levels`,
-  `[effect]` ap / en_capacity / weight / ammo = "+" / "-"), offered and leveled like OS Tunings (rows 9000 + id; levels
+  `[effect]` ap / en_capacity / weight / ammo / quick_boost_en = "+" / "-"), offered and leveled like OS Tunings (rows 9000 + id; levels
   in `CHIP_LEVELS`, 4 bits each; used up = `HIDE_FROM_POOL`). Effects on the player's AC only, through call hooks on the game's stat code:
-  set max AP (exe+82AEC0), EN capacity (exe+88BAE0), total weight (exe+46CA70), add ammunition (exe+907750); the part
+  set max AP (exe+82AEC0), EN capacity (exe+88BAE0), total weight (exe+46CA70), add ammunition (exe+907750), the quick
+  boost's EN spending (exe+88B1CA -> exe+88C0E0); the part
   params are untouched. Effects are modifier targets (`Target`, `modify`): the player's stats above, plus the run's own
   values looked up where they are used (pool weights, rewards per mission, parts per reward, shop size).
 - `occur.rs` — `[max_occurrences]`: offers per run of the listed items (any part or OS Tuning), counted at the mission
