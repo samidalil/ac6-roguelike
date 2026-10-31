@@ -67,6 +67,7 @@ mod event;
 mod script;
 mod occur;
 mod cap;
+mod drone;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
 struct Lineup {
@@ -1286,6 +1287,11 @@ fn boot() {
                             }
                         }
                         "save" => logf!("DEBUG: save requested (mask before {:?})", run.game.request_save()),
+                        c if c.starts_with("drone_at ") => {
+                            // `drone_at x y z`: a chip drone at that world position
+                            let a: Vec<f32> = c[9..].split_whitespace().filter_map(|v| v.parse::<f32>().ok()).collect();
+                            if a.len() == 3 { drone::queue([a[0], a[1], a[2]]); } else { logf!("DEBUG: bad drone_at {:?}", c); }
+                        }
                         c if c.starts_with("speffect ") => match c[9..].trim().parse::<i32>() {
                             // `speffect <id>`: a SpEffectParam row applied to the player (game thread, next frame)
                             Ok(id) => { logf!("DEBUG: speffect {} queued for the player", id); event::queue_speffect(id, false); }

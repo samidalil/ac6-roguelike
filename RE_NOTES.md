@@ -2078,3 +2078,35 @@ Chip 9017 "Cœur libre" (user decision: no EN spent for 10 / 15 / 20 s after a c
 - Verified (AC test, LV3): `core expansion fired (player)` -> `speffect 900000173 applied`; quick boost 480 EN before,
   0 right after the expansion, 480 again 20 s later. Only Assault Armor was tried (the other three expansions are
   expected to add the same marker, not checked).
+
+## Drone on kill: spawning the Vvc-700LD's drones from the DLL (2026-10-31, implemented)
+Chip 9018 "Essaim" (user decision: the laser drone Vvc-700LD, from where the enemy died): levels = drones per kill.
+- **Behavior call.** Firing a weapon or an animation event runs exe+6F9430(chr + 0x1F8 = producer, BehaviorParam_PC
+  id, -1, *location, 2, weapon slot, *a7, f32, f32, 1, weapon slot, *a12, *a13, *a14, index, *a16) (16 arguments; call
+  sites exe+8F1324 = weapon fire, exe+6F9859 = animation-event behaviors). The bazooka DF-BA-06 is behavior 110420000
+  (slot 1); the drone unit fires behavior 131410000 six times (slot 3, index 1..6, dummy polys 11301..11306). Capturing
+  one call (a local call-site hook) and replaying it works: the bazooka fires with no ammo spent, a drone flies out.
+- **Producer = team**: replayed with the training AC as producer, the shot hits the player.
+- **Location** (arg 4 -> exe+6F71A0 copies 0x40 bytes to the spawn record +0x20): +0 dummy poly id, +4 mode (0 = the
+  producer's dummy poly), +0x10..0x3F a 3x4 matrix (rows with the translation in w). Mode 1 + dummy poly -1 + that
+  matrix = any point (layouts "pos first", "pos last", "pos middle" gave nothing; drone next to the target hit 2 s
+  after the spawn instead of 4-5 s from the player).
+- **Weapon slot**: args 6 and 11 are the weapon slot; the slot must hold the drone weapon (replayed with the missiles
+  back in slot 3: nothing). The player's weapon module (module 0x27) has 0x20 slots: 0-3 the arms and backs, 8-9 kicks
+  (299xxx), 14 (80070400), 15 the core expansion's weapon (75101000), 16-18 placeholders (100000), 19-31 unset. The
+  game's setup loop (exe+903D40, slots 0..0x12) loads each: descriptor exe+15D6BE0(desc + 0x18, -1) /
+  exe+15D3370(desc, 0, equipId), exe+906590(slot - 0x10, &desc, 0), then exe+905AA0(module). Done the same way from the
+  DLL: slot 19 loads (id and ammo right) but cannot fire; slots 16-18 fire once the module refresh exe+905AA0 runs.
+  Slot 16 shows its ammo in the HUD's left-arm cell (left click still swings the blade); slot 18 shows nothing:
+  `DRONE_SLOT` = 18.
+- **Other structs** (a7, a12, a13, a16): a template of one real drone call, patched: the owner handle (chr + 8), the
+  slot (a7 +0x30/+0x50, a12 +0x50/+0x70, a13 +0x10, a16 +0x08) and a pointer to the slot's entry in player module 38
+  (+0x140 + 0x40 x slot; a7 +0x10, a12 +0x30). a14 (an animation-event object) can be null.
+- drone.rs: `drone::queue(pos)` (scripts: `drone(x, y, z)`; debug `drone_at x y z`), run by the frame hook: the slot
+  is (re)loaded before the first spawn after each load. `enemy_destroyed` now gives e.x / e.y / e.z (ChrIns +0x150).
+- Verified (ESSAI AC with the Assault Armor save, which owns no drone weapon; training AC with its AI off): `drone_at`
+  next to it -> 3 hits of 86 about 2 s later; Essaim at LV3, training AC destroyed -> `drone: weapon slot 18 loaded`,
+  3 drones spawned around its position; the arm weapons and the HUD unchanged.
+- Test tooling learned on the way: the ESSAI AC pause menu opens by writing 7 to [[[exe+4E15530]+0x18]+8]+0xD0 (its
+  PARAMÈTRES ENNEMIS spawn a training AC, AI off possible; its Assemblage changes the AC live); right-click "back" in
+  the test fires the right arm.
