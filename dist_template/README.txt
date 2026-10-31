@@ -36,7 +36,8 @@ HOW IT PLAYS
   (+2 000 / 4 000 / 8 000 credits after each cleared mission, shown in the garage), Nanoréparation (your AC repairs
   20 / 40 / 60 AP per second during missions), Prime de série (every 3rd mission cleared in a row: +10 000 / 20 000
   / 40 000 credits; a failure resets it), Récupération (each enemy destroyed repairs 300 / 600 / 1 000 AP), Dernier
-  recours (below 30 % AP: weapon damage +10 / 20 / 30 %). The AC chips change your
+  recours (below 30 % AP: weapon damage +10 / 20 / 30 %), Impact amplifié (stagger your hits deal to enemies +8 / 15 /
+  20 %). The AC chips change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
   resupplies.
