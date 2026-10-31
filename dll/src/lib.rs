@@ -267,6 +267,14 @@ impl Game {
         if m == 0 || !mem::is_readable(m, 0x40) { return None; }
         Some(m)
     }
+    /// The player's AC is in the AC test (DÉPLOIEMENT > ESSAI AC): the game sets the mission byte there too, but it is
+    /// not a sortie (no escrow, no clear, its exit is not a failure).
+    unsafe fn in_ac_test(&self) -> bool {
+        let wcm = mem::rd_usize(self.base + o::WORLDCHRMAN_GLOBAL);
+        if wcm == 0 || !mem::is_readable(wcm + o::WCM_PLAYER, 8) { return false; }
+        let chr = mem::rd_usize(wcm + o::WCM_PLAYER);
+        chr != 0 && mem::is_readable(chr + o::CHR_MAP_ID, 4) && mem::rd_u8(chr + o::CHR_MAP_ID + 2) == o::AC_TEST_MAP
+    }
     /// Player (AP, max AP) during a mission; None when the chain is not built (garage, loading).
     unsafe fn player_ap(&self) -> Option<(i32, i32, usize)> {
         let slot = self.base + o::WORLDCHRMAN_GLOBAL;
@@ -555,7 +563,7 @@ unsafe extern "system" fn pause_hook(this: usize) {
     let base = mem::module_base();
     let game = Game::new(base);
     if let Some(gd) = game.game_data() {
-        if game.defer_byte(gd) == 1 { PAUSE_BLOCKED.fetch_add(1, Relaxed); return; }
+        if game.defer_byte(gd) == 1 && !game.in_ac_test() { PAUSE_BLOCKED.fetch_add(1, Relaxed); return; }
     }
     let orig: FnRequestPause = core::mem::transmute(base + o::FN_REQUEST_PAUSE_MENU);
     orig(this);
@@ -1089,6 +1097,7 @@ fn boot() {
     let mut alive_chr = 0usize;   // character object that was last seen alive (a zero must come from it)
     let mut dead = false;         // died and not respawned yet
     let mut cleared_seen = false; // 5074 rose during this sortie
+    let mut ac_test = false;      // this "sortie" is the AC test (seen on its map): no failure, no death
     let mut prev_loaded = false;
     let mut title_at: u64 = 0;
     let mut exit_phase = 0u8;   // game over exit: 1 close the session, 2 wait for its save, 3 leaving for the title
@@ -1381,7 +1390,7 @@ fn boot() {
                         log("defer 0->1 (mission active)");
                         cap::AFTER_COMMIT.store(false, Relaxed); // a commit without the post-mission sequence (3139) must not block the cap
                         run.market_wait = false; run.reward_handles.clear(); run.reward_parts.clear(); run.reward_sets.clear(); run.mission_ran = true;
-                        alive = false; dead = false; cleared_seen = false;
+                        alive = false; dead = false; cleared_seen = false; ac_test = false;
                         msg::GAME_OVER_TEXT.store(false, Relaxed);
                         // escrow should already be in the save (armed during the pre-mission talk); the game
                         // never saves during a mission, so this is only a fallback for the in-memory state
@@ -1394,9 +1403,10 @@ fn boot() {
                     if p == 1 && d == 0 {
                         if run.reward_handles.is_empty() && config::get().parts_per_mission > 0 { log("WARNING: mission-end commit with no reward queued"); }
                         log("defer 1->0 (commit)"); run.reward_handles.clear(); choice::disarm();
+                        if ac_test { log("AC test left: not a mission, nothing charged"); run.mission_ran = false; }
                         if run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) { event::emit(event::Event::Commit); }
                         // ignore the flip caused by the game shutting down / exiting to title (save no longer loaded)
-                        if !cleared_seen && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {
+                        if !cleared_seen && !ac_test && run.game.get_flag(man, o::FLAG_NEW_GAME_DONE) == Some(true) {
                             logf!("mission FAILED ({})", if dead { "death" } else { "quit" });
                             match penalty::failure_balance(gd) {
                                 Some(v) if v < 0 => {
@@ -1412,8 +1422,9 @@ fn boot() {
                     // a dead player's sortie is failed (no retry): the game empties the pending list, nothing to re-queue
                     if p == 1 && d == 1 && !dead { run.check_reward(gd, man); }
                 }
+                if d == 1 && !ac_test && run.game.in_ac_test() { ac_test = true; log("AC test (ESSAI AC): not a sortie, its exit and deaths are not charged"); }
                 // death: AP reaches 0 during a mission (charged once; re-armed on respawn after Retry)
-                if d == 1 && !cleared_seen {
+                if d == 1 && !cleared_seen && !ac_test {
                     if let Some((ap, max, chr)) = run.game.player_ap() {
                         if ap > 0 { if dead { logf!("respawned (AP {}/{})", ap, max); event::emit(event::Event::Respawn); } alive = true; dead = false; alive_chr = chr; }
                         else if alive && !dead && chr == alive_chr {

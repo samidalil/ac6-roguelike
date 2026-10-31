@@ -260,6 +260,9 @@ pub const FN_APPLY_SPEFFECT: usize = 0x968EA0;
 pub const FN_AP_CHANGED: usize = 0x1714F00;
 pub const AP_CHANGED_CALLSITE: usize = 0x7563FF;
 pub const CHR_AP_PREV: usize = 0x38C;
+/// A character's map id (u32 at ChrIns + CHR_MAP_ID); the AC test (DÉPLOIEMENT > ESSAI AC) map has 0x5A at byte 2.
+pub const CHR_MAP_ID: usize = 0x38;
+pub const AC_TEST_MAP: u8 = 0x5A;
 /// Weapon module of a character (module 0x27 of the player; constructor exe+8FF8AE): vtable, owner character at +8,
 /// WEAPON_SLOTS slots of WEAPON_SLOT_STRIDE from WEAPON_SLOT0 (slot 1 = right arm, then back units): equipId
 /// +0x44, ammunition {loaded, reserve} at +0x88 / +0x8C (-1: no ammunition).
