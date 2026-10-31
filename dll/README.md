@@ -65,7 +65,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   row to the player through the game's own call exe+968EA0). `enemy_destroyed` comes from a hook on the game's AP
   change report (exe+7563FF -> exe+1714F00), `enemy_staggered` from one on each character's per-frame stagger state
   (exe+8138FC / exe+810B6A -> exe+870B40); `energy` refills the player's EN.
-- `script.rs` — chip scripts: chips/<name>.lua next to a chip file, Lua 5.4 (mlua, vendored) on the game thread;
+- `script.rs` — chip scripts: chips/<name>.lua next to a chip file, Lua 5.4 (mlua, vendored) on the game thread
+  (`after(s, fn)` timers, dropped at the mission's end);
   `on_<event>(e)` handlers in a per-chip environment with the safe API (log, chip, store, game, the actions) and, with
   `unsafe = true` in the chip file, the `unsafe` table (raw memory); 2M-instruction budget per call, errors logged.
   Needs `panic = "unwind"` (Cargo.toml).
