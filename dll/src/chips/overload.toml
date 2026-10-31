@@ -1,0 +1,10 @@
+# Overload: each enemy staggered (its ACS overloaded) fills the AC's EN back up (the enemy_staggered event, any enemy;
+# the energy action gives back this % of the EN capacity, in a mission). One level.
+id = 19
+name = "Surcharge"
+stat = "EN pleine sur ennemi déséquilibré"
+unit = " %"
+levels = "100"
+
+[on.enemy_staggered]
+energy = "value"

@@ -63,7 +63,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   the mod detects them; chips subscribe with `[on.<event>]` actions (credits, give, level, flag; credits / give applied
   in the garage on the game thread, listed in a dialog once the garage menu is up; speffect applies a SpEffectParam
   row to the player through the game's own call exe+968EA0). `enemy_destroyed` comes from a hook on the game's AP
-  change report (exe+7563FF -> exe+1714F00).
+  change report (exe+7563FF -> exe+1714F00), `enemy_staggered` from one on each character's per-frame stagger state
+  (exe+8138FC / exe+810B6A -> exe+870B40); `energy` refills the player's EN.
 - `script.rs` — chip scripts: chips/<name>.lua next to a chip file, Lua 5.4 (mlua, vendored) on the game thread;
   `on_<event>(e)` handlers in a per-chip environment with the safe API (log, chip, store, game, the actions) and, with
   `unsafe = true` in the chip file, the `unsafe` table (raw memory); 2M-instruction budget per call, errors logged.
