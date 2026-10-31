@@ -2026,3 +2026,16 @@ frame for every weapon of every character.
 - Live (starter AC's pulse blade 20010000, `heat_SubValuePerSec` 282; one swing heats it to 1000, cooling starts
   after `heat_ShootDelay` 1.5 s; slope over 800..200): level 0 282.7 /s (one run 301.4: frame hitches, also seen
   without the chip), LV1 ~321 /s (median of 0.25 s segments; +14 %), LV3 423.4 / 423.0 /s (x1.50).
+
+## AC test (ESSAI AC) is not a sortie (2026-10-31, fix)
+DÉPLOIEMENT > ESSAI AC sets the game's mission byte too (`defer 0->1`, no pre-mission talk so no escrow). The DLL took
+it for a sortie: `mission_start` fired, the pause menu was blocked (no way out of the test but closing the game), a
+death there ran the death / game over logic, and leaving it (`defer 1->0` without a clear) would have been charged
+as a failed mission.
+- The player character's map id (u32 at ChrIns +0x38) has 0x5A in byte 2 on the AC test map (`CHR_MAP_ID`,
+  `AC_TEST_MAP`). The player there is the test's own character only after the load, so the main loop marks the
+  "sortie" as the AC test when it first sees it there: deaths ignored, the exit logged "AC test left: not a
+  mission, nothing charged". The pause hook checks the map itself (pause allowed in the test).
+- `mission_start` still fires at the flip (chips' mission rows apply to the test AC: handy to try them).
+- Verified: the log shows "AC test (ESSAI AC): not a sortie, its exit and deaths are not charged" a second after
+  the flip. The in-mission pause key is Esc (pad Menu); leaving through the test's menu was not exercised.
