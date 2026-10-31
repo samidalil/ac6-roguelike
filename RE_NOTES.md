@@ -1805,7 +1805,7 @@ idle garage. And "copies owned <= baseline" hid a rolled slot as soon as a copy 
 and offered a bought slot again once a copy was sold.
 **Now.** The shop is an array changed only by actions; the hooks read it.
 - Entries: each rolled slot (for sale until bought; flag SHOP_BOUGHT 7100 + slot, mirror in dupshop.rs) and each part
-  sold since the reroll (ROWS_SOLD, for sale until bought back). Weapons and frame parts only; starters (always
+  sold since the reroll (SOLD_COPIES, for sale until bought back). Weapons and frame parts only; starters (always
   listed by shop_pred) and unique parts (booster / generator / FCS) keep the game's answer (not owned).
 - Ownership hook: open slot or sold row -> 1; bought slot -> 0; anything else -> the game's function.
 - Purchase: the Achat purchase's add is `call exe+D2EC20(&id, n)` at **exe+D4E00D** (exe+D4DFE0(transaction): id by
@@ -1822,7 +1822,7 @@ and offered a bought slot again once a copy was sold.
   game saves after both: killed without any manual save and reloaded -> inventory, credits, bought slots and buy-back
   all back as they were.
 - **Duplicates:** a sale adds its row whatever is still owned (a copy kept or equipped): the sold copy is offered
-  back. One flag per row: selling two copies of the same part offers one back.
+  back. One entry per copy since "Buy-back per copy" below: selling two copies offers two back.
 - **Starters** keep the game's answer (listed while not owned): CC-2000 ORBITER unequipped (MAIN DISH installed in
   ASSEMBLAGE), sold -> listed in ACHAT at 170 000; owning one copy (even equipped) hides it.
 - **Verified** (profile ac6-roguelike-cap.me3, save ac-mission-available, COAM set to 500 000): MAGASIN 53% / ACHAT 69%
@@ -1830,7 +1830,29 @@ and offered a bought slot again once a copy was sold.
   bought -> "slot 1 bought", tab empty; left side = slot 0, bought separately; flags kept after a relaunch ("bought
   slots [1]"); core CS-5000 MAIN DISH (slot 3) given with debug `give` -> still for sale; HML-G2 right sold in VENTE ->
   back in ACHAT -> bought -> "bought back", hidden; second MAIN DISH bought from its slot, one sold while the other stays
-  equipped -> offered back (buy-back).
+  equipped -> offered## Buy-back per copy (2026-10-31)
+**Why.** ROWS_SOLD held one bit per lineup row: selling two copies of a part offered one back.
+**Now** (buyback.rs): SOLD_COPIES, up to 32 sold copies, 9 bits each (lineup row + 1, 0 = empty), oldest first, packed
+(flags 7640..7927). A sale (Vente hook, or penalty auto-sale) appends one entry per copy removed; a buy-back (dupshop
+purchase hook) removes one matching entry; the reroll empties the list. The ownership hook answers 1 while the row is
+in the list, so a sold copy is offered even while another copy is owned (one purchase at a time).
+- **Full list.** A sale drops the oldest entry. The Vente sale confirmation is the game's own OK / ANNULER dialog with
+  message cat 204 id 1005 ("Vendre <?itemName?>
+pour <?price?> crédits ?", tags filled by the game); while the list
+  is full msg.rs serves `buyback::confirm_text`: "Liste de rachat pleine : <oldest part> ne sera plus rachetable." then
+  the vanilla text on one line (the dialog has room for two lines above the credit boxes; four overlapped them). OK
+  sells (oldest dropped), ANNULER cancels as in vanilla. Auto-sales can't ask: they drop the oldest silently.
+- Debug commands: `sold` (log the list), `sold_fill <row>` (fill the free entries with a row; replaces `rows_test`).
+- **Verified** (profile ac6-roguelike-fresh3.me3, save ac-mission-available, TURNER row 148 copies from `give2`):
+  2 copies sold -> list [148, 148], kept over a relaunch, both bought back one after the other (TURNER still offered
+  after the first, a copy owned), "0 copies left"; 3 owned, 2 sold -> both offered and bought back with the third
+  kept; `sold_fill 219` -> confirmation names HI-32 : BU-TT/A; ANNULER -> no sale, list unchanged; OK -> "list full,
+  oldest copy (row 219) dropped", TURNER appended, 32/32; full list kept over a relaunch; debug `reroll` -> [].
+- Driving the menus: global keys (menu_drive.key) can land in the Claude window when it takes the focus back (Esc
+  there stops the session); held mouse clicks with the game focused right before each press work (left = confirm on
+  the hovered entry, right = back).
+
+ back (buy-back).
 
 ## Resupply with the ammo chip (2026-10-29)
 - Static map (exe 1.09): every refill ends in exe+9075D0 (one ammunition block by a rate: max(1, rate x total)
@@ -1882,11 +1904,11 @@ block, and the game flags above):
 | 4927 / 4928 | FLAG_ESCROW / FLAG_RUN_OVER | mission underway / run over |
 | 7000..7383 | OCCUR | [max_occurrences] counts: 32 slots x {9-bit key = pool key + 1, 3-bit count} |
 | 7384..7639 | SCRIPT_STORE | chip scripts' byte, 8 bits per chip id |
-| 7640..7957 | ROWS_SOLD | buy-back, one bit per lineup row |
+| 7640..7927 | SOLD_COPIES | buy-back: 32 sold copies x 9 bits, lineup row + 1 (0 = empty), oldest first |
 | 8021..8148 | CHIP_LEVELS | chip level, 4 bits per chip id |
 | 8020 | FLAG_NEVER | release flag never set (read only) |
 
-Free: 4361..4417, 4929..4999, 7958..7999, 8000..8019, 8149..8159.
+Free: 4361..4417, 4929..4999, 7928..7999, 8000..8019, 8149..8159.
 - HIDE_FROM_POOL replaces ROWS_LOST + OS_GONE + CHIP_GONE: one "never offered again this run" set (max occurrences
   reached, or a unique part lost on a failure). An OS Tuning / chip losing a level is not hidden: it is offered again
   until its max occurrences.
