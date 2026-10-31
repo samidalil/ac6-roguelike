@@ -120,7 +120,7 @@ fn tutorial_text(id: u32) -> &'static [u16] {
         "Le menu VENTE permet de vendre vos pièces d'AC.\n\n\
          • Une pièce vendue rapporte {}.\n\
          • Elle peut être rachetée à son prix dans le menu ACHAT\njusqu'au prochain renouvellement de la boutique.\n\
-         • Au plus {} pièces vendues restent rachetables : au-delà,\nla plus ancienne ne l'est plus.\n\
+         • Au plus {} pièces vendues restent rachetables : au-delà,\nla plus ancienne part à la casse.\n\
          • Plus de {} pièces au garage : vendez-en jusqu'à\nrevenir à la limite.",
         pct, o::SOLD_COPY_SLOTS, c.max_parts)))
 }
