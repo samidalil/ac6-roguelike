@@ -103,6 +103,7 @@ color = "#FFC23D"
 9011 = 1    # Impact amplifié
 9012 = 1    # Propulseurs économes
 9013 = 1    # Adrénaline
+9014 = 1    # Dissipateurs thermiques
 
 [os_tuning]
 # Effect of each OS Tuning level, by OsReinforce row: "value/value/..." (1 to 5 levels; their count is the tuning's
@@ -387,6 +388,7 @@ color = "#FFC23D"
 9011 = rare      # Impact amplifié (stagger dealt)
 9012 = rare      # Propulseurs économes (rising and quick boost EN)
 9013 = rare      # Adrénaline (EN recovery after each enemy destroyed)
+9014 = rare      # Dissipateurs thermiques (weapon cooling)
 
 [prices]
 # Value of a part, 0 or more: equipId = price, or "part name" = price (spacing and case do not matter; a name also matches
