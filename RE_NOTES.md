@@ -2138,3 +2138,23 @@ resupplies / shots 0.2-1.5 ms. Cause: `Game::flag_man` checks the manager with t
 dispatch, each script action and the script store went through it. They now use `flag_man_fast` (the manager exists
 on the game thread whenever a save is loaded); the scripts' game.ap() / max_ap() read the AP block without checks too.
 After: script calls 0.01-0.7 ms, the dispatch under 1 ms. Other `is_readable` users run on the DLL's own thread.
+## Drone targets: spawn delay for Essaim (2026-11-01, implemented)
+User report: killing an enemy while still locked on it sent Essaim's drones to the spot where it died.
+- A drone keeps the target it takes when it appears: spawned locked on MT 4, the lock moved to an air unit 2 s
+  later, the drone still hit MT 4 (3 x 140). Spawned with no lock: no hits.
+- It does not take it in the spawn call: a read watch armed on the game thread around exe+6F9430 (the call reads
+  the owner handle chr +8 from exe+6F6C58) caught no read of the player's lock fields. Writing another enemy into
+  every lock spot during the call (chr +0x2F0 / +0x3E8 / +0x5D8 handles, +0x470 / +0x640 and the 31 entries from
+  +0x810 (stride 0x1D0) with the position 0x10 before, WorldChrMan +0x12260 (4 entries, stride 0x40), and every other
+  spot of a locked / unlocked handle scan diff) changed nothing. The target is read in the drone's first frames; the
+  readers of chr +0x2F0 then (exe+B6840B, exe+C3D552, exe+C3DE3D...) are shared with the HUD and the lock system, the
+  drone's own was not isolated.
+- Player lock (found on the way): chr +0x2F0 = the locked enemy's handle (-1: none), its position at chr +0x2E0; the
+  lock-on candidates are 0x230-byte entries (handle at +0, owner at +0x88, position at +0x210). WorldChrMan +0xA760 /
+  +0xA768 = begin / end of the map's characters (0x18-byte entries, the ChrIns at +0): every enemy of a map (ESSAI
+  AC: training AC, MTs, air units).
+- Fix (user decision): the drones appear `delay` seconds after the kill (swarm.toml [params], 0.8): by then the lock
+  has moved on (0.67 s in the AC test). `drone(x, y, z, delay)` in scripts, drone.rs `queue_after`.
+- Verified (ESSAI AC, MT bipedes + drones, AI off, Essaim LV3): air unit b destroyed -> 3 drones 0.9 s later -> MT 3
+  destroyed -> 3 drones -> MT 4 destroyed, each by the previous kill's drones. Once (the first air unit killed by an AP
+  write while locked) the drones hit nothing.
