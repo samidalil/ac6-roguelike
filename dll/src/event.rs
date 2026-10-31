@@ -61,6 +61,9 @@ pub enum Action {
     /// `speffect = <SpEffectParam row>` (or one row per level, "a/b/c"): applied to the player's AC on the game thread
     /// (from `mission_start`: to the mission's AC, not the garage's)
     SpEffect(Amount),
+    /// `resupply = "a/b/c"`: every weapon of the player's AC gets this % of its total ammunition (the game's resupply,
+    /// game thread; in a mission only)
+    Resupply(Amount),
 }
 impl Action {
     /// An `[on.<event>]` line: key and value.
@@ -73,12 +76,15 @@ impl Action {
         if k.eq_ignore_ascii_case("speffect") {
             return Amount::parse(v).filter(|a| !matches!(a, Amount::Value)).map(Action::SpEffect).ok_or("speffect = <SpEffectParam row id> or \"a/b/c\"".into());
         }
+        if k.eq_ignore_ascii_case("resupply") {
+            return Amount::parse(v).map(Action::Resupply).ok_or("resupply = % or \"a/b/c\"".into());
+        }
         if let Some(r) = k.strip_prefix("level.") { return Amount::parse(v).map(|a| Action::Level(r.to_string(), a)).ok_or("level.<row> = \"+1\"".into()); }
         if let Some(f) = k.strip_prefix("flag.") {
             let id = f.parse::<u32>().map_err(|_| format!("flag.<id>: {} is not a flag id", f))?;
             return match v { config::Value::Num(n) => Ok(Action::Flag(id, *n != 0)), _ => Err("flag.<id> = 1 or 0".into()) };
         }
-        Err(format!("unknown action {} (credits, give, speffect, level.<row>, flag.<id>)", k))
+        Err(format!("unknown action {} (credits, give, speffect, resupply, level.<row>, flag.<id>)", k))
     }
 }
 
@@ -138,6 +144,7 @@ unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action, e: Even
             for _ in 0..d.abs() { if d > 0 { os::level_up(gd, row); } else { os::level_down(gd, row); } }
         }
         Action::Flag(id, v) => { g.put_flag(man, *id, *v); }
+        Action::Resupply(n) => queue_resupply(n.at(&c.values, lv)),
         Action::SpEffect(n) => queue_speffect(n.at(&c.values, lv), e == Event::MissionStart),
     }
 }
@@ -153,6 +160,15 @@ pub fn push_speffect(id: i32, not: usize) { SPEFFECTS.lock().unwrap_or_else(|e| 
 unsafe fn player_chr(base: usize) -> usize {
     let wcm = mem::rd_usize(base + o::WORLDCHRMAN_GLOBAL);
     if wcm == 0 { 0 } else { mem::rd_usize(wcm + o::WCM_PLAYER) }
+}
+
+/// Resupplies waiting for the game thread, in % of each weapon's total.
+static RESUPPLIES: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+pub fn queue_resupply(pct: i32) { if pct > 0 { RESUPPLIES.lock().unwrap_or_else(|e| e.into_inner()).push(pct); } }
+/// Game thread, every frame: the queued resupplies on the player's weapons (dropped when there is no player AC).
+pub unsafe fn apply_resupplies() {
+    let q: Vec<i32> = core::mem::take(&mut *RESUPPLIES.lock().unwrap_or_else(|e| e.into_inner()));
+    for pct in q { chip::resupply_player(pct as f32 / 100.0); }
 }
 
 /// Game thread, every frame (penalty.rs frame hook): apply the queued SpEffects to the player's AC through the game's
@@ -188,7 +204,7 @@ unsafe extern "system" fn ap_changed_hook(chr: usize) -> u64 {
         let (ap, prev, max) = before;
         if ap <= 0 && prev > 0 && chr != player_chr(base) {
             logf!("enemy destroyed: character {:#X} (max AP {})", chr, max);
-            emit_with(Event::EnemyDestroyed, &[("max_ap", max as f64)]);
+            emit_with(Event::EnemyDestroyed, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64)]);
         }
     }
     r

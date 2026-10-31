@@ -49,6 +49,8 @@ pub struct Chip {
     pub script_on: Vec<event::Event>,
     /// `unsafe = true`: the script gets the `unsafe` table (raw memory)
     pub unsafe_api: bool,
+    /// `[params]`: the script's own settings (`chip.params.<key>`), values as written
+    pub params: Vec<(String, String)>,
 }
 impl Chip {
     pub fn row(&self) -> u16 { o::CHIP_ROW0 + self.id }
@@ -65,7 +67,7 @@ static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 18] = [
+const DEFAULTS: [(&str, &str); 20] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
@@ -84,6 +86,8 @@ const DEFAULTS: [(&str, &str); 18] = [
     ("adrenaline.toml", include_str!("chips/adrenaline.toml")),
     ("heat_sinks.toml", include_str!("chips/heat_sinks.toml")),
     ("chip_scout.toml", include_str!("chips/chip_scout.toml")),
+    ("scavenger.toml", include_str!("chips/scavenger.toml")),
+    ("scavenger.lua", include_str!("chips/scavenger.lua")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).
@@ -130,7 +134,7 @@ fn with_script(mut c: Chip, toml: &std::path::Path) -> Chip {
 fn parse(text: &str) -> Result<Chip, String> {
     use config::Value;
     let mut c = Chip { id: 0, name: String::new(), stat: String::new(), values: Vec::new(), effects: Vec::new(), on: Vec::new(),
-        unit: None, script: None, script_on: Vec::new(), unsafe_api: false };
+        unit: None, script: None, script_on: Vec::new(), unsafe_api: false, params: Vec::new() };
     let mut section = String::new();
     for (n, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let line = config::strip_comment(raw).trim();
@@ -155,6 +159,7 @@ fn parse(text: &str) -> Result<Chip, String> {
             }
             ("", "levels", _) => c.values = config::parse_levels(&val, o::CHIP_MAX_LEVEL)
                 .ok_or_else(|| format!("line {}: levels = \"value/value/...\" (1 to {} levels) expected", n + 1, o::CHIP_MAX_LEVEL))?,
+            ("params", _, _) => c.params.push((k.to_string(), match &val { Value::Num(n) => n.to_string(), Value::Text(t) => t.clone() })),
             ("effect", _, _) => {
                 let (mode, sign) = match &val {
                     Value::Text(t) if t.trim() == "+" => (Mode::Percent, 1), Value::Text(t) if t.trim() == "-" => (Mode::Percent, -1),
@@ -339,6 +344,12 @@ unsafe extern "system" fn add_ammo_hook(ammo: usize, rounds: i32) -> u64 { add_a
 /// rounds, capped at the total). For the player's module, each weapon with a known total ends with what the game
 /// would give with the raised total: the rounds the call put into the loaded round stay, the rest goes to the
 /// reserve, capped at the raised total.
+/// A resupply of the player's weapons at `rate` (0..1 of each total), through the game's call like its own resupplies
+/// (the ammo chips' raised totals included). No player AC: nothing.
+pub unsafe fn resupply_player(rate: f32) {
+    let module = player_module(mem::module_base(), o::CHR_MOD_WEAPONS);
+    if module != 0 { resupply_hook(module, rate); }
+}
 unsafe extern "system" fn resupply_hook(module: usize, rate: f32) -> u64 {
     let base = mem::module_base();
     let orig: unsafe extern "system" fn(usize, f32) -> u64 = core::mem::transmute(base + o::FN_RESUPPLY);

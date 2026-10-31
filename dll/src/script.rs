@@ -105,6 +105,17 @@ fn env(lua: &Lua, c: &'static chip::Chip) -> mlua::Result<Table> {
     t.set("id", c.id)?;
     t.set("name", c.name.as_str())?;
     t.set("values", c.values.clone())?;
+    // params: [params] of the chip file; a number, "a/b/c" numbers = a list (params.small[2]), else the text
+    let p = lua.create_table()?;
+    for (k, v) in &c.params {
+        let nums: Option<Vec<f64>> = v.split('/').map(|x| x.trim().trim_start_matches('+').parse::<f64>().ok()).collect();
+        match nums {
+            Some(n) if n.len() == 1 => p.set(k.as_str(), n[0])?,
+            Some(n) => p.set(k.as_str(), n)?,
+            None => p.set(k.as_str(), v.as_str())?,
+        }
+    }
+    t.set("params", p)?;
     t.set("level", lua.create_function(move |_, ()| Ok(unsafe { chip::level(row) }.unwrap_or(0)))?)?;
     t.set("value", lua.create_function(move |_, ()| Ok(chip::value(row, unsafe { chip::level(row) }.unwrap_or(0))))?)?;
     env.set("chip", t)?;
@@ -127,6 +138,7 @@ fn env(lua: &Lua, c: &'static chip::Chip) -> mlua::Result<Table> {
     t.set("coam", lua.create_function(|_, ()| Ok(game_data().map(|gd| unsafe { mem::rd_i32(gd + o::GD_COAM) })))?)?;
     t.set("in_mission", lua.create_function(|_, ()| Ok(game_data().is_some_and(|gd| unsafe { Game::new(mem::module_base()).defer_byte(gd) } != 0)))?)?;
     t.set("flag", lua.create_function(|_, id: u32| Ok(with_flags(|g, man| unsafe { g.get_flag(man, id) }).flatten()))?)?;
+    t.set("tier_name", lua.create_function(|_, i: usize| Ok(config::get().enemy_tiers.get(i.wrapping_sub(1)).map(|t| t.0.clone())))?)?;
     t.set("level", lua.create_function(|_, target: mlua::Value| {
         let Some(r) = event::row_of(&target.to_string()?) else { return Ok(None) };
         Ok(game_data().and_then(|gd| unsafe { os::level(gd, r) }))
@@ -140,6 +152,7 @@ fn env(lua: &Lua, c: &'static chip::Chip) -> mlua::Result<Table> {
         act(c, event::Action::Level(target.to_string()?, event::Amount::Fixed(n.unwrap_or(1)))); Ok(())
     })?)?;
     env.set("set_flag", lua.create_function(move |_, (id, v): (u32, bool)| { act(c, event::Action::Flag(id, v)); Ok(()) })?)?;
+    env.set("resupply", lua.create_function(move |_, pct: i32| { act(c, event::Action::Resupply(event::Amount::Fixed(pct))); Ok(()) })?)?;
     env.set("speffect", lua.create_function(move |_, id: i32| {
         let not = NOW.with(|n| n.get().2);
         logf!("script {}: speffect {}", c.name, id);

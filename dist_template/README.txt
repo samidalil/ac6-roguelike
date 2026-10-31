@@ -40,7 +40,8 @@ HOW IT PLAYS
   20 %), Propulseurs économes (rising and quick boosts draw 8 / 15 / 20 % less EN),
   Adrénaline (each enemy destroyed: EN recovery +20 / 35 / 50 % for 10 s; another kill restarts the 10 s),
   Dissipateurs thermiques (your weapons shed heat 15 / 30 / 50 % faster), Prospecteur (chips come up 15 / 30 / 50 %
-  more often as rewards, within each rarity). The AC chips change your
+  more often as rewards, within each rarity), Pillage (each enemy destroyed gives back part of every weapon's
+  ammunition, more for tougher enemies: 1-3 % for drones and light MTs up to 15-35 % for bosses). The AC chips change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
   resupplies.
@@ -87,12 +88,15 @@ named on the reward tile, its values per level and its effects: a target = "+" /
 "add" / "sub" (the value itself). Targets: ap, en_capacity, weight, ammo, cooling, quick_boost_en (your AC), pool.<NAME>.weight (odds of a
 pool), reward.count, reward.choices, reward.chips (odds of a chip within its pool), shop.weapons, shop.parts. A chip can also react to events with [on.<event>]
 sections (mission_cleared, commit, death, shop_reroll, pick...; the list is in the default chip files): credits,
-give = "part", "level.<row>" = "+1", "flag.<id>" = 1, speffect = <SpEffectParam row> (applied to your AC; a chip
+give = "part", "level.<row>" = "+1", "flag.<id>" = 1, resupply = <%> (every weapon gets that % of its ammunition,
+in a mission), speffect = <SpEffectParam row> (applied to your AC; a chip
 can declare its own rows in [speffect.<row id>] sections, built into the mod's regulation.bin, see nanorepair.toml). Add a file for a new chip, delete one to remove it; in the
 settings a chip is known by its row (9000 + id) or its name.
 A chip can also have a Lua script with the same name (streak_bonus.toml + streak_bonus.lua): its on_<event>(e)
 functions run on the events (plus enemy_destroyed), with log, chip, store (a byte saved with the run), game (AP,
-credits, flags, levels) and the actions above; the API is listed in streak_bonus.lua. `unsafe = true` in the chip file
+credits, flags, levels) and the actions above; the API is listed in streak_bonus.lua. A [params] section in the chip
+file holds the script's own values (chip.params in the script, see scavenger.toml). Enemy tiers by max AP are set in
+the settings ([enemy_tiers]) and given to the scripts at each enemy destroyed (e.tier). `unsafe = true` in the chip file
 gives the script raw game memory (can break the game). A script error is written to the log and skipped.
 Delete the folder to get the default chips back.
 

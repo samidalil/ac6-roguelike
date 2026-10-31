@@ -52,6 +52,8 @@ pub struct Config {
     pub os_tuning: Vec<(u16, Vec<i32>)>,
     /// [inventory] max_parts: parts owned at most (weapons, frame parts, internals; equipped ones and each copy count)
     pub max_parts: u32,
+    /// [enemy_tiers]: (name, lowest max AP), sorted by that AP; an enemy is in the last tier its max AP reaches
+    pub enemy_tiers: Vec<(String, u32)>,
 }
 
 /// A pool of parts: the shop and the rewards pick a pool by weight (among the pools with a candidate left), then a
@@ -91,7 +93,7 @@ fn defaults() -> Config {
         item_charge_percent: 100, prices: Vec::new(), ammo_cost_percent: 100, repair_cost_percent: 100,
         shop_weapons: 1, shop_parts: 2, parts_per_mission: 1, reward_choices: 3, os_rewards: true, reroll_interval: 1, starting_credits: 100_000,
         pools: vec![Pool::unlisted(UNLISTED)], unlisted_pool: 0, part_rarity: Vec::new(),
-        lost_on_failure: Vec::new(), max_occurrences: Vec::new(), os_tuning: Vec::new(), max_parts: 20,
+        lost_on_failure: Vec::new(), max_occurrences: Vec::new(), os_tuning: Vec::new(), max_parts: 20, enemy_tiers: Vec::new(),
     }
 }
 
@@ -253,6 +255,7 @@ pub fn load() {
             ("economy", "starting_credits") => c.starting_credits = v.min(999_999_999),
             ("inventory", "max_parts") => c.max_parts = v.max(MIN_PARTS), // a complete frame must fit
             ("lost_on_failure", _) => c.lost_on_failure.push((k.to_string(), v.min(1))),
+            ("enemy_tiers", _) => c.enemy_tiers.push((k.to_string(), v)),
             ("max_occurrences", _) => {
                 if v > MAX_OCCURRENCES { logf!("config line {}: [max_occurrences] {} = {} read as {}", n + 1, k, v, MAX_OCCURRENCES); }
                 c.max_occurrences.push((k.to_string(), v.min(MAX_OCCURRENCES)))
@@ -260,6 +263,10 @@ pub fn load() {
             _ => logf!("config line {}: unknown setting [{}] {}", n + 1, section, k),
         }
     }
+    if c.enemy_tiers.is_empty() {
+        c.enemy_tiers = [("small", 0), ("medium", 1000), ("large", 10000), ("boss", 30000)].iter().map(|(n, v)| (n.to_string(), *v)).collect();
+    }
+    c.enemy_tiers.sort_by_key(|t| t.1);
     // the pool of the unlisted parts: created like the unlisted one when no section defines it
     c.unlisted_pool = pool_index(&c.pools, &unlisted_pool).unwrap_or_else(|| {
         logf!("config: [rarity] unlisted_pool = {}: no [pool.{}], created (weight 0: its parts are not offered)", unlisted_pool, unlisted_pool);
@@ -291,4 +298,9 @@ pub fn load() {
         p.display(), c.mission_pay_percent, c.arena_repeat_pay_percent, c.part_sell_percent,
         c.weapon_sell_percent, c.item_charge_percent, c.prices.len());
     let _ = CONFIG.set(c);
+}
+
+/// Tier of an enemy by its max AP: 1 = the first [enemy_tiers] tier (lowest AP), ...
+pub fn enemy_tier(max_ap: i32) -> usize {
+    get().enemy_tiers.iter().rposition(|t| max_ap.max(0) as u32 >= t.1).map_or(1, |i| i + 1)
 }
