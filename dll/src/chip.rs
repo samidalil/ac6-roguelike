@@ -65,7 +65,7 @@ static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 13] = [
+const DEFAULTS: [(&str, &str); 14] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
@@ -79,6 +79,7 @@ const DEFAULTS: [(&str, &str); 13] = [
     ("salvage.lua", include_str!("chips/salvage.lua")),
     ("last_stand.toml", include_str!("chips/last_stand.toml")),
     ("last_stand.lua", include_str!("chips/last_stand.lua")),
+    ("amplified_impact.toml", include_str!("chips/amplified_impact.toml")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).

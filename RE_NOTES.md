@@ -1956,3 +1956,22 @@ entry filter exe+96EDE0 on wepParamChange +0x160 by the weapon's category) multi
 - Inputs that work for tests: mouse buttons through mouse_event (RMB = right arm), lock-on = middle click, Q / E =
   left / right back weapons only as scan-code SendInput (computer-use keys and VK-only input are ignored for them),
   Space / Shift as virtual-key SendInput or computer-use hold_key. Held direction + quick left Shift = quick boost.
+
+## SpEffect stagger fields (2026-10-31, measured)
+Impact amplifié (9011) raises the stagger (ACS impact) the player's hits deal. Candidates: `atkImpactCorrectRate`
+(+0x38C), `atkEnemyImpactCorrectRate` (+0x370), `atkPlayerImpactCorrectRate` (+0x36C).
+- Static: `atkImpactCorrectRate` is multiplied in the stat loop (exe+963F91) only for rows with `wepParamChange` 5
+  (SP_EFE_WEP_CHANGE_PARAM: 0 no restriction, 1 / 2 right / left weapon only, 3 ignored, 4 kick, 5 assault boost
+  bonus attacks only). The impact of a hit is computed by exe+9A8FE0(?, attacker, target): exe+BA93A0(chr) tells a
+  player character; target a player -> the attacker's product of `atkPlayerImpactCorrectRate` (exe+963710), else
+  `atkEnemyImpactCorrectRate` (exe+9636E0); then the target's defPlayer/defEnemy rate by the attacker (exe+963770 /
+  exe+963740). Products over the active entries (flags +0x64 & 0x800C0003 = 0).
+- ACS gauge of a character: module 20 +0x12C (f32, copy at +0x1A4): rises by the hit's impact, decays every frame.
+- Live, tester AC hitting the player (method in "SpEffect damage fields"), gauge rise per hit: 25 (70-damage bullets),
+  378 / 450 / 650 baseline; `atkEnemyImpactCorrectRate` x2 on the tester: unchanged; `atkPlayerImpactCorrectRate` x2:
+  25 -> 50, 378 -> 756, 450 -> 900; `atkImpactCorrectRate` x2 on top: unchanged.
+- Live, player hitting the tester AC (tester left where it spawned, player teleported 60 m from it on the line the
+  camera faces at the sortie, lock-on + E / Q / RMB): 620-damage hit +765, 390 +344; with `atkEnemyImpactCorrectRate`
+  x2: 620 -> +1530; with the chip's LV3 row (x1.2) on top: 620 -> +1836 (765 x 2.4), 71 -> +103 (86 x 1.2).
+-> Impact amplifié rows use `atkEnemyImpactCorrectRate` 1.08 / 1.15 / 1.2, applied at mission_start (verified: chip
+  at LV3 in the garage -> `speffect 900000113 applied to the player` at the sortie).

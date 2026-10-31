@@ -1,0 +1,29 @@
+# Amplified impact: the stagger (ACS impact) your weapons deal is raised for the whole mission. A SpEffect row per
+# level (atkEnemyImpactCorrectRate), applied at each mission start (see nanorepair.toml for the format).
+# atkEnemyImpactCorrectRate counts on hits on characters that are not the player; atkImpactCorrectRate only on assault
+# boost attacks (wepParamChange 5), see RE_NOTES.
+id = 11
+name = "Impact amplifié"
+stat = "Impact"
+levels = "8/15/20"
+
+[on.mission_start]
+speffect = "900000111/900000112/900000113"
+
+[speffect.900000111]
+copy = 9405                # every rate at 1.0
+changeHpPoint = 0
+effectEndurance = -1       # the whole mission
+atkEnemyImpactCorrectRate = 1.08
+
+[speffect.900000112]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = -1
+atkEnemyImpactCorrectRate = 1.15
+
+[speffect.900000113]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = -1
+atkEnemyImpactCorrectRate = 1.2
