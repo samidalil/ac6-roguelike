@@ -2039,3 +2039,10 @@ as a failed mission.
 - `mission_start` still fires at the flip (chips' mission rows apply to the test AC: handy to try them).
 - Verified: the log shows "AC test (ESSAI AC): not a sortie, its exit and deaths are not charged" a second after
   the flip. The in-mission pause key is Esc (pad Menu); leaving through the test's menu was not exercised.
+
+## Prospecteur: chip odds in the rewards (2026-10-31, implemented)
+Chip 9015 "Prospecteur" (user decision: 15 / 30 / 50 %): `reward.chips` target. `pick_weighted` still picks a pool by
+its weight, then inside the pool our own chips weigh 100 + the target's % against 100 for every other part (pool odds
+unchanged). Debug `odds N` now also prints the share of chips.
+- Verified (garage, `odds 20000`): chips 5.7 % of the picks at level 0, 7.2 % at LV3; pools 50 / 25 / 15 / 10 % both
+  times.

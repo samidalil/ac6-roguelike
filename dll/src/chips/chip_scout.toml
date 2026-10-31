@@ -1,0 +1,9 @@
+# Chip scout: our own OS chips come up more often as mission rewards (inside each rarity pool; the pools' own odds
+# are unchanged). See reinforced_plating.toml for the format.
+id = 15
+name = "Prospecteur"
+stat = "Chance de puce"
+levels = "15/30/50"
+
+[effect]
+"reward.chips" = "+"

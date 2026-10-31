@@ -15,9 +15,9 @@ use std::sync::OnceLock;
 /// Modifier targets: the values the engine looks up through `modify` where it uses them (`[effect]` keys). Pool
 /// weights are `pool.<NAME>.weight` ([pool.NAME] sections).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Target { Ap, EnCapacity, Weight, Ammo, Cooling, QuickBoostEn, PoolWeight(u8), RewardCount, RewardChoices, ShopWeapons, ShopParts }
-const TARGETS: [(&str, Target); 10] = [("ap", Target::Ap), ("en_capacity", Target::EnCapacity), ("weight", Target::Weight),
-    ("ammo", Target::Ammo), ("cooling", Target::Cooling), ("quick_boost_en", Target::QuickBoostEn), ("reward.count", Target::RewardCount), ("reward.choices", Target::RewardChoices),
+pub enum Target { Ap, EnCapacity, Weight, Ammo, Cooling, QuickBoostEn, PoolWeight(u8), RewardCount, RewardChoices, RewardChips, ShopWeapons, ShopParts }
+const TARGETS: [(&str, Target); 11] = [("ap", Target::Ap), ("en_capacity", Target::EnCapacity), ("weight", Target::Weight),
+    ("ammo", Target::Ammo), ("cooling", Target::Cooling), ("quick_boost_en", Target::QuickBoostEn), ("reward.count", Target::RewardCount), ("reward.choices", Target::RewardChoices), ("reward.chips", Target::RewardChips),
     ("shop.weapons", Target::ShopWeapons), ("shop.parts", Target::ShopParts)];
 fn target(key: &str) -> Option<Target> {
     if let Some(name) = key.strip_prefix("pool.").and_then(|r| r.strip_suffix(".weight")) {
@@ -65,7 +65,7 @@ static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 17] = [
+const DEFAULTS: [(&str, &str); 18] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
@@ -83,6 +83,7 @@ const DEFAULTS: [(&str, &str); 17] = [
     ("efficient_thrusters.toml", include_str!("chips/efficient_thrusters.toml")),
     ("adrenaline.toml", include_str!("chips/adrenaline.toml")),
     ("heat_sinks.toml", include_str!("chips/heat_sinks.toml")),
+    ("chip_scout.toml", include_str!("chips/chip_scout.toml")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).

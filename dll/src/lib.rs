@@ -118,6 +118,8 @@ impl Part {
     fn is_weapon(&self) -> bool { self.kind == 0 }
     /// OS Tuning: a reward only, one level per pick (os.rs)
     fn is_os(&self) -> bool { self.kind == KIND_OS }
+    /// one of our own OS chips (chip.rs)
+    fn is_chip(&self) -> bool { self.is_os() && chip::chip(self.os).is_some() }
     /// one copy at most: booster, generator, FCS (copies would share a handle)
     fn unique(&self) -> bool { matches!(self.kind, 4 | 5 | 6) }
     /// id accepted by the item-descriptor builder (grant path)
@@ -187,8 +189,9 @@ unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
     v
 }
 
-/// Weighted pick: a pool by its [pool.NAME] weight (pools without candidates skipped), then uniform in it. Parts out
-/// of the pools (`= 0`, weight 0) never come out; None when no candidate is left.
+/// Weighted pick: a pool by its [pool.NAME] weight (pools without candidates skipped), then in it uniformly, our own
+/// chips weighing the `reward.chips` chips' % more. Parts out of the pools (`= 0`, weight 0) never come out; None when
+/// no candidate is left.
 fn pick_weighted(rng: &mut Rng, cands: &[Part]) -> Option<Part> {
     let present: Vec<u8> = (0..config::get().pools.len() as u8).filter(|t| pool_weight(*t) > 0 && cands.iter().any(|p| p.pool == *t)).collect();
     let total: u64 = present.iter().map(|t| pool_weight(*t) as u64).sum();
@@ -197,7 +200,13 @@ fn pick_weighted(rng: &mut Rng, cands: &[Part]) -> Option<Part> {
     let mut pool = present[0];
     for t in &present { let w = pool_weight(*t) as u64; if r < w { pool = *t; break; } r -= w; }
     let in_pool: Vec<Part> = cands.iter().copied().filter(|p| p.pool == pool).collect();
-    Some(in_pool[rng.below(in_pool.len())])
+    let chip_w = unsafe { chip::modify(chip::Target::RewardChips, 100.0).round() as u64 };
+    let weight = |p: &Part| if p.is_chip() { chip_w } else { 100 };
+    let total: u64 = in_pool.iter().map(weight).sum();
+    if total == 0 { return None; }
+    let mut r = rng.next() % total;
+    for p in &in_pool { let w = weight(p); if r < w { return Some(*p); } r -= w; }
+    in_pool.last().copied()
 }
 
 // ---------------------------------------------------------------- RNG
@@ -214,7 +223,6 @@ impl Rng {
         self.0 = x;
         x.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
-    fn below(&mut self, n: usize) -> usize { if n == 0 { 0 } else { (self.next() % n as u64) as usize } }
 }
 
 // ---------------------------------------------------------------- game function bindings
@@ -1288,10 +1296,11 @@ fn boot() {
                             let n: usize = c[4..].trim().parse().unwrap_or(10000);
                             let cands = run.reward_candidates(gd, man, &[]);
                             let mut count = vec![0usize; config::get().pools.len()];
-                            for _ in 0..n { if let Some(p) = pick_weighted(&mut run.rng, &cands) { count[p.pool as usize] += 1; } }
-                            logf!("DEBUG: odds over {} picks: {}", n, config::get().pools.iter().enumerate().filter(|(i, _)| count[*i] > 0)
+                            let mut chips = 0usize;
+                            for _ in 0..n { if let Some(p) = pick_weighted(&mut run.rng, &cands) { count[p.pool as usize] += 1; chips += p.is_chip() as usize; } }
+                            logf!("DEBUG: odds over {} picks: {}; chips {:.1}%", n, config::get().pools.iter().enumerate().filter(|(i, _)| count[*i] > 0)
                                 .map(|(i, p)| format!("{} {:.1}% (weight {})", p.name, 100.0 * count[i] as f64 / n as f64, pool_weight(i as u8)))
-                                .collect::<Vec<_>>().join(", "));
+                                .collect::<Vec<_>>().join(", "), 100.0 * chips as f64 / n as f64);
                         }
                         "reward" => {
                             // a sortie's reward roll, without granting

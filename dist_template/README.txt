@@ -39,7 +39,8 @@ HOW IT PLAYS
   recours (below 30 % AP: weapon damage +10 / 20 / 30 %), Impact amplifié (stagger your hits deal to enemies +8 / 15 /
   20 %), Propulseurs économes (rising and quick boosts draw 8 / 15 / 20 % less EN),
   Adrénaline (each enemy destroyed: EN recovery +20 / 35 / 50 % for 10 s; another kill restarts the 10 s),
-  Dissipateurs thermiques (your weapons shed heat 15 / 30 / 50 % faster). The AC chips change your
+  Dissipateurs thermiques (your weapons shed heat 15 / 30 / 50 % faster), Prospecteur (chips come up 15 / 30 / 50 %
+  more often as rewards, within each rarity). The AC chips change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
   resupplies.
@@ -84,7 +85,7 @@ OS CHIPS
 The chips folder (created next to the DLL on first launch) holds one file per chip: its id (1 to 32), name, the stat
 named on the reward tile, its values per level and its effects: a target = "+" / "-" (the level's value in %) or
 "add" / "sub" (the value itself). Targets: ap, en_capacity, weight, ammo, cooling, quick_boost_en (your AC), pool.<NAME>.weight (odds of a
-pool), reward.count, reward.choices, shop.weapons, shop.parts. A chip can also react to events with [on.<event>]
+pool), reward.count, reward.choices, reward.chips (odds of a chip within its pool), shop.weapons, shop.parts. A chip can also react to events with [on.<event>]
 sections (mission_cleared, commit, death, shop_reroll, pick...; the list is in the default chip files): credits,
 give = "part", "level.<row>" = "+1", "flag.<id>" = 1, speffect = <SpEffectParam row> (applied to your AC; a chip
 can declare its own rows in [speffect.<row id>] sections, built into the mod's regulation.bin, see nanorepair.toml). Add a file for a new chip, delete one to remove it; in the
