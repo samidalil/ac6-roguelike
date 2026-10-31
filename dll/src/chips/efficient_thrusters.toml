@@ -1,0 +1,32 @@
+# Efficient thrusters: rising and quick boosts draw less EN for the whole mission. Rising: a SpEffect row per level
+# (energyDrawRate_UpBoost, applied at each mission start; the ground and air boost fields do nothing, every booster
+# draws 0 EN there). Quick boosts: the quick_boost_en target (the cost the game charges, player only). See
+# nanorepair.toml and reinforced_plating.toml for the format.
+id = 12
+name = "Propulseurs économes"
+stat = "Économie EN (ascension, boost rapide)"
+levels = "8/15/20"
+
+[effect]
+quick_boost_en = "-"
+
+[on.mission_start]
+speffect = "900000121/900000122/900000123"
+
+[speffect.900000121]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = -1
+energyDrawRate_UpBoost = 0.92
+
+[speffect.900000122]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = -1
+energyDrawRate_UpBoost = 0.85
+
+[speffect.900000123]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = -1
+energyDrawRate_UpBoost = 0.8

@@ -227,6 +227,10 @@ pub const SET_MAX_AP_CALLSITES: [usize; 7] = [0x48FB51, 0x491D6F, 0x71D668, 0x82
 /// EN capacity of an EN object (rcx = player module CHR_MOD_EN; float, stored at +0x20 every frame)
 pub const FN_EN_CAPACITY: usize = 0x88BAE0;
 pub const EN_CAPACITY_CALLSITE: usize = 0x88B7C8;
+/// An EN spending (exe+88C0E0: rcx = EN object, xmm1 = amount, r8, r9b = one-off; the amount x the SpEffects'
+/// consumeEnergyRate). The quick boost (exe+88B130: booster consumeFixedEN_QB x a factor) ends with a jmp to it.
+pub const FN_EN_SPEND: usize = 0x88C0E0;
+pub const QUICK_BOOST_EN_JMPSITE: usize = 0x88B1CA;
 /// Total weight of an assembly (rcx = PlayerGameData + GD_ASSEMBLY for the player; float, stored at weapon/weight
 /// module 0x23 +0x408 every frame)
 pub const FN_TOTAL_WEIGHT: usize = 0x46CA70;

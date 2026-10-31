@@ -15,9 +15,9 @@ use std::sync::OnceLock;
 /// Modifier targets: the values the engine looks up through `modify` where it uses them (`[effect]` keys). Pool
 /// weights are `pool.<NAME>.weight` ([pool.NAME] sections).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Target { Ap, EnCapacity, Weight, Ammo, PoolWeight(u8), RewardCount, RewardChoices, ShopWeapons, ShopParts }
-const TARGETS: [(&str, Target); 8] = [("ap", Target::Ap), ("en_capacity", Target::EnCapacity), ("weight", Target::Weight),
-    ("ammo", Target::Ammo), ("reward.count", Target::RewardCount), ("reward.choices", Target::RewardChoices),
+pub enum Target { Ap, EnCapacity, Weight, Ammo, QuickBoostEn, PoolWeight(u8), RewardCount, RewardChoices, ShopWeapons, ShopParts }
+const TARGETS: [(&str, Target); 9] = [("ap", Target::Ap), ("en_capacity", Target::EnCapacity), ("weight", Target::Weight),
+    ("ammo", Target::Ammo), ("quick_boost_en", Target::QuickBoostEn), ("reward.count", Target::RewardCount), ("reward.choices", Target::RewardChoices),
     ("shop.weapons", Target::ShopWeapons), ("shop.parts", Target::ShopParts)];
 fn target(key: &str) -> Option<Target> {
     if let Some(name) = key.strip_prefix("pool.").and_then(|r| r.strip_suffix(".weight")) {
@@ -65,7 +65,7 @@ static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 14] = [
+const DEFAULTS: [(&str, &str); 15] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
@@ -80,6 +80,7 @@ const DEFAULTS: [(&str, &str); 14] = [
     ("last_stand.toml", include_str!("chips/last_stand.toml")),
     ("last_stand.lua", include_str!("chips/last_stand.lua")),
     ("amplified_impact.toml", include_str!("chips/amplified_impact.toml")),
+    ("efficient_thrusters.toml", include_str!("chips/efficient_thrusters.toml")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).
@@ -275,13 +276,14 @@ pub unsafe fn install(base: usize) {
     hooks.push((o::ADD_AMMO_CALLSITES[0], o::FN_ADD_AMMO, add_ammo_hook as *const () as usize));
     hooks.push((o::ADD_AMMO_CALLSITES[1], o::FN_ADD_AMMO, add_ammo_hook as *const () as usize));
     for &s in &o::RESUPPLY_CALLSITES { hooks.push((s, o::FN_RESUPPLY, resupply_hook as *const () as usize)); }
+    hooks.push((o::QUICK_BOOST_EN_JMPSITE, o::FN_EN_SPEND, quick_boost_en_hook as *const () as usize));
     for (site, target, f) in hooks {
         match install_call_hook(base, site, target, f) {
             Ok(_) => {}
             Err(e) => logf!("chips: hook at exe+{:X} FAILED: {}", site, e),
         }
     }
-    log("chips: stat hooks installed (max AP, EN capacity, total weight, weapon ammunition)");
+    log("chips: stat hooks installed (max AP, EN capacity, total weight, weapon ammunition, quick boost EN)");
 }
 
 /// Total ammunition of each weapon (EquipParamWeapon totalBulletNum by equipId), read once at boot.
@@ -352,4 +354,13 @@ unsafe extern "system" fn resupply_hook(module: usize, rate: f32) -> u64 {
     }
     logf!("chips: resupply x{} of the player's weapons: {}", rate, out.join(", "));
     r
+}
+
+/// Quick boost EN (the jmp at the end of exe+88B130 to the EN spending exe+88C0E0): the player's quick boost cost gets
+/// the quick_boost_en chips' %.
+unsafe extern "system" fn quick_boost_en_hook(en: usize, amount: f32, a3: usize, one_off: u32) -> f32 {
+    let base = mem::module_base();
+    let orig: unsafe extern "system" fn(usize, f32, usize, u32) -> f32 = core::mem::transmute(base + o::FN_EN_SPEND);
+    let amount = if en != 0 && en == player_module(base, o::CHR_MOD_EN) { modify(Target::QuickBoostEn, amount as f64) as f32 } else { amount };
+    orig(en, amount, a3, one_off)
 }

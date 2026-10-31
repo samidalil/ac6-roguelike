@@ -37,7 +37,7 @@ HOW IT PLAYS
   20 / 40 / 60 AP per second during missions), Prime de série (every 3rd mission cleared in a row: +10 000 / 20 000
   / 40 000 credits; a failure resets it), Récupération (each enemy destroyed repairs 300 / 600 / 1 000 AP), Dernier
   recours (below 30 % AP: weapon damage +10 / 20 / 30 %), Impact amplifié (stagger your hits deal to enemies +8 / 15 /
-  20 %). The AC chips change your
+  20 %), Propulseurs économes (rising and quick boosts draw 8 / 15 / 20 % less EN). The AC chips change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
   resupplies.
@@ -81,7 +81,7 @@ and keeps the game's values.
 OS CHIPS
 The chips folder (created next to the DLL on first launch) holds one file per chip: its id (1 to 32), name, the stat
 named on the reward tile, its values per level and its effects: a target = "+" / "-" (the level's value in %) or
-"add" / "sub" (the value itself). Targets: ap, en_capacity, weight, ammo (your AC), pool.<NAME>.weight (odds of a
+"add" / "sub" (the value itself). Targets: ap, en_capacity, weight, ammo, quick_boost_en (your AC), pool.<NAME>.weight (odds of a
 pool), reward.count, reward.choices, shop.weapons, shop.parts. A chip can also react to events with [on.<event>]
 sections (mission_cleared, commit, death, shop_reroll, pick...; the list is in the default chip files): credits,
 give = "part", "level.<row>" = "+1", "flag.<id>" = 1, speffect = <SpEffectParam row> (applied to your AC; a chip
