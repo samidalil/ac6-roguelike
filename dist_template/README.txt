@@ -41,7 +41,8 @@ HOW IT PLAYS
   Adrénaline (each enemy destroyed: EN recovery +20 / 35 / 50 % for 10 s; another kill restarts the 10 s),
   Dissipateurs thermiques (your weapons shed heat 15 / 30 / 50 % faster), Prospecteur (chips come up 15 / 30 / 50 %
   more often as rewards, within each rarity), Pillage (each enemy destroyed gives back part of every weapon's
-  ammunition, more for tougher enemies: 1-3 % for drones and light MTs up to 15-35 % for bosses). The AC chips change your
+  ammunition, more for tougher enemies: 1-3 % for drones and light MTs up to 15-35 % for bosses), Cœur libre (after each core expansion, nothing spends EN for 10 / 15 / 20 s). The AC chips
+  change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
   resupplies.
@@ -93,7 +94,7 @@ in a mission), speffect = <SpEffectParam row> (applied to your AC; a chip
 can declare its own rows in [speffect.<row id>] sections, built into the mod's regulation.bin, see nanorepair.toml). Add a file for a new chip, delete one to remove it; in the
 settings a chip is known by its row (9000 + id) or its name.
 A chip can also have a Lua script with the same name (streak_bonus.toml + streak_bonus.lua): its on_<event>(e)
-functions run on the events (plus enemy_destroyed), with log, chip, store (a byte saved with the run), game (AP,
+functions run on the events (plus enemy_destroyed and core_expansion), with log, chip, store (a byte saved with the run), game (AP,
 credits, flags, levels) and the actions above; the API is listed in streak_bonus.lua. A [params] section in the chip
 file holds the script's own values (chip.params in the script, see scavenger.toml). Enemy tiers by max AP are set in
 the settings ([enemy_tiers]) and given to the scripts at each enemy destroyed (e.tier). `unsafe = true` in the chip file
