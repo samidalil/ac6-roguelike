@@ -65,7 +65,7 @@ static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 15] = [
+const DEFAULTS: [(&str, &str); 16] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
@@ -81,6 +81,7 @@ const DEFAULTS: [(&str, &str); 15] = [
     ("last_stand.lua", include_str!("chips/last_stand.lua")),
     ("amplified_impact.toml", include_str!("chips/amplified_impact.toml")),
     ("efficient_thrusters.toml", include_str!("chips/efficient_thrusters.toml")),
+    ("adrenaline.toml", include_str!("chips/adrenaline.toml")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).
@@ -277,13 +278,15 @@ pub unsafe fn install(base: usize) {
     hooks.push((o::ADD_AMMO_CALLSITES[1], o::FN_ADD_AMMO, add_ammo_hook as *const () as usize));
     for &s in &o::RESUPPLY_CALLSITES { hooks.push((s, o::FN_RESUPPLY, resupply_hook as *const () as usize)); }
     hooks.push((o::QUICK_BOOST_EN_JMPSITE, o::FN_EN_SPEND, quick_boost_en_hook as *const () as usize));
+    hooks.push((o::EN_RECOVERY_GROSS_CALLSITE, o::FN_EN_RECOVERY_GROSS, en_recovery_gross_hook as *const () as usize));
+    hooks.push((o::EN_RECOVERY_NET_CALLSITE, o::FN_EN_RECOVERY_NET, en_recovery_net_hook as *const () as usize));
     for (site, target, f) in hooks {
         match install_call_hook(base, site, target, f) {
             Ok(_) => {}
             Err(e) => logf!("chips: hook at exe+{:X} FAILED: {}", site, e),
         }
     }
-    log("chips: stat hooks installed (max AP, EN capacity, total weight, weapon ammunition, quick boost EN)");
+    log("chips: stat hooks installed (max AP, EN capacity, total weight, weapon ammunition, quick boost EN, EN recovery)");
 }
 
 /// Total ammunition of each weapon (EquipParamWeapon totalBulletNum by equipId), read once at boot.
@@ -363,4 +366,44 @@ unsafe extern "system" fn quick_boost_en_hook(en: usize, amount: f32, a3: usize,
     let orig: unsafe extern "system" fn(usize, f32, usize, u32) -> f32 = core::mem::transmute(base + o::FN_EN_SPEND);
     let amount = if en != 0 && en == player_module(base, o::CHR_MOD_EN) { modify(Target::QuickBoostEn, amount as f64) as f32 } else { amount };
     orig(en, amount, a3, one_off)
+}
+
+/// The mod's own SpEffect rows (MOD_SPEFFECT_ROWS) on the player: their energyRecoverSpeedRate is moved from the
+/// gross EN recovery (where the game applies it, before the load term: a 1.2 there gave about +80 % on a starter
+/// AC) to the net one, so a row's rate is the recovery's real change. Vanilla rows are left alone.
+const MOD_SPEFFECT_ROWS: core::ops::Range<i32> = 900_000_000..900_001_000;
+static EN_MOD_RATE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0x3F80_0000); // 1.0
+unsafe fn player_mod_recover_rate(base: usize) -> f32 {
+    let wcm = mem::rd_usize(base + o::WORLDCHRMAN_GLOBAL);
+    let chr = if wcm == 0 { 0 } else { mem::rd_usize(wcm + o::WCM_PLAYER) };
+    let mgr = if chr == 0 { 0 } else { mem::rd_usize(chr + o::CHR_SPEFFECT_MGR) };
+    if mgr == 0 || mem::rd_usize(mgr) != base + o::SPEFFECT_MGR_VTABLE { return 1.0; }
+    let mut rate = 1.0f32;
+    let mut e = mem::rd_usize(mgr + 8);
+    for _ in 0..256 {
+        if e == 0 { break; }
+        // the game's own filter on active entries (exe+9664F0)
+        if mem::rd_u32(e + 0x64) & 0x800C_0003 == 0 && MOD_SPEFFECT_ROWS.contains(&mem::rd_i32(e)) {
+            let row = mem::rd_usize(e + 8);
+            if row != 0 { rate *= f32::from_bits(mem::rd_u32(row + o::SP_ENERGY_RECOVER_RATE)); }
+        }
+        e = mem::rd_usize(e + 0x38);
+    }
+    rate
+}
+unsafe extern "system" fn en_recovery_gross_hook(en: usize, x: f32) -> f32 {
+    let base = mem::module_base();
+    let orig: unsafe extern "system" fn(usize, f32) -> f32 = core::mem::transmute(base + o::FN_EN_RECOVERY_GROSS);
+    let v = orig(en, x);
+    if en == 0 || en != player_module(base, o::CHR_MOD_EN) { return v; }
+    let r = player_mod_recover_rate(base);
+    EN_MOD_RATE.store(r.to_bits(), Relaxed);
+    if r > 0.0 && r != 1.0 { v / r } else { v }
+}
+unsafe extern "system" fn en_recovery_net_hook(en: usize, net: f32) -> f32 {
+    let base = mem::module_base();
+    let orig: unsafe extern "system" fn(usize, f32) -> f32 = core::mem::transmute(base + o::FN_EN_RECOVERY_NET);
+    let r = f32::from_bits(EN_MOD_RATE.load(Relaxed));
+    let net = if net > 0.0 && r > 0.0 && en != 0 && en == player_module(base, o::CHR_MOD_EN) { net * r } else { net };
+    orig(en, net)
 }

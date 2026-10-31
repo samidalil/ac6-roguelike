@@ -37,7 +37,8 @@ HOW IT PLAYS
   20 / 40 / 60 AP per second during missions), Prime de série (every 3rd mission cleared in a row: +10 000 / 20 000
   / 40 000 credits; a failure resets it), Récupération (each enemy destroyed repairs 300 / 600 / 1 000 AP), Dernier
   recours (below 30 % AP: weapon damage +10 / 20 / 30 %), Impact amplifié (stagger your hits deal to enemies +8 / 15 /
-  20 %), Propulseurs économes (rising and quick boosts draw 8 / 15 / 20 % less EN). The AC chips change your
+  20 %), Propulseurs économes (rising and quick boosts draw 8 / 15 / 20 % less EN),
+  Adrénaline (each enemy destroyed: EN recovery +20 / 35 / 50 % for 10 s; another kill restarts the 10 s). The AC chips change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
   resupplies.

@@ -1994,3 +1994,20 @@ Propulseurs économes (9012): boosting draws less EN.
   start); quick boost = the `quick_boost_en` target, a call hook on the jmp at exe+88B1CA scaling the amount for the
   player's EN object. Verified at LV3: rising 632 -> 505 EN/s; quick boost (direction held + quick left Shift)
   480 -> 384 EN, back to 480 with the chip at level 0.
+
+## EN recovery: energyRecoverSpeedRate and the net recovery (2026-10-31, measured)
+Adrénaline (9013): each enemy destroyed -> the level's row (`effectEndurance` 10, `energyRecoverSpeedRate`
+1.2 / 1.35 / 1.5) through `[on.enemy_destroyed]`.
+- Re-applying an active row restarts it: one entry, its remaining time (entry +0x48, f32) back to ~10, no stacking;
+  it is gone at 10 s (debug `speffect 900000133` twice 4 s apart).
+- The game's EN recovery, every frame (exe+88B7A0, EN object = module 0x2A): gross = exe+88BC40 = the parts' recovery
+  x the product of `energyRecoverSpeedRate` (exe+9664F0); net = gross - a load term (exe+88B9B0, exe+BA0360 subss);
+  exe+88B920(net) -> the amount added. So the rate scales the gross, before the load: on the starter AC (EN 2300,
+  ~120 updates/s) 23.5 EN per update at 1.0, 42.1 / 56.7 / 70.2 at 1.2 / 1.35 / 1.5 = 23.5 + 94 x (rate - 1): +79 /
+  141 / 199 % instead of +20 / 35 / 50, and the factor depends on the build (gross 11 280/s, net 2 820/s here).
+- User decision: exact via the DLL. Two call hooks for the player's EN object: at exe+88B7E7 (gross) the product of
+  `energyRecoverSpeedRate` over the player's active entries of the mod's own rows (ids 900000000..900000999, the
+  game's filter +0x64 & 0x800C0003) is divided out; at exe+88B80B (net) the net, when > 0, is multiplied by it.
+  Vanilla rows keep the game's behaviour.
+- Verified: 23.5 -> 35.3 per update with 900000133 (x1.50); chip at LV3 + the tester AC zeroed ->
+  `enemy destroyed`, `event enemy_destroyed: chip Adrénaline (LV 3)`, `speffect 900000133 applied to the player`.

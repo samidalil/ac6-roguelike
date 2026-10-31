@@ -1,0 +1,29 @@
+# Adrenaline: each enemy destroyed speeds up your EN recovery for 10 s (a timed SpEffect row per level; the next kill
+# starts the 10 s again, it does not stack). The DLL applies a mod row's energyRecoverSpeedRate to the net recovery, so
+# 1.2 is +20 % (the game alone applies it before the generator load: about +80 % on a starter AC). See nanorepair.toml
+# for the format.
+id = 13
+name = "Adrénaline"
+stat = "Récupération EN par élimination"
+levels = "20/35/50"
+
+[on.enemy_destroyed]
+speffect = "900000131/900000132/900000133"
+
+[speffect.900000131]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = 10       # seconds
+energyRecoverSpeedRate = 1.2
+
+[speffect.900000132]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = 10
+energyRecoverSpeedRate = 1.35
+
+[speffect.900000133]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = 10
+energyRecoverSpeedRate = 1.5
