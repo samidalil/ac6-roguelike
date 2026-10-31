@@ -1610,9 +1610,9 @@ boot instead. Nothing here runs at play time; the check below was a one-off scri
   `changeHpPoint` -300 / -600 / -1000). Verified: tester AC zeroed with the player at 5000 AP -> one "enemy destroyed"
   and AP 5300.
 - 9010 **Dernier recours** (last_stand.lua): at mission_start applies row 900000101..103 (`effectEndurance` -1,
-  `conditionHp` 30, the four `*AttackPowerRate` 1.1 / 1.2 / 1.3). The game evaluates the condition itself: the active
+  `conditionHp` 30, the four `*AttackRate` 1.1 / 1.2 / 1.3; `*AttackPowerRate` until 2026-10-31, which did nothing). The game evaluates the condition itself: the active
   entry's state (+0x60) is 1 above 30 % AP and 4 at 30 % or below, switching both ways (AP 9080 / 2000 / 5000 / 2700
-  tested). The damage gain itself was not measured.
+  tested). Damage measured 2026-10-31 (section "SpEffect damage fields"): x1.3 below 30 % AP, x1.0 above.
 
 ## Inventory cap (2026-10-30, implemented)
 User decisions (2026-10-28 / 30): every weapon / frame part / internal owned counts, equipped ones included, each copy one
@@ -1934,3 +1934,25 @@ Free: 4361..4417, 4929..4999, 7928..7999, 8000..8019, 8149..8159.
 - **Verified** (2026-10-31, profile ac6-roguelike-buyback.me3, that save, debug `reroll` for a shop): both tutorials
   show the new texts and fit their box. Side check: the cap's own sell screen (debug `vente`, screen id 0x80) opened
   and closed -> back to the garage, no VENTE tutorial behind it (the PR #23 pop-up is gone).
+
+## SpEffect damage fields (2026-10-31, measured)
+Question: which SpEffectParam rates change an AC's weapon damage, `*AttackPowerRate` (+0x4C..) or `*AttackRate`
+(+0x3C..)? Static: the stat loop at exe+963BD5 (per active entry: skip stateInfo 197 and flags +0x64 & 0x800C0003,
+entry filter exe+96EDE0 on wepParamChange +0x160 by the weapon's category) multiplies the `*AttackPowerRate` getters
+(exe+96E170 by damage type) into the weapon attack values; the vanilla damage-up rows (29000000.., +5..25 %) use
+`*AttackRate`. Live, both answered by hits:
+- **Method** (the player's scripted shots rarely hit): apply rows to the tester AC instead and count its hits on the
+  player. Test rows `copy = 9405`, `effectEndurance` -1, applied to any character through the game's apply call
+  (exe+968EA0 with the character's own manager, target = source = that character; a local debug command, not
+  shipped). The player is teleported 60 m from the tester's spawn (module 13 +0x60 after module 4 +0x210: chr +0x150
+  alone is a copy); the tester engages and its hits are the drops of the player's AP (+0x278), the player kept alive by
+  writing its AP back. Writing the tester's own position (module 13 +0x60/+0x70) breaks it: no hit registers after.
+- Tester baseline per hit: 70 (bullets), 451, 903, 1487, 3487.
+- `*AttackPowerRate` x2 (all four): 70 x21, 451 x8, 1487 x3 = **unchanged**.
+- `*AttackRate` x2 on top: 70 -> 141, 451 -> 902, 903 -> 1806 = **x2**.
+- `conditionHp` 30 + `*AttackRate` x1.3 (fresh tester): its AP pinned at 90 %: 70, 451, 1487 (unchanged); at 20 %:
+  586 (451 x 1.3), 1933 (1487 x 1.3), 1174 (903 x 1.3) = **x1.3 only at or below 30 %**.
+-> Dernier recours (9010) rows use `*AttackRate` (1.1 / 1.2 / 1.3).
+- Inputs that work for tests: mouse buttons through mouse_event (RMB = right arm), lock-on = middle click, Q / E =
+  left / right back weapons only as scan-code SendInput (computer-use keys and VK-only input are ignored for them),
+  Space / Shift as virtual-key SendInput or computer-use hold_key. Held direction + quick left Shift = quick boost.
