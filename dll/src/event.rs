@@ -10,15 +10,15 @@ use std::sync::Mutex;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     SaveLoaded, Title, GarageOpened, Deployment, MissionStart, Death, Respawn, MissionCleared, Results, Commit,
-    MissionFailed, GameOver, ShopReroll, Pick, PartSold, AutoSell, EnemyDestroyed,
+    MissionFailed, GameOver, ShopReroll, Pick, PartSold, AutoSell, EnemyDestroyed, CoreExpansion,
 }
-pub const EVENTS: [(&str, Event); 17] = [
+pub const EVENTS: [(&str, Event); 18] = [
     ("save_loaded", Event::SaveLoaded), ("title", Event::Title), ("garage_opened", Event::GarageOpened),
     ("deployment", Event::Deployment), ("mission_start", Event::MissionStart), ("death", Event::Death),
     ("respawn", Event::Respawn), ("mission_cleared", Event::MissionCleared), ("results", Event::Results),
     ("commit", Event::Commit), ("mission_failed", Event::MissionFailed), ("game_over", Event::GameOver),
     ("shop_reroll", Event::ShopReroll), ("pick", Event::Pick), ("part_sold", Event::PartSold), ("auto_sell", Event::AutoSell),
-    ("enemy_destroyed", Event::EnemyDestroyed),
+    ("enemy_destroyed", Event::EnemyDestroyed), ("core_expansion", Event::CoreExpansion),
 ];
 pub fn event(name: &str) -> Option<Event> { EVENTS.iter().find(|e| e.0.eq_ignore_ascii_case(name)).map(|e| e.1) }
 pub fn name(e: Event) -> &'static str { EVENTS.iter().find(|x| x.1 == e).map_or("?", |x| x.0) }
@@ -211,11 +211,37 @@ unsafe extern "system" fn ap_changed_hook(chr: usize) -> u64 {
 }
 /// Boot: the event hooks (only the ones a chip uses).
 pub unsafe fn install(base: usize) {
-    if !chip::chips().iter().any(|c| c.script_on.contains(&Event::EnemyDestroyed) || c.on.iter().any(|h| h.0 == Event::EnemyDestroyed)) { return; }
-    match install_call_hook(base, o::AP_CHANGED_CALLSITE, o::FN_AP_CHANGED, ap_changed_hook as *const () as usize) {
-        Ok(_) => log("events: enemy_destroyed hook installed"),
-        Err(e) => logf!("events: enemy_destroyed hook FAILED: {}", e),
+    let used = |e: Event| chip::chips().iter().any(|c| c.script_on.contains(&e) || c.on.iter().any(|h| h.0 == e));
+    if used(Event::EnemyDestroyed) {
+        match install_call_hook(base, o::AP_CHANGED_CALLSITE, o::FN_AP_CHANGED, ap_changed_hook as *const () as usize) {
+            Ok(_) => log("events: enemy_destroyed hook installed"),
+            Err(e) => logf!("events: enemy_destroyed hook FAILED: {}", e),
+        }
     }
+    if used(Event::CoreExpansion) {
+        for &site in &o::SPEFFECT_ADD_CALLSITES {
+            match install_call_hook(base, site, o::FN_SPEFFECT_ADD, speffect_add_hook as *const () as usize) {
+                Ok(_) => logf!("events: core_expansion hook installed at exe+{:X}", site),
+                Err(e) => logf!("events: core_expansion hook at exe+{:X} FAILED: {}", site, e),
+            }
+        }
+    }
+}
+
+/// A SpEffect added to a character (exe+96B6C0: manager, id, ...; the 4 callers of the game's add): the player's
+/// manager getting CORE_EXPANSION_SPEFFECT = a core expansion firing (`core_expansion`).
+unsafe extern "system" fn speffect_add_hook(mgr: usize, id: i32, a3: usize, a4: usize, a5: u32, a6: f32, a7: u32, a8: u32) -> u64 {
+    let base = mem::module_base();
+    let orig: unsafe extern "system" fn(usize, i32, usize, usize, u32, f32, u32, u32) -> u64 = core::mem::transmute(base + o::FN_SPEFFECT_ADD);
+    let r = orig(mgr, id, a3, a4, a5, a6, a7, a8);
+    if id == o::CORE_EXPANSION_SPEFFECT {
+        let chr = player_chr(base);
+        if chr != 0 && mgr == mem::rd_usize(chr + o::CHR_SPEFFECT_MGR) {
+            log("core expansion fired (player)");
+            emit(Event::CoreExpansion);
+        }
+    }
+    r
 }
 
 /// An OS Tuning / chip row by number or name.

@@ -115,6 +115,7 @@ color = "#FFC23D"
 9014 = 1    # Dissipateurs thermiques
 9015 = 1    # Prospecteur
 9016 = 1    # Pillage
+9017 = 1    # Cœur libre
 
 [os_tuning]
 # Effect of each OS Tuning level, by OsReinforce row: "value/value/..." (1 to 5 levels; their count is the tuning's
@@ -402,6 +403,7 @@ color = "#FFC23D"
 9014 = rare      # Dissipateurs thermiques (weapon cooling)
 9015 = rare      # Prospecteur (chips come up more often as rewards)
 9016 = rare      # Pillage (ammunition per enemy destroyed)
+9017 = epic      # Cœur libre (no EN spent for a while after a core expansion)
 
 [prices]
 # Value of a part, 0 or more: equipId = price, or "part name" = price (spacing and case do not matter; a name also matches
