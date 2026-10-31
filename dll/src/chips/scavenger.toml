@@ -1,0 +1,13 @@
+# Scavenger: each enemy destroyed gives back part of every weapon's ammunition, more for tougher enemies (the game's
+# own resupply). [params]: the % per enemy tier ([enemy_tiers] in the settings) and level, read by scavenger.lua; a
+# tier without a line gives nothing. The tile shows `levels` (the medium tier's values).
+id = 16
+name = "Pillage"
+stat = "Munitions par élimination"
+levels = "3/5/8"
+
+[params]
+small = "1/2/3"     # drones, helicopters, light MTs
+medium = "3/5/8"    # heavy MTs, enemy ACs
+large = "8/12/16"
+boss = "15/25/35"
