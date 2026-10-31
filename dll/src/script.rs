@@ -154,6 +154,7 @@ fn env(lua: &Lua, c: &'static chip::Chip) -> mlua::Result<Table> {
     env.set("set_flag", lua.create_function(move |_, (id, v): (u32, bool)| { act(c, event::Action::Flag(id, v)); Ok(()) })?)?;
     env.set("drone", lua.create_function(move |_, (x, y, z): (f32, f32, f32)| { drone::queue([x, y, z]); Ok(()) })?)?;
     env.set("resupply", lua.create_function(move |_, pct: i32| { act(c, event::Action::Resupply(event::Amount::Fixed(pct))); Ok(()) })?)?;
+    env.set("energy", lua.create_function(move |_, pct: i32| { act(c, event::Action::Energy(event::Amount::Fixed(pct))); Ok(()) })?)?;
     env.set("speffect", lua.create_function(move |_, id: i32| {
         let not = NOW.with(|n| n.get().2);
         logf!("script {}: speffect {}", c.name, id);

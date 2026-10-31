@@ -2110,3 +2110,21 @@ Chip 9018 "Essaim" (user decision: the laser drone Vvc-700LD, from where the ene
 - Test tooling learned on the way: the ESSAI AC pause menu opens by writing 7 to [[[exe+4E15530]+0x18]+8]+0xD0 (its
   PARAMÈTRES ENNEMIS spawn a training AC, AI off possible; its Assemblage changes the AC live); right-click "back" in
   the test fires the right arm.
+## Enemy staggered event and Surcharge (2026-11-01, implemented)
+Chip 9019 "Surcharge" (user decision: full EN on an enemy stagger, one level).
+- Scripted stagger (AC test, training AC with AI off, bazooka hits 722 AP / ~765 ACS each, limit ~1645): writing the
+  ACS gauge (module 20 +0x12C, copy +0x1A4) alone does nothing, it decays. Holding it at 1600 until the next hit lands
+  overloads the AC: the gauge resets to 0 and module 20 gets +0x135 / +0x1AD = 1 (staggered bytes), +0x1C0 = 1 (flag,
+  ~1.7 s), +0x1C4 + 1 (stagger count, kept), +0x260 = 1 (stays set), +0x2E0..+0x2E8 a direction (~0.8 s). A plain hit
+  only sets +0x128 / +0x1A0 (0xD7, ~1.5 s) and +0x228 (the damage, 0.5 s). A third plain hit staggers it the same way.
+- Write watch on +0x1C0: exe+86F000(flag struct, bool) sets it on a rising edge (count +1, time stamp). Its only caller
+  exe+870B40(module 20, staggered byte) runs every frame for every character from the character update (call sites
+  exe+8138FC, and exe+810B6A on a reset with 0); it latches the byte at +0x135 / +0x1AD first. Module 20 +8 = its
+  owner character.
+- Hook: both call sites; the byte at +0x1AD 0 before the call and the new value 1, owner not the player (and its own
+  module 20) -> `enemy_staggered` (e.max_ap, e.tier like enemy_destroyed). Installed only when a chip uses the event.
+- Action `energy = %`: the player's EN object (module CHR_MOD_EN) +0x24 (current EN) raised by that % of +0x20 (the
+  capacity), on the game thread (frame hook), capped. A refill right after the EN ran out (rising until -1) is used at
+  once: the AC kept rising and spending from 2250.
+- Verified (AC test, LV1): `enemy staggered: character ... (max AP 11250)` -> `Energy(Value)` -> `player EN refilled to
+  2300 / 2300` (EN held at 200 before); two plain hits gave no event, the natural stagger on the third gave one.

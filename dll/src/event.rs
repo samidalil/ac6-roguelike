@@ -10,15 +10,16 @@ use std::sync::Mutex;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     SaveLoaded, Title, GarageOpened, Deployment, MissionStart, Death, Respawn, MissionCleared, Results, Commit,
-    MissionFailed, GameOver, ShopReroll, Pick, PartSold, AutoSell, EnemyDestroyed, CoreExpansion,
+    MissionFailed, GameOver, ShopReroll, Pick, PartSold, AutoSell, EnemyDestroyed, CoreExpansion, EnemyStaggered,
 }
-pub const EVENTS: [(&str, Event); 18] = [
+pub const EVENTS: [(&str, Event); 19] = [
     ("save_loaded", Event::SaveLoaded), ("title", Event::Title), ("garage_opened", Event::GarageOpened),
     ("deployment", Event::Deployment), ("mission_start", Event::MissionStart), ("death", Event::Death),
     ("respawn", Event::Respawn), ("mission_cleared", Event::MissionCleared), ("results", Event::Results),
     ("commit", Event::Commit), ("mission_failed", Event::MissionFailed), ("game_over", Event::GameOver),
     ("shop_reroll", Event::ShopReroll), ("pick", Event::Pick), ("part_sold", Event::PartSold), ("auto_sell", Event::AutoSell),
     ("enemy_destroyed", Event::EnemyDestroyed), ("core_expansion", Event::CoreExpansion),
+    ("enemy_staggered", Event::EnemyStaggered),
 ];
 pub fn event(name: &str) -> Option<Event> { EVENTS.iter().find(|e| e.0.eq_ignore_ascii_case(name)).map(|e| e.1) }
 pub fn name(e: Event) -> &'static str { EVENTS.iter().find(|x| x.1 == e).map_or("?", |x| x.0) }
@@ -64,6 +65,8 @@ pub enum Action {
     /// `resupply = "a/b/c"`: every weapon of the player's AC gets this % of its total ammunition (the game's resupply,
     /// game thread; in a mission only)
     Resupply(Amount),
+    /// `energy = "a/b/c"`: the player's AC gets this % of its EN capacity back (game thread; in a mission only)
+    Energy(Amount),
 }
 impl Action {
     /// An `[on.<event>]` line: key and value.
@@ -79,12 +82,15 @@ impl Action {
         if k.eq_ignore_ascii_case("resupply") {
             return Amount::parse(v).map(Action::Resupply).ok_or("resupply = % or \"a/b/c\"".into());
         }
+        if k.eq_ignore_ascii_case("energy") {
+            return Amount::parse(v).map(Action::Energy).ok_or("energy = % or \"a/b/c\"".into());
+        }
         if let Some(r) = k.strip_prefix("level.") { return Amount::parse(v).map(|a| Action::Level(r.to_string(), a)).ok_or("level.<row> = \"+1\"".into()); }
         if let Some(f) = k.strip_prefix("flag.") {
             let id = f.parse::<u32>().map_err(|_| format!("flag.<id>: {} is not a flag id", f))?;
             return match v { config::Value::Num(n) => Ok(Action::Flag(id, *n != 0)), _ => Err("flag.<id> = 1 or 0".into()) };
         }
-        Err(format!("unknown action {} (credits, give, speffect, resupply, level.<row>, flag.<id>)", k))
+        Err(format!("unknown action {} (credits, give, speffect, resupply, energy, level.<row>, flag.<id>)", k))
     }
 }
 
@@ -145,6 +151,7 @@ unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action, e: Even
         }
         Action::Flag(id, v) => { g.put_flag(man, *id, *v); }
         Action::Resupply(n) => queue_resupply(n.at(&c.values, lv)),
+        Action::Energy(n) => queue_energy(n.at(&c.values, lv)),
         Action::SpEffect(n) => queue_speffect(n.at(&c.values, lv), e == Event::MissionStart),
     }
 }
@@ -169,6 +176,24 @@ pub fn queue_resupply(pct: i32) { if pct > 0 { RESUPPLIES.lock().unwrap_or_else(
 pub unsafe fn apply_resupplies() {
     let q: Vec<i32> = core::mem::take(&mut *RESUPPLIES.lock().unwrap_or_else(|e| e.into_inner()));
     for pct in q { chip::resupply_player(pct as f32 / 100.0); }
+}
+
+/// EN refills waiting for the game thread, in % of the capacity.
+static ENERGY: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+pub fn queue_energy(pct: i32) { if pct > 0 { ENERGY.lock().unwrap_or_else(|e| e.into_inner()).push(pct); } }
+/// Game thread, every frame: the queued EN refills on the player's AC (current EN, up to the capacity).
+pub unsafe fn apply_energy() {
+    let q: Vec<i32> = core::mem::take(&mut *ENERGY.lock().unwrap_or_else(|e| e.into_inner()));
+    if q.is_empty() { return; }
+    let chr = player_chr(mem::module_base());
+    let mods = if chr == 0 { 0 } else { mem::rd_usize(chr + o::PLAYER_MODULES) };
+    let en = if mods == 0 { 0 } else { mem::rd_usize(mods + 8 * o::CHR_MOD_EN) };
+    if en == 0 { return; }
+    let cap = f32::from_bits(mem::rd_u32(en + o::EN_CAPACITY));
+    let mut cur = f32::from_bits(mem::rd_u32(en + o::EN_CURRENT));
+    for pct in q { cur = (cur + cap * pct as f32 / 100.0).min(cap); }
+    mem::wr_u32(en + o::EN_CURRENT, cur.to_bits());
+    logf!("chips: player EN refilled to {:.0} / {:.0}", cur, cap);
 }
 
 /// Game thread, every frame (penalty.rs frame hook): apply the queued SpEffects to the player's AC through the game's
@@ -219,6 +244,14 @@ pub unsafe fn install(base: usize) {
             Err(e) => logf!("events: enemy_destroyed hook FAILED: {}", e),
         }
     }
+    if used(Event::EnemyStaggered) {
+        for &site in &o::STAGGER_SET_CALLSITES {
+            match install_call_hook(base, site, o::FN_STAGGER_SET, stagger_set_hook as *const () as usize) {
+                Ok(_) => logf!("events: enemy_staggered hook installed at exe+{:X}", site),
+                Err(e) => logf!("events: enemy_staggered hook at exe+{:X} FAILED: {}", site, e),
+            }
+        }
+    }
     if used(Event::CoreExpansion) {
         for &site in &o::SPEFFECT_ADD_CALLSITES {
             match install_call_hook(base, site, o::FN_SPEFFECT_ADD, speffect_add_hook as *const () as usize) {
@@ -227,6 +260,26 @@ pub unsafe fn install(base: usize) {
             }
         }
     }
+}
+
+/// A character's stagger state for this frame (exe+870B40: its stagger module, staggered byte): the byte going from 0
+/// to 1 on another character than the player = an enemy staggered (`enemy_staggered`, `e.max_ap` = its max AP).
+unsafe extern "system" fn stagger_set_hook(module: usize, staggered: u8) -> u64 {
+    let base = mem::module_base();
+    let orig: unsafe extern "system" fn(usize, u8) -> u64 = core::mem::transmute(base + o::FN_STAGGER_SET);
+    let was = mem::rd_u8(module + o::STAGGER_STATE);
+    let r = orig(module, staggered);
+    if was == 0 && staggered != 0 {
+        let chr = mem::rd_usize(module + o::MODULE_OWNER);
+        let mods = if chr == 0 { 0 } else { mem::rd_usize(chr + o::PLAYER_MODULES) };
+        if mods != 0 && mem::rd_usize(mods + 8 * o::STAGGER_MODULE) == module && chr != player_chr(base) {
+            let blk = mem::rd_usize(mods);
+            let max = if blk == 0 { 0 } else { mem::rd_i32(blk + o::CHR_AP_MAX) };
+            logf!("enemy staggered: character {:#X} (max AP {})", chr, max);
+            emit_with(Event::EnemyStaggered, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64)]);
+        }
+    }
+    r
 }
 
 /// A SpEffect added to a character (exe+96B6C0: manager, id, ...; the 4 callers of the game's add): the player's
