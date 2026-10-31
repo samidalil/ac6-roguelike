@@ -227,6 +227,15 @@ pub const SET_MAX_AP_CALLSITES: [usize; 7] = [0x48FB51, 0x491D6F, 0x71D668, 0x82
 /// EN capacity of an EN object (rcx = player module CHR_MOD_EN; float, stored at +0x20 every frame)
 pub const FN_EN_CAPACITY: usize = 0x88BAE0;
 pub const EN_CAPACITY_CALLSITE: usize = 0x88B7C8;
+/// EN recovery of an EN object, every frame (exe+88B7A0): gross = exe+88BC40(EN object, xmm1) = the parts' recovery x
+/// the product of the active SpEffects' energyRecoverSpeedRate (exe+9664F0); net = gross - a load term (exe+88B9B0,
+/// exe+BA0360); exe+88B920(EN object, xmm1 = net) turns the net into the amount added.
+pub const FN_EN_RECOVERY_GROSS: usize = 0x88BC40;
+pub const EN_RECOVERY_GROSS_CALLSITE: usize = 0x88B7E7;
+pub const FN_EN_RECOVERY_NET: usize = 0x88B920;
+pub const EN_RECOVERY_NET_CALLSITE: usize = 0x88B80B;
+/// SpEffectParam energyRecoverSpeedRate (f32)
+pub const SP_ENERGY_RECOVER_RATE: usize = 0x324;
 /// An EN spending (exe+88C0E0: rcx = EN object, xmm1 = amount, r8, r9b = one-off; the amount x the SpEffects'
 /// consumeEnergyRate). The quick boost (exe+88B130: booster consumeFixedEN_QB x a factor) ends with a jmp to it.
 pub const FN_EN_SPEND: usize = 0x88C0E0;

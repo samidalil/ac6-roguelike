@@ -49,7 +49,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   `[effect]` ap / en_capacity / weight / ammo / quick_boost_en = "+" / "-"), offered and leveled like OS Tunings (rows 9000 + id; levels
   in `CHIP_LEVELS`, 4 bits each; used up = `HIDE_FROM_POOL`). Effects on the player's AC only, through call hooks on the game's stat code:
   set max AP (exe+82AEC0), EN capacity (exe+88BAE0), total weight (exe+46CA70), add ammunition (exe+907750), the quick
-  boost's EN spending (exe+88B1CA -> exe+88C0E0); the part
+  boost's EN spending (exe+88B1CA -> exe+88C0E0); the mod's own SpEffect rows' energyRecoverSpeedRate is moved from the
+  gross EN recovery (exe+88BC40) to the net one (exe+88B920) for the player; the part
   params are untouched. Effects are modifier targets (`Target`, `modify`): the player's stats above, plus the run's own
   values looked up where they are used (pool weights, rewards per mission, parts per reward, shop size).
 - `occur.rs` — `[max_occurrences]`: offers per run of the listed items (any part or OS Tuning), counted at the mission
