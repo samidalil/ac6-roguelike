@@ -2,7 +2,7 @@
 -- streak. The streak is the chip's saved byte (store), kept in the save with the run.
 --
 -- Script API (each chip runs in its own environment):
---   on_<event>(e)   called on an event (the event names of performance_bonus.toml, plus enemy_destroyed) while the
+--   on_<event>(e)   called on an event (the event names of performance_bonus.toml, plus enemy_destroyed, core_expansion) while the
 --                   chip is at level 1+; e.level, e.value (the level's value), and the event's own fields
 --                   (enemy_destroyed: e.max_ap, e.tier = its [enemy_tiers] tier, 1 = the first)
 --   log(...)        a line in the DLL log

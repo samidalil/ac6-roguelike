@@ -254,6 +254,12 @@ pub const CHR_MOD_EN: usize = 0x2A;
 pub const CHR_SPEFFECT_MGR: usize = 0x308;
 pub const SPEFFECT_MGR_VTABLE: usize = 0x3839EB8;
 pub const FN_APPLY_SPEFFECT: usize = 0x968EA0;
+/// The add under it (exe+96B6C0: manager, id, *params, ?, u8, f32, u8, u8), called from 4 places, the animation
+/// events' SpEffects included. A core expansion firing adds CORE_EXPANSION_SPEFFECT (a marker row, no effect) to the
+/// AC (seen with Assault Armor in the AC test: the assault boost rows, replaced the same frame by 9230).
+pub const FN_SPEFFECT_ADD: usize = 0x96B6C0;
+pub const SPEFFECT_ADD_CALLSITES: [usize; 4] = [0x965D0E, 0x965D4E, 0x968F95, 0x969080];
+pub const CORE_EXPANSION_SPEFFECT: i32 = 9230;
 /// AP change report (RE 2026-10-29, RE_NOTES "Enemy destroyed event"): each character's update (exe+756370, every
 /// frame) calls exe+1714F00(chr) at exe+7563FF when its AP ratio moved by more than 10 % since the last frame, or its AP
 /// changed and is below 10; the AP block's last-frame AP (CHR_AP_PREV) is updated after the call.

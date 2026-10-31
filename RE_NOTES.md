@@ -2061,3 +2061,20 @@ Chip 9016 "Pillage" (user decisions: tiers by enemy max AP, values per tier and 
   small 1/2/3, medium 3/5/8, large 8/12/16, boss 15/25/35; scavenger.lua picks the tier's list at the level.
 - Verified (tester AC mission, LV3, missiles and back unit fired first): tester destroyed (12 300 AP = large) ->
   `script Pillage: Resupply(Fixed(16))`, `resupply x0.16 ...: 35200000 23 -> 25, 30020100 124 -> 140`.
+
+## Core expansion event and Cœur libre (2026-10-31, implemented)
+Chip 9017 "Cœur libre" (user decision: no EN spent for 10 / 15 / 20 s after a core expansion).
+- Keys: the core expansion is pressed as assault boost + aim assist together (pad LS + RS, "Commandes d'extension de
+  torse" Type B): Ctrl + middle click on the default keyboard. Ctrl alone = assault boost.
+- In the AC test with Assault Armor, a SpEffect log of the player (ids every 10 ms): Ctrl + middle click -> 9210,
+  200001640, 200001650 (the assault boost rows) replaced the same frame by **9230**, then 9100 / 9105 at the burst,
+  all gone within ~4 s; HUD EXPANSION 1 -> 0. 9230 / 9100 / 9105 / 9210 are identical marker rows (spCategory 20, no
+  effect). A plain assault boost never adds 9230. Expansion charge counter: not found (memory diffs gave only the
+  character update scheduler, chr +0x3B0).
+- Hook: the game's SpEffect add exe+96B6C0 (manager, id, *params, ?, u8, f32, u8, u8; its 4 call sites exe+965D0E,
+  +965D4E, +968F95, +969080, call-site hooks installed only when a chip uses the event): the player's manager getting
+  9230 -> `core_expansion`.
+- Rows 900000171..173: copy of 9405, `effectEndurance` 10 / 15 / 20, `consumeEnergyRate` 0 (every EN spending).
+- Verified (AC test, LV3): `core expansion fired (player)` -> `speffect 900000173 applied`; quick boost 480 EN before,
+  0 right after the expansion, 480 again 20 s later. Only Assault Armor was tried (the other three expansions are
+  expected to add the same marker, not checked).

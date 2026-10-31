@@ -1,0 +1,28 @@
+# Free core: after each core expansion, nothing you do spends EN for 10 / 15 / 20 s (a timed SpEffect row per level,
+# consumeEnergyRate 0: every EN spending of the AC; another expansion restarts it). See nanorepair.toml for the format.
+id = 17
+name = "Cœur libre"
+stat = "EN gratuite après extension"
+unit = " s"
+levels = "10/15/20"
+
+[on.core_expansion]
+speffect = "900000171/900000172/900000173"
+
+[speffect.900000171]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = 10
+consumeEnergyRate = 0
+
+[speffect.900000172]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = 15
+consumeEnergyRate = 0
+
+[speffect.900000173]
+copy = 9405
+changeHpPoint = 0
+effectEndurance = 20
+consumeEnergyRate = 0
