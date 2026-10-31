@@ -204,7 +204,8 @@ unsafe extern "system" fn ap_changed_hook(chr: usize) -> u64 {
         let (ap, prev, max) = before;
         if ap <= 0 && prev > 0 && chr != player_chr(base) {
             logf!("enemy destroyed: character {:#X} (max AP {})", chr, max);
-            emit_with(Event::EnemyDestroyed, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64)]);
+            let pos = |k: usize| f32::from_bits(mem::rd_u32(chr + o::CHR_POS + 4 * k)) as f64;
+            emit_with(Event::EnemyDestroyed, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64), ("x", pos(0)), ("y", pos(1)), ("z", pos(2))]);
         }
     }
     r

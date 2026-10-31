@@ -41,7 +41,8 @@ HOW IT PLAYS
   Adrénaline (each enemy destroyed: EN recovery +20 / 35 / 50 % for 10 s; another kill restarts the 10 s),
   Dissipateurs thermiques (your weapons shed heat 15 / 30 / 50 % faster), Prospecteur (chips come up 15 / 30 / 50 %
   more often as rewards, within each rarity), Pillage (each enemy destroyed gives back part of every weapon's
-  ammunition, more for tougher enemies: 1-3 % for drones and light MTs up to 15-35 % for bosses), Cœur libre (after each core expansion, nothing spends EN for 10 / 15 / 20 s). The AC chips
+  ammunition, more for tougher enemies: 1-3 % for drones and light MTs up to 15-35 % for bosses), Cœur libre (after each core expansion, nothing spends EN for 10 / 15 / 20 s), Essaim (each enemy destroyed releases 1 / 2 / 3
+  laser drones where it fell, hunting your enemies; no drone weapon needed). The AC chips
   change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to

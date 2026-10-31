@@ -266,6 +266,8 @@ pub const CORE_EXPANSION_SPEFFECT: i32 = 9230;
 pub const FN_AP_CHANGED: usize = 0x1714F00;
 pub const AP_CHANGED_CALLSITE: usize = 0x7563FF;
 pub const CHR_AP_PREV: usize = 0x38C;
+/// A character's world position (3 x f32 at ChrIns + CHR_POS; a copy, written each frame from its physics)
+pub const CHR_POS: usize = 0x150;
 /// A character's map id (u32 at ChrIns + CHR_MAP_ID); the AC test (DÉPLOIEMENT > ESSAI AC) map has 0x5A at byte 2.
 pub const CHR_MAP_ID: usize = 0x38;
 pub const AC_TEST_MAP: u8 = 0x5A;

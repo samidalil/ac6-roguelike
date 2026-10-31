@@ -1,0 +1,7 @@
+# Swarm: each enemy destroyed releases laser drones (the Vvc-700LD's) where it fell; they hunt your enemies. The drones
+# come from your AC, no drone weapon needed. swarm.lua spawns the level's value of drones.
+id = 18
+name = "Essaim"
+stat = "Drones par élimination"
+unit = ""
+levels = "1/2/3"
