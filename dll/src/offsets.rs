@@ -285,6 +285,13 @@ pub const FN_RESUPPLY: usize = 0x907540;
 pub const RESUPPLY_CALLSITES: [usize; 4] = [0xB6639E, 0xB6C2BF, 0x784A6A, 0x78169F];
 /// Weapon module index in a character's modules
 pub const CHR_MOD_WEAPONS: usize = 0x27;
+/// Weapon heat cooling (exe+908810: rcx = a heat state inside a weapon slot, at slot + 0xF8 for its first ammunition
+/// block, rdx = the frame time (+8 = dt)): heat (f32 at +HEAT_VALUE) -= heat_SubValuePerSec (EquipParamWeapon +0x58C) x
+/// heat_OverHeatSubValueScalePercent / 100 while overheated x dt, floored at 0. Called every frame for every weapon of
+/// every character from exe+907F5F.
+pub const FN_COOL_HEAT: usize = 0x908810;
+pub const COOL_HEAT_CALLSITE: usize = 0x907F5F;
+pub const HEAT_VALUE: usize = 0x08;
 /// EquipParamWeapon totalBulletNum (s32)
 pub const WEAPON_TOTAL_AMMO: usize = 0x2A8;
 

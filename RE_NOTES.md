@@ -2011,3 +2011,18 @@ Adrénaline (9013): each enemy destroyed -> the level's row (`effectEndurance` 1
   Vanilla rows keep the game's behaviour.
 - Verified: 23.5 -> 35.3 per update with 900000133 (x1.50); chip at LV3 + the tester AC zeroed ->
   `enemy destroyed`, `event enemy_destroyed: chip Adrénaline (LV 3)`, `speffect 900000133 applied to the player`.
+
+## Weapon heat cooling (2026-10-31, implemented)
+Dissipateurs thermiques (9014): the player's weapons shed heat faster. A static search for `heat_SubValuePerSec`
+(EquipParamWeapon +0x58C) found nothing usable; a read watch (in-DLL tracer, 4-8 hits, cleared after 1.5-3 s; the
+readers run every frame) on the pulse blade row's field gave two readers: exe+90B03E (a heat > 0 test) and
+**exe+90887F in exe+908810(heat state, frame time)**: heat (state +8) -= `heat_SubValuePerSec` x
+`heat_OverHeatSubValueScalePercent` / 100 while overheated (state +0x10) x dt (frame time +8), floored at 0. Its
+only caller exe+907F5F passes rcx = slot + 0x30 + 0xC8 (slot + 0xF8 for a weapon slot's first ammunition block), every
+frame for every weapon of every character.
+- `cooling` target: a call hook on exe+907F5F; for a heat state inside the player's weapon module (module 0x27, slots
+  0x20 + k x 0x480), the heat shed this frame (before - after) gets the cooling chips' %. The param row is untouched
+  (enemies use the same rows).
+- Live (starter AC's pulse blade 20010000, `heat_SubValuePerSec` 282; one swing heats it to 1000, cooling starts
+  after `heat_ShootDelay` 1.5 s; slope over 800..200): level 0 282.7 /s (one run 301.4: frame hitches, also seen
+  without the chip), LV1 ~321 /s (median of 0.25 s segments; +14 %), LV3 423.4 / 423.0 /s (x1.50).

@@ -15,9 +15,9 @@ use std::sync::OnceLock;
 /// Modifier targets: the values the engine looks up through `modify` where it uses them (`[effect]` keys). Pool
 /// weights are `pool.<NAME>.weight` ([pool.NAME] sections).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Target { Ap, EnCapacity, Weight, Ammo, QuickBoostEn, PoolWeight(u8), RewardCount, RewardChoices, ShopWeapons, ShopParts }
-const TARGETS: [(&str, Target); 9] = [("ap", Target::Ap), ("en_capacity", Target::EnCapacity), ("weight", Target::Weight),
-    ("ammo", Target::Ammo), ("quick_boost_en", Target::QuickBoostEn), ("reward.count", Target::RewardCount), ("reward.choices", Target::RewardChoices),
+pub enum Target { Ap, EnCapacity, Weight, Ammo, Cooling, QuickBoostEn, PoolWeight(u8), RewardCount, RewardChoices, ShopWeapons, ShopParts }
+const TARGETS: [(&str, Target); 10] = [("ap", Target::Ap), ("en_capacity", Target::EnCapacity), ("weight", Target::Weight),
+    ("ammo", Target::Ammo), ("cooling", Target::Cooling), ("quick_boost_en", Target::QuickBoostEn), ("reward.count", Target::RewardCount), ("reward.choices", Target::RewardChoices),
     ("shop.weapons", Target::ShopWeapons), ("shop.parts", Target::ShopParts)];
 fn target(key: &str) -> Option<Target> {
     if let Some(name) = key.strip_prefix("pool.").and_then(|r| r.strip_suffix(".weight")) {
@@ -65,7 +65,7 @@ static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 16] = [
+const DEFAULTS: [(&str, &str); 17] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
@@ -82,6 +82,7 @@ const DEFAULTS: [(&str, &str); 16] = [
     ("amplified_impact.toml", include_str!("chips/amplified_impact.toml")),
     ("efficient_thrusters.toml", include_str!("chips/efficient_thrusters.toml")),
     ("adrenaline.toml", include_str!("chips/adrenaline.toml")),
+    ("heat_sinks.toml", include_str!("chips/heat_sinks.toml")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).
@@ -277,6 +278,7 @@ pub unsafe fn install(base: usize) {
     hooks.push((o::ADD_AMMO_CALLSITES[0], o::FN_ADD_AMMO, add_ammo_hook as *const () as usize));
     hooks.push((o::ADD_AMMO_CALLSITES[1], o::FN_ADD_AMMO, add_ammo_hook as *const () as usize));
     for &s in &o::RESUPPLY_CALLSITES { hooks.push((s, o::FN_RESUPPLY, resupply_hook as *const () as usize)); }
+    hooks.push((o::COOL_HEAT_CALLSITE, o::FN_COOL_HEAT, cool_heat_hook as *const () as usize));
     hooks.push((o::QUICK_BOOST_EN_JMPSITE, o::FN_EN_SPEND, quick_boost_en_hook as *const () as usize));
     hooks.push((o::EN_RECOVERY_GROSS_CALLSITE, o::FN_EN_RECOVERY_GROSS, en_recovery_gross_hook as *const () as usize));
     hooks.push((o::EN_RECOVERY_NET_CALLSITE, o::FN_EN_RECOVERY_NET, en_recovery_net_hook as *const () as usize));
@@ -286,7 +288,7 @@ pub unsafe fn install(base: usize) {
             Err(e) => logf!("chips: hook at exe+{:X} FAILED: {}", site, e),
         }
     }
-    log("chips: stat hooks installed (max AP, EN capacity, total weight, weapon ammunition, quick boost EN, EN recovery)");
+    log("chips: stat hooks installed (max AP, EN capacity, total weight, weapon ammunition, weapon cooling, quick boost EN, EN recovery)");
 }
 
 /// Total ammunition of each weapon (EquipParamWeapon totalBulletNum by equipId), read once at boot.
@@ -406,4 +408,21 @@ unsafe extern "system" fn en_recovery_net_hook(en: usize, net: f32) -> f32 {
     let r = f32::from_bits(EN_MOD_RATE.load(Relaxed));
     let net = if net > 0.0 && r > 0.0 && en != 0 && en == player_module(base, o::CHR_MOD_EN) { net * r } else { net };
     orig(en, net)
+}
+
+/// Weapon cooling (exe+908810, every frame for every weapon: rcx = a heat state inside the weapon slot, rdx = the frame
+/// time): for a heat state inside the player's weapon module, the heat shed this frame gets the cooling chips' %.
+unsafe extern "system" fn cool_heat_hook(heat: usize, dt: usize) -> u64 {
+    let base = mem::module_base();
+    let orig: unsafe extern "system" fn(usize, usize) -> u64 = core::mem::transmute(base + o::FN_COOL_HEAT);
+    let before = f32::from_bits(mem::rd_u32(heat + o::HEAT_VALUE));
+    let r = orig(heat, dt);
+    let after = f32::from_bits(mem::rd_u32(heat + o::HEAT_VALUE));
+    if after >= before { return r; }
+    let module = player_module(base, o::CHR_MOD_WEAPONS);
+    let first = module + o::WEAPON_SLOT0;
+    if module == 0 || heat < first || heat >= first + o::WEAPON_SLOTS * o::WEAPON_SLOT_STRIDE { return r; }
+    let shed = modify(Target::Cooling, (before - after) as f64) as f32;
+    mem::wr_u32(heat + o::HEAT_VALUE, (before - shed).max(0.0).to_bits());
+    r
 }

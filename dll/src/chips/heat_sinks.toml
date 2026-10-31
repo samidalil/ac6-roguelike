@@ -1,0 +1,8 @@
+# Heat sinks: your weapons shed their heat faster (see reinforced_plating.toml for the format).
+id = 14
+name = "Dissipateurs thermiques"
+stat = "Refroidissement"
+levels = "15/30/50"
+
+[effect]
+cooling = "+"
