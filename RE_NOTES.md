@@ -2046,3 +2046,18 @@ its weight, then inside the pool our own chips weigh 100 + the target's % agains
 unchanged). Debug `odds N` now also prints the share of chips.
 - Verified (garage, `odds 20000`): chips 5.7 % of the picks at level 0, 7.2 % at LV3; pools 50 / 25 / 15 / 10 % both
   times.
+
+## Pillage: ammunition per enemy destroyed, enemy tiers, script params (2026-10-31, implemented)
+Chip 9016 "Pillage" (user decisions: tiers by enemy max AP, values per tier and level in the chip file).
+- Enemy AP archetypes (NpcParam `hp`, 1 222 rows, regulation dump): drones / helicopters 28-300, walker / flying MTs
+  100-900, heavy MTs / LCs / emplacements 3 800-13 000, bosses 15 000-64 000 (Juggernaut 63 985). Enemy ACs read 1 700
+  there (their AP comes from their parts: the tester AC has 12 300 live), so tiers use the live max AP the
+  enemy_destroyed hook reads. `[enemy_tiers]` in the settings (name = lowest max AP): small 0, medium 1 000, large
+  10 000, boss 30 000; `config::enemy_tier` -> `e.tier` (1-based), `game.tier_name(n)` in scripts.
+- `resupply` action (TOML `resupply = %`, Lua `resupply(pct)`): queued, run by the frame hook through `resupply_hook`
+  on the player's weapon module (the game's resupply exe+907540 with rate = % / 100, so the ammo chips' raised totals
+  apply; each weapon gets max(1, rate x total) rounds, capped).
+- Chip files: `[params]` (any key = number, "a/b/c" or text) -> `chip.params` in the script. scavenger.toml holds
+  small 1/2/3, medium 3/5/8, large 8/12/16, boss 15/25/35; scavenger.lua picks the tier's list at the level.
+- Verified (tester AC mission, LV3, missiles and back unit fired first): tester destroyed (12 300 AP = large) ->
+  `script Pillage: Resupply(Fixed(16))`, `resupply x0.16 ...: 35200000 23 -> 25, 30020100 124 -> 140`.

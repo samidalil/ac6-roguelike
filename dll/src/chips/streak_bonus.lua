@@ -4,11 +4,14 @@
 -- Script API (each chip runs in its own environment):
 --   on_<event>(e)   called on an event (the event names of performance_bonus.toml, plus enemy_destroyed) while the
 --                   chip is at level 1+; e.level, e.value (the level's value), and the event's own fields
+--                   (enemy_destroyed: e.max_ap, e.tier = its [enemy_tiers] tier, 1 = the first)
 --   log(...)        a line in the DLL log
---   chip            .id, .name, .values, level(), value()
+--   chip            .id, .name, .values, .params ([params] of the chip file: a number, "a/b/c" = a list, else
+--                   the text), level(), value()
 --   store           get() / set(v): one byte (0..255) saved with the run
---   game            ap(), max_ap(), coam(), in_mission(), flag(id), level(row or name)
---   actions         credits(n), give("part name"), speffect(row), add_level(row or name, n), set_flag(id, bool)
+--   game            ap(), max_ap(), coam(), in_mission(), flag(id), level(row or name), tier_name(n)
+--   actions         credits(n), give("part name"), speffect(row), resupply(%), add_level(row or name, n),
+--                   set_flag(id, bool)
 --   unsafe          (only with unsafe = true in the chip file) base, player(), readable(addr, n), read_u8/u16/i32/
 --                   u32/u64/f32(addr), write_u8/u16/i32/u32/u64/f32(addr, v): raw game memory, can break the game
 
