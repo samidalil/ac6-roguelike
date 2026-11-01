@@ -185,7 +185,7 @@ fn parse(text: &str) -> Result<Chip, String> {
 // ---- levels (event flags CHIP_LEVELS, saved with the run; New Game clears them)
 fn flags() -> Option<(Game, usize)> {
     let g = unsafe { Game::new(mem::module_base()) };
-    let man = unsafe { g.flag_man()? };
+    let man = unsafe { g.flag_man_fast()? };
     Some((g, man))
 }
 fn level_flag(c: &Chip) -> u32 { o::CHIP_LEVELS + (c.id as u32 - 1) * o::CHIP_LEVEL_BITS }
