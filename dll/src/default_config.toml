@@ -1,5 +1,10 @@
 # Armored Core VI roguelike settings. Edit and restart the game.
 
+[display]
+language = auto                  # language of the mod's texts: auto (the game's) or en, fr, ja, de, it, es, es-419,
+                                 # pt, pl, ru, ko, zh-tw, zh-cn (texts in lang/<code>.toml next to the DLL override
+                                 # the built-in ones)
+
 [economy]
 mission_pay_percent = 0          # % of the game's mission pay you receive, 0 or more (0 = selling parts is the only income)
 arena_repeat_pay_percent = 0     # % of the arena's pay for repeat fights, 0 or more

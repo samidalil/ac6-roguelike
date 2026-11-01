@@ -103,8 +103,7 @@ pub fn refused_text(category: u32, id: u32) -> Option<usize> {
     let gd = unsafe { Game::new(BASE.load(Relaxed)).game_data()? };
     let max = config::get().max_parts;
     if unsafe { part_count(gd) } < max { return None; }
-    static TEXT: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
-    Some(TEXT.get_or_init(|| format!("Inventaire plein ({} pièces maximum).\nVendez une pièce pour en acheter une autre.\0", max).encode_utf16().collect()).as_ptr() as usize)
+    Some(lang::wide("inventory.buy_refused", || lang::f("inventory.buy_refused", &[("max", &max)])))
 }
 
 // ---- the cap's sell screen: its own movies (RE_NOTES "Cap sell screen: own movie")
@@ -196,9 +195,7 @@ unsafe fn prompt(gd: usize, why: &str) {
     // runs again when a list window closes (Assemblage, where parts can be taken off the AC)
     let stuck = penalty::sellable_count(gd) == 0;
     logf!("inventory cap: {} / {} parts ({}) -> sell {}{}", n, max, why, n - max, if stuck { ", nothing sellable" } else { "" });
-    let s = if n - max > 1 { "s" } else { "" };
-    dialog::show(&if stuck { format!("INVENTAIRE PLEIN\n\n{} pièces pour {} places et aucune pièce à vendre : retirez {} pièce{} de l'AC dans ASSEMBLAGE, puis vendez-la{} dans VENTE.", n, max, n - max, s, if s.is_empty() { "" } else { "s" }) }
-        else { format!("INVENTAIRE PLEIN\n\n{} pièces pour {} places : vendez {} pièce{} dans VENTE.", n, max, n - max, s) });
+    dialog::show(&lang::n(if stuck { "inventory.stuck" } else { "inventory.full" }, n - max, &[("n", &n), ("max", &max), ("over", &(n - max))]));
     let job = dialog::open_pending(BASE.load(Relaxed));
     if stuck { return; }
     match job { Some(j) => if let Ok(mut d) = DIALOG_JOB.lock() { *d = Some(j); }, None => OPEN_SELL.store(true, Relaxed) }

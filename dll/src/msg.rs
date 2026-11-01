@@ -12,14 +12,6 @@ use std::sync::Mutex;
 /// "GAME OVER" replaces the mission-failed texts while set.
 pub static GAME_OVER_TEXT: AtomicBool = AtomicBool::new(false);
 
-const fn w<const N: usize>(s: &[u8; N]) -> [u16; N] {
-    let mut out = [0u16; N];
-    let mut i = 0;
-    while i < N { out[i] = s[i] as u16; i += 1; }
-    out
-}
-static GAME_OVER_W: [u16; 10] = w(b"GAME OVER\0");
-
 /// (category, id) pairs shown when the player dies: the death-sequence banner and the death menu title.
 const MISSION_FAILED_TEXTS: [(u32, u32); 2] = [(200, 254000), (30, 110003004)];
 
@@ -41,7 +33,7 @@ pub static GARAGE_TITLE_SEEN: std::sync::atomic::AtomicU64 = std::sync::atomic::
 unsafe extern "system" fn msg_lookup(repo: usize, version: u32, category: u32, id: u32) -> usize {
     if (category, id) == o::MSG_GARAGE_TITLE { GARAGE_TITLE_SEEN.fetch_add(1, Relaxed); }
     if GAME_OVER_TEXT.load(Relaxed) && MISSION_FAILED_TEXTS.contains(&(category, id)) {
-        return GAME_OVER_W.as_ptr() as usize;
+        return lang::wide("game_over", || lang::t("game_over"));
     }
     if let Some(p) = cap::refused_text(category, id) { return p; }
     if let Some(p) = buyback::confirm_text(category, id) { return p; }
@@ -49,7 +41,7 @@ unsafe extern "system" fn msg_lookup(repo: usize, version: u32, category: u32, i
         if let Ok(c) = CUSTOM.lock() { if !c.is_empty() { return c.as_ptr() as usize; } }
     }
     if category == o::MSG_CAT_MENU_TEXT && (id == o::MSG_TUTO_ACHAT || id == o::MSG_TUTO_VENTE) {
-        return tutorial_text(id).as_ptr() as usize;
+        return tutorial_text(id);
     }
     if id == o::MSG_OS_UNLOCKED && (category == o::MSG_CAT_MENU_TITLE || category == o::MSG_CAT_MENU_TEXT) && config::get().os_rewards {
         if let Some(p) = os_unlock_text(repo, version, category) { return p; }
@@ -98,31 +90,22 @@ unsafe fn os_unlock_text(repo: usize, version: u32, category: u32) -> Option<usi
     (ptr != 0).then_some(ptr)
 }
 
-/// The ACHAT / VENTE first-time tutorials, rewritten for the mod's shop from the settings (sale %, reroll interval,
-/// inventory cap). Built once (the settings are read once at boot).
-fn tutorial_text(id: u32) -> &'static [u16] {
-    static ACHAT: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
-    static VENTE: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+/// The BUY / SELL first-time tutorials, rewritten for the mod's shop from the settings (sale %, reroll interval,
+/// inventory cap). Built once per language (the settings are read once at boot).
+fn tutorial_text(id: u32) -> usize {
     let c = config::get();
-    let renewal = if c.reroll_interval <= 1 { "après chaque mission réussie".to_string() }
-        else { format!("toutes les {} missions réussies", c.reroll_interval) };
-    let w = |t: String| t.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
     if id == o::MSG_TUTO_ACHAT {
-        return ACHAT.get_or_init(|| w(format!(
-            "Le menu ACHAT propose des pièces d'AC tirées au hasard,\nrenouvelées {}.\n\n\
-             • Les pièces que vous avez vendues y sont de nouveau\nen vente jusqu'au prochain renouvellement.\n\
-             • Vous pouvez posséder {} pièces au plus, pièces\néquipées comprises : au-delà, l'achat est refusé.",
-            renewal, c.max_parts)));
+        return lang::wide("tutorial.buy", || {
+            let renewal = if c.reroll_interval <= 1 { lang::t("tutorial.renewal_each") }
+                else { lang::f("tutorial.renewal_every", &[("n", &c.reroll_interval)]) };
+            lang::f("tutorial.buy", &[("renewal", &renewal), ("max_parts", &c.max_parts)])
+        });
     }
-    let pct = if c.part_sell_percent == c.weapon_sell_percent { format!("{} % de sa valeur", c.part_sell_percent) }
-        else { format!("{} % de sa valeur\n(arme : {} %)", c.part_sell_percent, c.weapon_sell_percent) };
-    VENTE.get_or_init(|| w(format!(
-        "Le menu VENTE permet de vendre vos pièces d'AC.\n\n\
-         • Une pièce vendue rapporte {}.\n\
-         • Elle peut être rachetée à son prix dans le menu ACHAT\njusqu'au prochain renouvellement de la boutique.\n\
-         • Au plus {} pièces vendues restent rachetables : au-delà,\nla plus ancienne part à la casse.\n\
-         • Plus de {} pièces au garage : vendez-en jusqu'à\nrevenir à la limite.",
-        pct, o::SOLD_COPY_SLOTS, c.max_parts)))
+    lang::wide("tutorial.sell", || {
+        let value = if c.part_sell_percent == c.weapon_sell_percent { lang::f("tutorial.sell_value", &[("pct", &c.part_sell_percent)]) }
+            else { lang::f("tutorial.sell_value_weapons", &[("pct", &c.part_sell_percent), ("weapon_pct", &c.weapon_sell_percent)]) };
+        lang::f("tutorial.sell", &[("value", &value), ("copies", &o::SOLD_COPY_SLOTS), ("max_parts", &c.max_parts)])
+    })
 }
 
 /// Set the module base before `install` (part names are read at boot, before the hook goes in).

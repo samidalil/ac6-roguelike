@@ -54,6 +54,8 @@ pub struct Config {
     pub max_parts: u32,
     /// [enemy_tiers]: (name, lowest max AP), sorted by that AP; an enemy is in the last tier its max AP reaches
     pub enemy_tiers: Vec<(String, u32)>,
+    /// [display] language: "auto" (the game's) or a lang.rs language code
+    pub language: String,
 }
 
 /// A pool of parts: the shop and the rewards pick a pool by weight (among the pools with a candidate left), then a
@@ -94,6 +96,7 @@ fn defaults() -> Config {
         shop_weapons: 1, shop_parts: 2, parts_per_mission: 1, reward_choices: 3, os_rewards: true, reroll_interval: 1, starting_credits: 100_000,
         pools: vec![Pool::unlisted(UNLISTED)], unlisted_pool: 0, part_rarity: Vec::new(),
         lost_on_failure: Vec::new(), max_occurrences: Vec::new(), os_tuning: Vec::new(), max_parts: 20, enemy_tiers: Vec::new(),
+        language: "auto".to_string(),
     }
 }
 
@@ -226,6 +229,7 @@ pub fn load() {
         }
         match (section.as_str(), k, &val) {
             ("rarity", "unlisted_pool", Value::Text(t)) => { unlisted_pool = t.clone(); continue }
+            ("display", "language", Value::Text(t)) => { c.language = t.clone(); continue }
             ("part_rarity", _, _) => { rarity.push((k.to_string(), val, n + 1)); continue }
             ("os_tuning", _, _) => {
                 match (k.parse::<u16>(), parse_levels(&val, o::OSR_LEVELS)) {

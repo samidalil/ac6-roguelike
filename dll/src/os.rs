@@ -175,18 +175,18 @@ pub fn name(row: u16) -> String {
     tuning(row).and_then(|t| unsafe { msg::text(o::MSG_CAT_OS_NAME, t.name) }).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("OS {}", row))
 }
 
-/// Grid tile texts of an offer: (name, "AMÉLIORATION OS  LV n/max") with n the level it brings; a chip's name also
-/// gives that level's effect ("Blindage renforcé : PB +5 %").
+/// Grid tile texts of an offer: (name, "OS TUNING  LV n/max") with n the level it brings; a chip's name also gives
+/// that level's effect ("Reinforced Plating: AP +5%").
 pub unsafe fn label(gd: usize, row: u16) -> (String, String) { label_at(row, level(gd, row).unwrap_or(0) + 1) }
 /// `label` for the level `next` (a later reward page counts the earlier pages' picks, not committed yet).
 pub unsafe fn label_at(row: u16, next: i32) -> (String, String) {
     let t = tuning(row);
-    let menu = msg::text(o::MSG_CAT_MENU_TITLE, o::MSG_OS_MENU).unwrap_or_default();
     let name = match chip::chip(row) {
-        Some(c) => format!("{} : {} {}{}{}", c.name, c.stat, if c.sign() < 0 { "-" } else { "+" }, chip::value(row, next), c.unit()),
+        Some(c) => lang::f("rewards.chip_tile", &[("name", &c.name), ("stat", &c.stat),
+            ("value", &format!("{}{}{}", if c.sign() < 0 { "-" } else { "+" }, chip::value(row, next), c.unit()))]),
         None => name(row),
     };
-    (name, format!("{}  LV {}/{}", menu, next, t.map_or(next, |t| t.max)))
+    (name, lang::f("rewards.os_tile", &[("level", &next), ("max", &t.map_or(next, |t| t.max))]))
 }
 
 /// Keep the vanilla OS Tuning menu locked: its UnlockParam_MenuCommand row checks a flag nothing sets. Applied once at

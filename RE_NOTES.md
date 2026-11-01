@@ -2235,3 +2235,23 @@ spread; new script read game.player_pos().
   - a slot's continuous-fire state at slot +0x2C0 / +0x2C4, spent by exe+908610 with the row's continuous fields;
   - exe+6F9430's a14 is a bullet-id slot (the created bullet's id written back; an existing one reused);
   - hidden slots (19..31) get no per-frame weapon update; mode 0 (a dummy poly of the AC) works from them.
+
+
+## Localization: the game's language (2026-11-01, implemented)
+- **Where the game's language comes from.** Not Steam (Steam, the app manifest and Windows all said English while the
+  game showed French): the title screen's LANGUAGE menu (Text / Voice), kept by the game; changing Text there reloads
+  every MsgRepository text at once, no restart. The title shows the previous language until the save's settings load.
+- **Folders.** msg/<folder>/*.msgbnd.dcx in Data0: engus frafr jpnjp deude itait spaes spaar porbr polpl rusru korkr
+  zhotw zhocn (thath / araae are 1-16 KB stubs, not selectable). The exe's language table (Steam names: english,
+  french, ..., latam, brazilian, schinese, tchinese) sits at exe file offset 0x3B79554.
+- **Detection without RE.** Category 73 (tutorial titles) id 1500300 ("Scanning") differs in all 13 languages (59
+  ids of category 73 and 306 of the menu texts do; 2009000 "OS TUNING" does not: jpnjp / korkr keep it in English).
+  `lang::current()` reads it through the original lookup at each use and matches it: verified live, French at load,
+  title > LANGUAGE > English -> the next lookup says engus and the tutorials / reward grid / numbers are English.
+- **Game words reused.** Categories: 73 / 74 = tutorial title / body (BUY 2002000, SELL 2002010, OS TUNING 2009000),
+  200 = menu labels (GARAGE 100000, ASSEMBLY 102001, AP 75000). Thousands separator as the game writes it: "," en /
+  ko, " " fr / ru, "." de / it / pt (the COAM counter in English: 58,906). Vanilla English tutorial bullets indent
+  their wrapped lines by 3 spaces; French ones don't.
+- **Dump tool.** tools/ac6_unpack.py extracts /msg/<folder>/menu.msgbnd.dcx and item.msgbnd.dcx; DCX = "DCP KRAK"
+  (Oodle Kraken: oo2core_8_win64.dll OodleLZ_Decompress), then BND4 of FMGs (names in Japanese, e.g.
+  チュートリアルタイトル.fmg = category 73).
