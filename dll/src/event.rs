@@ -67,6 +67,9 @@ pub enum Action {
     Resupply(Amount),
     /// `energy = "a/b/c"`: the player's AC gets this % of its EN capacity back (game thread; in a mission only)
     Energy(Amount),
+    /// `enemy_speffect = <SpEffectParam row>` (or "a/b/c"): applied to the enemy of the event (enemy_staggered,
+    /// enemy_destroyed), the player as its source, on the game thread
+    EnemySpEffect(Amount),
 }
 impl Action {
     /// An `[on.<event>]` line: key and value.
@@ -82,6 +85,9 @@ impl Action {
         if k.eq_ignore_ascii_case("resupply") {
             return Amount::parse(v).map(Action::Resupply).ok_or("resupply = % or \"a/b/c\"".into());
         }
+        if k.eq_ignore_ascii_case("enemy_speffect") {
+            return Amount::parse(v).filter(|a| !matches!(a, Amount::Value)).map(Action::EnemySpEffect).ok_or("enemy_speffect = <SpEffectParam row id> or \"a/b/c\"".into());
+        }
         if k.eq_ignore_ascii_case("energy") {
             return Amount::parse(v).map(Action::Energy).ok_or("energy = % or \"a/b/c\"".into());
         }
@@ -90,7 +96,7 @@ impl Action {
             let id = f.parse::<u32>().map_err(|_| format!("flag.<id>: {} is not a flag id", f))?;
             return match v { config::Value::Num(n) => Ok(Action::Flag(id, *n != 0)), _ => Err("flag.<id> = 1 or 0".into()) };
         }
-        Err(format!("unknown action {} (credits, give, speffect, resupply, energy, level.<row>, flag.<id>)", k))
+        Err(format!("unknown action {} (credits, give, speffect, enemy_speffect, resupply, energy, level.<row>, flag.<id>)", k))
     }
 }
 
@@ -155,6 +161,10 @@ unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action, e: Even
         Action::Flag(id, v) => { g.put_flag(man, *id, *v); }
         Action::Resupply(n) => queue_resupply(n.at(&c.values, lv)),
         Action::Energy(n) => queue_energy(n.at(&c.values, lv)),
+        Action::EnemySpEffect(n) => {
+            let chr = SUBJECT.load(std::sync::atomic::Ordering::Relaxed);
+            if chr != 0 { ENEMY_SPEFFECTS.lock().unwrap_or_else(|e| e.into_inner()).push((n.at(&c.values, lv), chr)); }
+        }
         Action::SpEffect(n) => queue_speffect(n.at(&c.values, lv), e == Event::MissionStart),
     }
 }
@@ -179,6 +189,34 @@ pub fn queue_resupply(pct: i32) { if pct > 0 { RESUPPLIES.lock().unwrap_or_else(
 pub unsafe fn apply_resupplies() {
     let q: Vec<i32> = core::mem::take(&mut *RESUPPLIES.lock().unwrap_or_else(|e| e.into_inner()));
     for pct in q { chip::resupply_player(pct as f32 / 100.0); }
+}
+
+/// The enemy of the enemy event being emitted (its ChrIns), for `enemy_speffect`; 0 outside one.
+static SUBJECT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+fn emit_about(chr: usize, e: Event, data: &[(&'static str, f64)]) {
+    SUBJECT.store(chr, std::sync::atomic::Ordering::Relaxed);
+    emit_with(e, data);
+    SUBJECT.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+/// SpEffects waiting for the game thread: (id, enemy ChrIns).
+static ENEMY_SPEFFECTS: Mutex<Vec<(i32, usize)>> = Mutex::new(Vec::new());
+/// Game thread, every frame: the queued enemy SpEffects through the game's call (exe+968EA0: the enemy's own manager,
+/// id, the enemy as target, the player as source); an enemy no longer among the map's characters is skipped.
+pub unsafe fn apply_enemy_speffects(base: usize) {
+    let q: Vec<(i32, usize)> = core::mem::take(&mut *ENEMY_SPEFFECTS.lock().unwrap_or_else(|e| e.into_inner()));
+    if q.is_empty() { return; }
+    let player = player_chr(base);
+    let chars = shot::characters(base);
+    type FnApply = unsafe extern "system" fn(mgr: usize, id: i32, target: usize, source: usize, params: *const [f32; 4], a6: u32, a7: u32, a8: u32) -> u64;
+    let apply: FnApply = core::mem::transmute(base + o::FN_APPLY_SPEFFECT);
+    let params = [1.0f32; 4];
+    for (id, chr) in q {
+        if player == 0 || !chars.contains(&chr) { continue; }
+        let mgr = mem::rd_usize(chr + o::CHR_SPEFFECT_MGR);
+        if mgr == 0 || mem::rd_usize(mgr) != base + o::SPEFFECT_MGR_VTABLE { continue; }
+        let r = apply(mgr, id, chr, player, &params, 0, 0, 0);
+        logf!("speffect {} applied to the enemy {:#X} (ret {:#X})", id, chr, r);
+    }
 }
 
 /// EN refills waiting for the game thread, in % of the capacity.
@@ -234,7 +272,7 @@ unsafe extern "system" fn ap_changed_hook(chr: usize) -> u64 {
             logf!("enemy destroyed: character {:#X} (max AP {})", chr, max);
             let pos = |k: usize| f32::from_bits(mem::rd_u32(chr + o::CHR_POS + 4 * k)) as f64;
             let id = mem::rd_u32(chr + o::CHR_HANDLE) as f64;
-            emit_with(Event::EnemyDestroyed, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64), ("x", pos(0)), ("y", pos(1)), ("z", pos(2)), ("id", id)]);
+            emit_about(chr, Event::EnemyDestroyed, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64), ("x", pos(0)), ("y", pos(1)), ("z", pos(2)), ("id", id)]);
         }
     }
     r
@@ -282,7 +320,7 @@ unsafe extern "system" fn stagger_set_hook(module: usize, staggered: u8) -> u64 
             logf!("enemy staggered: character {:#X} (max AP {})", chr, max);
             let pos = |k: usize| f32::from_bits(mem::rd_u32(chr + o::CHR_POS + 4 * k)) as f64;
             let id = mem::rd_u32(chr + o::CHR_HANDLE) as f64;
-            emit_with(Event::EnemyStaggered, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64), ("x", pos(0)), ("y", pos(1)), ("z", pos(2)), ("id", id)]);
+            emit_about(chr, Event::EnemyStaggered, &[("max_ap", max as f64), ("tier", config::enemy_tier(max) as f64), ("x", pos(0)), ("y", pos(1)), ("z", pos(2)), ("id", id)]);
         }
     }
     r

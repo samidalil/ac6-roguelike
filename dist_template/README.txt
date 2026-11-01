@@ -44,7 +44,8 @@ HOW IT PLAYS
   ammunition, more for tougher enemies: 1-3 % for drones and light MTs up to 15-35 % for bosses), Cœur libre (after each core expansion, nothing spends EN for 10 / 15 / 20 s), Essaim (each enemy destroyed releases 1 / 2 / 3
   laser drones where it fell, hunting your enemies; no drone weapon needed), Surcharge (each enemy
   staggered fills your EN back up), Écho plasma (each enemy destroyed fires 1 / 2 / 3 plasma cannon shots from where
-  it fell at your next target; no plasma cannon needed). The AC chips
+  it fell at your next target; no plasma cannon needed), Décharge (each enemy staggered gets its Shock bar filled:
+  the game's electric discharge follows). The AC chips
   change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
@@ -93,7 +94,8 @@ named on the reward tile, its values per level and its effects: a target = "+" /
 pool), reward.count, reward.choices, reward.chips (odds of a chip within its pool), shop.weapons, shop.parts. A chip can also react to events with [on.<event>]
 sections (mission_cleared, commit, death, shop_reroll, pick...; the list is in the default chip files): credits,
 give = "part", "level.<row>" = "+1", "flag.<id>" = 1, resupply = <%> (every weapon gets that % of its ammunition,
-in a mission), energy = <%> (that % of your EN capacity back, in a mission), speffect = <SpEffectParam row> (applied to your AC; a chip
+in a mission), energy = <%> (that % of your EN capacity back, in a mission), enemy_speffect = <SpEffectParam row>
+(applied to the enemy of enemy_staggered / enemy_destroyed, see discharge.toml), speffect = <SpEffectParam row> (applied to your AC; a chip
 can declare its own rows in [speffect.<row id>] sections, built into the mod's regulation.bin, see nanorepair.toml; also
 [behavior / bullet / atk / weapon.<row id>] for BehaviorParam_PC / Bullet / AtkParam_Pc / EquipParamWeapon rows, see
 plasma_echo.toml). Add a file for a new chip, delete one to remove it; in the
