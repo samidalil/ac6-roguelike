@@ -4,6 +4,8 @@
 //! (penalty.rs frame hook, the frame after the event). Each chip runs in its own environment: the safe API (game state
 //! reads, the chip's saved byte, the declarative actions) and, with `unsafe = true` in the chip file, the `unsafe`
 //! table (raw memory). A script error is logged and stops that call only; a call is cut after BUDGET instructions.
+//! `after(seconds, fn)` runs `fn` later in the same chip and event context; the pending ones are dropped when the
+//! mission ends (death, clear, failure, title, save load: `cancel_timers`).
 
 use super::*;
 use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, VmState};
@@ -14,6 +16,12 @@ use std::sync::Mutex;
 /// at `mission_start` waits for the next one), event fields.
 struct Call { chip: u16, e: event::Event, lv: i32, not: usize, data: Vec<(&'static str, f64)> }
 static QUEUE: Mutex<Vec<Call>> = Mutex::new(Vec::new());
+/// Timer generation: `after` callbacks of an older one are dropped.
+static TIMER_GEN: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+/// Pending `after` callbacks per chip at most.
+const MAX_TIMERS: usize = 64;
+/// Any thread: drop every pending `after` callback (the mission they belong to ended).
+pub fn cancel_timers() { TIMER_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
 
 /// Any thread: the engine emitted `e` for a chip whose script has `on_<e>`.
 pub fn queue(chip: u16, e: event::Event, lv: i32, not: usize, data: &[(&'static str, f64)]) {
@@ -25,15 +33,20 @@ const BUDGET: u32 = 2_000_000;
 const HOOK_EVERY: u32 = 10_000;
 
 struct Engine { lua: Lua, envs: Vec<(u16, Table)> }
+/// An `after` callback: chip, due time, timer generation, the call context it was made in, the function.
+struct Timer { chip: u16, due: std::time::Instant, gen: u32, now: (i32, Option<event::Event>, usize), f: mlua::Function }
 thread_local! {
+    static TIMERS: RefCell<Vec<Timer>> = const { RefCell::new(Vec::new()) };
     static ENGINE: RefCell<Option<Engine>> = const { RefCell::new(None) };
     /// The call running now: (level, event, player character at the event), read by the action functions.
     static NOW: Cell<(i32, Option<event::Event>, usize)> = const { Cell::new((0, None, 0)) };
     static STEPS: Cell<u32> = const { Cell::new(0) };
 }
 
-/// Game thread, every frame: run the queued script calls (the engine is built at the first one).
+/// Game thread, every frame: the due `after` callbacks, then the queued script calls (the engine is built at the first
+/// one).
 pub unsafe fn run_queue() {
+    run_timers();
     let calls: Vec<Call> = {
         let mut q = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
         if q.is_empty() { return; }
@@ -58,6 +71,27 @@ pub unsafe fn run_queue() {
             NOW.with(|n| n.set((0, None, 0)));
         }
     });
+}
+
+/// The due `after` callbacks (in their own call context); the ones of an older timer generation are dropped.
+fn run_timers() {
+    let gen = TIMER_GEN.load(std::sync::atomic::Ordering::Relaxed);
+    let now = std::time::Instant::now();
+    let due: Vec<Timer> = TIMERS.with(|t| {
+        let mut t = t.borrow_mut();
+        if t.is_empty() { return Vec::new(); }
+        t.retain(|x| x.gen == gen);
+        let (due, wait): (Vec<Timer>, Vec<Timer>) = t.drain(..).partition(|x| x.due <= now);
+        *t = wait;
+        due
+    });
+    for x in due {
+        let Some(chip) = chip::chips().iter().find(|c| c.id == x.chip) else { continue };
+        NOW.with(|n| n.set(x.now));
+        STEPS.with(|s| s.set(0));
+        if let Err(e) = x.f.call::<()>(()) { logf!("script {}: after callback failed: {}", chip.name, e); }
+        NOW.with(|n| n.set((0, None, 0)));
+    }
 }
 
 /// The Lua state: the safe standard libraries (no io / os / package / debug, no file loading), the instruction budget,
@@ -138,6 +172,7 @@ fn env(lua: &Lua, c: &'static chip::Chip) -> mlua::Result<Table> {
     t.set("coam", lua.create_function(|_, ()| Ok(game_data().map(|gd| unsafe { mem::rd_i32(gd + o::GD_COAM) })))?)?;
     t.set("in_mission", lua.create_function(|_, ()| Ok(game_data().is_some_and(|gd| unsafe { Game::new(mem::module_base()).defer_byte(gd) } != 0)))?)?;
     t.set("flag", lua.create_function(|_, id: u32| Ok(with_flags(|g, man| unsafe { g.get_flag(man, id) }).flatten()))?)?;
+    t.set("lock_id", lua.create_function(|_, ()| Ok(lock_id()))?)?;
     t.set("tier_name", lua.create_function(|_, i: usize| Ok(config::get().enemy_tiers.get(i.wrapping_sub(1)).map(|t| t.0.clone())))?)?;
     t.set("level", lua.create_function(|_, target: mlua::Value| {
         let Some(r) = event::row_of(&target.to_string()?) else { return Ok(None) };
@@ -153,6 +188,14 @@ fn env(lua: &Lua, c: &'static chip::Chip) -> mlua::Result<Table> {
     })?)?;
     env.set("set_flag", lua.create_function(move |_, (id, v): (u32, bool)| { act(c, event::Action::Flag(id, v)); Ok(()) })?)?;
     env.set("drone", lua.create_function(move |_, (x, y, z): (f32, f32, f32)| { drone::queue([x, y, z]); Ok(()) })?)?;
+    env.set("after", lua.create_function(move |_, (secs, f): (f64, mlua::Function)| {
+        let n = TIMERS.with(|t| t.borrow().iter().filter(|x| x.chip == c.id).count());
+        if n >= MAX_TIMERS { return Err(mlua::Error::runtime(format!("after: {} callbacks already pending", MAX_TIMERS))); }
+        let due = std::time::Instant::now() + std::time::Duration::from_secs_f64(secs.clamp(0.0, 600.0));
+        let gen = TIMER_GEN.load(std::sync::atomic::Ordering::Relaxed);
+        TIMERS.with(|t| t.borrow_mut().push(Timer { chip: c.id, due, gen, now: NOW.with(|n| n.get()), f }));
+        Ok(())
+    })?)?;
     env.set("resupply", lua.create_function(move |_, pct: i32| { act(c, event::Action::Resupply(event::Amount::Fixed(pct))); Ok(()) })?)?;
     env.set("energy", lua.create_function(move |_, pct: i32| { act(c, event::Action::Energy(event::Amount::Fixed(pct))); Ok(()) })?)?;
     env.set("speffect", lua.create_function(move |_, id: i32| {
@@ -178,6 +221,15 @@ fn with_flags<R>(f: impl FnOnce(&Game, usize) -> R) -> Option<R> {
     let g = unsafe { Game::new(mem::module_base()) };
     let man = unsafe { g.flag_man_fast() }?;
     Some(f(&g, man))
+}
+/// The player's lock target: the low 32 bits of its handle (`e.id` of the enemy events), nil without a lock.
+fn lock_id() -> Option<u32> {
+    let base = mem::module_base();
+    let wcm = unsafe { mem::rd_usize(base + o::WORLDCHRMAN_GLOBAL) };
+    let chr = if wcm == 0 { 0 } else { unsafe { mem::rd_usize(wcm + o::WCM_PLAYER) } };
+    if chr == 0 { return None; }
+    let h = unsafe { mem::rd_usize(chr + o::CHR_LOCK_TARGET) } as u64;
+    (h != u64::MAX).then_some(h as u32)
 }
 fn game_data() -> Option<usize> { unsafe { Game::new(mem::module_base()).game_data_fast() } }
 /// The player's (AP, max AP), without readability checks (each costs milliseconds in the game process: RE_NOTES
