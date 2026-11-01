@@ -2,9 +2,11 @@
 # the level's value in seconds; they go for your lock target. The drones come from your AC, no drone weapon needed.
 # drone_cloud.lua spawns them on a ring `radius` m around you, `height` m above.
 id = 22
-name = "Nuée"
-stat = "Drones après extension"
+name = "Drone Cloud"
+stat = "Drones after Expansion"
 unit = " s"
+name.fr = "Nuée"
+stat.fr = "Drones après extension"
 levels = "5/10/15"
 
 [params]

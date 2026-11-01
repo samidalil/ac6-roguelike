@@ -2,8 +2,10 @@
 # own resupply). [params]: the % per enemy tier ([enemy_tiers] in the settings) and level, read by scavenger.lua; a
 # tier without a line gives nothing. The tile shows `levels` (the medium tier's values).
 id = 16
-name = "Pillage"
-stat = "Munitions par élimination"
+name = "Scavenger"
+stat = "Ammo per Kill"
+name.fr = "Pillage"
+stat.fr = "Munitions par élimination"
 levels = "3/5/8"
 
 [params]

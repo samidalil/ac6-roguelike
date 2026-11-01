@@ -51,15 +51,29 @@ pub struct Chip {
     pub unsafe_api: bool,
     /// `[params]`: the script's own settings (`chip.params.<key>`), values as written
     pub params: Vec<(String, String)>,
+    /// `name.<code>` / `stat.<code>` / `unit.<code>`: (field, lang.rs language index, text)
+    texts: Vec<(&'static str, usize, String)>,
 }
 impl Chip {
     pub fn row(&self) -> u16 { o::CHIP_ROW0 + self.id }
     /// sign of the stat change shown on the tile (the first effect's)
     pub fn sign(&self) -> i32 { self.effects.first().map_or(1, |e| e.2) }
-    /// unit shown on the tile after the level's value (the first effect's mode)
+    /// `field`'s text in the current language (`field.<code>`, its parent's, English's), None: none of them
+    fn text(&self, field: &str) -> Option<String> {
+        lang::chain(lang::current()).into_iter().find_map(|i| self.texts.iter().find(|t| t.0 == field && t.1 == i)).map(|t| t.2.clone())
+    }
+    /// name shown in the game's language (`name` when the chip has none for it)
+    pub fn shown_name(&self) -> String { self.text("name").unwrap_or_else(|| self.name.clone()) }
+    /// stat shown in the game's language
+    pub fn shown_stat(&self) -> String { self.text("stat").unwrap_or_else(|| self.stat.clone()) }
+    /// `name` and every `name.<code>`: what the settings may call the chip
+    pub fn names(&self) -> Vec<String> {
+        Some(self.name.clone()).into_iter().chain(self.texts.iter().filter(|t| t.0 == "name").map(|t| t.2.clone())).collect()
+    }
+    /// unit shown on the tile after the level's value, in the game's language (default: the first effect's mode)
     pub fn unit(&self) -> String {
-        if let Some(u) = &self.unit { return u.clone(); }
-        if self.effects.is_empty() || self.effects[0].1 == Mode::Flat { String::new() } else { " %".into() }
+        if let Some(u) = self.text("unit").or_else(|| self.unit.clone()) { return u; }
+        if self.effects.is_empty() || self.effects[0].1 == Mode::Flat { String::new() } else { lang::t("rewards.percent") }
     }
 }
 
@@ -143,7 +157,7 @@ fn with_script(mut c: Chip, toml: &std::path::Path) -> Chip {
 fn parse(text: &str) -> Result<Chip, String> {
     use config::Value;
     let mut c = Chip { id: 0, name: String::new(), stat: String::new(), values: Vec::new(), effects: Vec::new(), on: Vec::new(),
-        unit: None, script: None, script_on: Vec::new(), unsafe_api: false, params: Vec::new() };
+        unit: None, script: None, script_on: Vec::new(), unsafe_api: false, params: Vec::new(), texts: Vec::new() };
     let mut section = String::new();
     for (n, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
         let line = config::strip_comment(raw).trim();
@@ -160,6 +174,14 @@ fn parse(text: &str) -> Result<Chip, String> {
             ("", "name", Value::Text(t)) => c.name = t.clone(),
             ("", "stat", Value::Text(t)) => c.stat = t.clone(),
             ("", "unit", Value::Text(t)) => c.unit = Some(t.clone()),
+            ("", k, Value::Text(t)) if k.contains('.') => {
+                let (field, code) = k.split_once('.').unwrap_or_default();
+                let field = ["name", "stat", "unit"].into_iter().find(|f| *f == field)
+                    .ok_or_else(|| format!("line {}: unknown setting {} (name / stat / unit.<language>)", n + 1, k))?;
+                let i = lang::index(code).ok_or_else(|| format!("line {}: {}: unknown language {} ({})", n + 1, k, code,
+                    lang::LANGS.map(|l| l.0).join(", ")))?;
+                c.texts.push((field, i, t.clone()));
+            }
             ("", "unsafe", Value::Text(t)) if t == "true" || t == "false" => c.unsafe_api = t == "true",
             ("", "unsafe", Value::Num(n)) => c.unsafe_api = *n != 0,
             (s, _, _) if s.starts_with("on.") => {

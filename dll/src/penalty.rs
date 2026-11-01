@@ -181,7 +181,8 @@ unsafe fn lost_rule(lu: &Lineup) -> (HashMap<u32, bool>, Vec<u16>) {
         if let Some(v) = config::lookup(table, &[id], &[part_name(item)]) { m.insert(item, v); }
     }
     for t in os::tunings() {
-        let Some(v) = config::lookup(table, &[t.row as u32, t.item], &[os::name(t.row), part_name(t.item)]) else { continue };
+        let names: Vec<String> = os::names(t.row).into_iter().chain(Some(part_name(t.item))).collect();
+        let Some(v) = config::lookup(table, &[t.row as u32, t.item], &names) else { continue };
         if t.item == 0 { if v { os_lost.push(t.row); } continue; }
         m.insert(t.item, v);
     }
@@ -589,9 +590,9 @@ fn loss_report(plan: &FailurePlan, sold: &[(u32, i32)]) -> String {
         Fill::Empty | Fill::Keep => None,
     }).collect();
     if !repl.is_empty() { line(&mut t, "failure.replaced", &repl); }
-    if let Some((row, ..)) = plan.expansion { t += &lang::f("failure.expansion", &[("name", &os::name(row))]); t.push('\n'); }
+    if let Some((row, ..)) = plan.expansion { t += &lang::f("failure.expansion", &[("name", &os::shown_name(row))]); t.push('\n'); }
     if !plan.os_levels.is_empty() {
-        let names: Vec<String> = plan.os_levels.iter().map(|&(row, lv)| lang::f("failure.os_level", &[("name", &os::name(row)), ("from", &lv), ("to", &(lv - 1))])).collect();
+        let names: Vec<String> = plan.os_levels.iter().map(|&(row, lv)| lang::f("failure.os_level", &[("name", &os::shown_name(row)), ("from", &lv), ("to", &(lv - 1))])).collect();
         line(&mut t, "failure.os_levels", &names);
     }
     if plan.starter_cost > 0 {

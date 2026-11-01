@@ -2,9 +2,11 @@
 # come from your AC, no drone weapon needed. swarm.lua spawns the level's value of drones once your lock has left the
 # destroyed enemy (a drone goes for your lock target when it appears): checked every `step` s, `wait` s at most.
 id = 18
-name = "Essaim"
-stat = "Drones par élimination"
+name = "Swarm"
+stat = "Drones per Kill"
 unit = ""
+name.fr = "Essaim"
+stat.fr = "Drones par élimination"
 levels = "1/2/3"
 
 [params]

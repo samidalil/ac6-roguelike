@@ -3,8 +3,10 @@
 # atkEnemyImpactCorrectRate counts on hits on characters that are not the player; atkImpactCorrectRate only on assault
 # boost attacks (wepParamChange 5), see RE_NOTES.
 id = 11
-name = "Impact amplifié"
+name = "Amplified Impact"
 stat = "Impact"
+name.fr = "Impact amplifié"
+stat.fr = "Impact"
 levels = "8/15/20"
 
 [on.mission_start]

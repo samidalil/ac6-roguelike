@@ -6,9 +6,11 @@
 # -> bullet 32300000 -> attack 32300000) without the shooter knockback: fired from your AC, each shot pushed it ~10 m
 # away from the shot ([behavior / bullet / atk.<row>] sections: rows of mod/regulation.bin).
 id = 20
-name = "Écho plasma"
-stat = "Tirs plasma par élimination"
+name = "Plasma Echo"
+stat = "Plasma Shots per Kill"
 unit = ""
+name.fr = "Écho plasma"
+stat.fr = "Tirs plasma par élimination"
 levels = "1/2/3"
 
 [params]

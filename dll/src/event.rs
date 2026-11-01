@@ -146,7 +146,7 @@ unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action, e: Even
             let v = n.at(&c.values, lv);
             let mut q = GARAGE.lock().unwrap_or_else(|e| e.into_inner());
             q.credits += v as i64;
-            q.lines.push(lang::f("events.credits", &[("chip", &c.name), ("amount", &format!("{}{}", if v < 0 { "-" } else { "+" }, penalty::money(v.abs() as i64)))]));
+            q.lines.push(lang::f("events.credits", &[("chip", &c.shown_name()), ("amount", &format!("{}{}", if v < 0 { "-" } else { "+" }, penalty::money(v.abs() as i64)))]));
         }
         Action::Give(name) => {
             let mut q = GARAGE.lock().unwrap_or_else(|e| e.into_inner());
@@ -346,7 +346,7 @@ unsafe extern "system" fn speffect_add_hook(mgr: usize, id: i32, a3: usize, a4: 
 pub fn row_of(t: &str) -> Option<u16> {
     if let Ok(r) = t.trim().parse::<u16>() { return os::tuning(r).map(|x| x.row); }
     let k = config::name_key(t);
-    os::tunings().iter().find(|x| config::name_key(&os::name(x.row)) == k).map(|x| x.row)
+    os::tunings().iter().find(|x| os::names(x.row).iter().any(|n| config::name_key(n) == k)).map(|x| x.row)
 }
 
 /// Game thread, garage (penalty.rs frame hook): apply the queued COAM change and gifts; their dialog lines wait for

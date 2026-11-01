@@ -1,8 +1,11 @@
 # Salvage: each enemy destroyed repairs your AC (a SpEffect row per level, applied by salvage.lua).
 id = 9
-name = "Récupération"
-stat = "Réparation par ennemi"
-unit = " PB"
+name = "Salvage"
+stat = "Repair per Kill"
+unit = " AP"
+name.fr = "Récupération"
+stat.fr = "Réparation par ennemi"
+unit.fr = " PB"
 levels = "300/600/1000"
 
 [speffect.900000091]

@@ -47,6 +47,7 @@ choose = "CHOOSE A PART"
 choose_page = "CHOOSE A PART ({page}/{pages})"
 given = "PART OBTAINED"
 os_tile = "{menu.os}  LV {level}/{max}"
+percent = "%"                   # unit of a chip in %: "AP +5%"
 chip_tile = "{name}: {stat} {value}"
 
 [events]

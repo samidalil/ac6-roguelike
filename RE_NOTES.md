@@ -2255,3 +2255,7 @@ spread; new script read game.player_pos().
 - **Dump tool.** tools/ac6_unpack.py extracts /msg/<folder>/menu.msgbnd.dcx and item.msgbnd.dcx; DCX = "DCP KRAK"
   (Oodle Kraken: oo2core_8_win64.dll OodleLZ_Decompress), then BND4 of FMGs (names in Japanese, e.g.
   チュートリアルタイトル.fmg = category 73).
+- **Chips and pools (2026-11-01).** Chip files: English `name` / `stat` / `unit`, other languages as `name.<code>` lines
+  (`chip::Chip::shown_name` etc.; fallback: the language, its parent, the base fields; `os::names` gives the settings
+  every name, so French names in an existing ac6_roguelike.toml still match). A chips/ folder written by an older DLL
+  keeps its French-only files (only a missing folder is rewritten). Pools: `label.<code>` in [pool.NAME].

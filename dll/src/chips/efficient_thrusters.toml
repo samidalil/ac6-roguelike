@@ -3,8 +3,10 @@
 # draws 0 EN there). Quick boosts: the quick_boost_en target (the cost the game charges, player only). See
 # nanorepair.toml and reinforced_plating.toml for the format.
 id = 12
-name = "Propulseurs économes"
-stat = "Économie EN (ascension, boost rapide)"
+name = "Efficient Thrusters"
+stat = "EN Saving (Upward, Quick Boost)"
+name.fr = "Propulseurs économes"
+stat.fr = "Économie EN (ascension, boost rapide)"
 levels = "8/15/20"
 
 [effect]
