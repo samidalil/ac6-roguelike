@@ -30,23 +30,25 @@ HOW IT PLAYS
   [max_occurrences] and [lost_on_failure] in the settings set this per item.
   The weapon damage tunings and ACS have 3 levels (6 / 12 / 15 %), melee and direct hit 2 (10 / 15 %), repair kits 2
   (+1 000 / +2 000 AP per kit), access speed 1 (+100 %): fewer levels, same max as the base game ([os_tuning]).
-- OS chips of our own, offered like the OS Tunings (3 levels each): Blindage renforcé (AP +5/10/15 %), Générateur
-  surcadencé (EN capacity +10/20/30 %), Alliages légers (weight -5/10/15 %), Chargeurs étendus (ammunition
-  +20/40/60 %), Contrat préférentiel (epic parts +25/50/100 % more often, shop and rewards), Prime de performance
-  (+2 000 / 4 000 / 8 000 credits after each cleared mission, shown in the garage), Nanoréparation (your AC repairs
-  20 / 40 / 60 AP per second during missions), Prime de série (every 3rd mission cleared in a row: +10 000 / 20 000
-  / 40 000 credits; a failure resets it), Récupération (each enemy destroyed repairs 300 / 600 / 1 000 AP), Dernier
-  recours (below 30 % AP: weapon damage +10 / 20 / 30 %), Impact amplifié (stagger your hits deal to enemies +8 / 15 /
-  20 %), Propulseurs économes (rising and quick boosts draw 8 / 15 / 20 % less EN),
-  Adrénaline (each enemy destroyed: EN recovery +20 / 35 / 50 % for 10 s; another kill restarts the 10 s),
-  Dissipateurs thermiques (your weapons shed heat 15 / 30 / 50 % faster), Prospecteur (chips come up 15 / 30 / 50 %
-  more often as rewards, within each rarity), Pillage (each enemy destroyed gives back part of every weapon's
-  ammunition, more for tougher enemies: 1-3 % for drones and light MTs up to 15-35 % for bosses), Cœur libre (after each core expansion, nothing spends EN for 10 / 15 / 20 s), Essaim (each enemy destroyed releases 1 / 2 / 3
-  laser drones where it fell, hunting your enemies; no drone weapon needed), Surcharge (each enemy
-  staggered fills your EN back up), Écho plasma (each enemy destroyed fires 1 / 2 / 3 plasma cannon shots from where
-  it fell at your next target; no plasma cannon needed), Décharge (each enemy staggered gets its Shock bar filled:
-  the game's electric discharge follows), Nuée (after each core expansion, a laser drone around you every 0.2 s for
-  5 / 10 / 15 s). The AC chips
+- OS chips of our own, offered like the OS Tunings (3 levels each): Reinforced Plating (AP +5/10/15 %), Overclocked
+  Generator (EN capacity +10/20/30 %), Light Alloys (weight -5/10/15 %), Extended Magazines (ammunition
+  +20/40/60 %), Preferred Contract (epic parts +25/50/100 % more often, shop and rewards), Performance Bonus
+  (+2 000 / 4 000 / 8 000 credits after each cleared mission, shown in the garage), Nanorepair (your AC repairs
+  20 / 40 / 60 AP per second during missions), Streak Bonus (every 3rd mission cleared in a row: +10 000 / 20 000
+  / 40 000 credits; a failure resets it), Salvage (each enemy destroyed repairs 300 / 600 / 1 000 AP), Last Stand
+  (below 30 % AP: weapon damage +10 / 20 / 30 %), Amplified Impact (stagger your hits deal to enemies +8 / 15 /
+  20 %), Efficient Thrusters (rising and quick boosts draw 8 / 15 / 20 % less EN),
+  Adrenaline (each enemy destroyed: EN recovery +20 / 35 / 50 % for 10 s; another kill restarts the 10 s),
+  Heat Sinks (your weapons shed heat 15 / 30 / 50 % faster), Chip Scout (chips come up 15 / 30 / 50 %
+  more often as rewards, within each rarity), Scavenger (each enemy destroyed gives back part of every weapon's
+  ammunition, more for tougher enemies: 1-3 % for drones and light MTs up to 15-35 % for bosses), Free Core (after
+  each core expansion, nothing spends EN for 10 / 15 / 20 s), Swarm (each enemy destroyed releases 1 / 2 / 3
+  laser drones where it fell, hunting your enemies; no drone weapon needed), Overload (each enemy
+  staggered fills your EN back up), Plasma Echo (each enemy destroyed fires 1 / 2 / 3 plasma cannon shots from where
+  it fell at your next target; no plasma cannon needed), Discharge (each enemy staggered gets its Shock bar filled:
+  the game's electric discharge follows), Drone Cloud (after each core expansion, a laser drone around you every 0.2 s
+  for 5 / 10 / 15 s). Chip names show in the game's language (French: Blindage renforcé, Générateur surcadencé...).
+  The AC chips
   change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
@@ -71,7 +73,9 @@ LANGUAGE
 The mod's texts (tutorials, dialogs, reward screen) follow the game's text language (title screen > LANGUAGE), in
 the game's 13 languages; French and English are written by hand, the others are drafts to review. [display]
 language = fr (en, ja, de...) in the settings forces one. To change a text, copy its key into lang/<code>.toml next
-to the DLL (same format as the built-in files, see the mod's source dll/src/lang).
+to the DLL (same format as the built-in files, see the mod's source dll/src/lang). Chip names: name.<code> /
+stat.<code> / unit.<code> lines in each chips/*.toml (delete an old chips folder to get the translated files); pool
+labels: label.<code> in each [pool.NAME] of the settings.
 
 SETTINGS
 ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restart the game:

@@ -3,8 +3,10 @@
 # 1.2 is +20 % (the game alone applies it before the generator load: about +80 % on a starter AC). See nanorepair.toml
 # for the format.
 id = 13
-name = "Adrénaline"
-stat = "Récupération EN par élimination"
+name = "Adrenaline"
+stat = "EN Recovery per Kill"
+name.fr = "Adrénaline"
+stat.fr = "Récupération EN par élimination"
 levels = "20/35/50"
 
 [on.enemy_destroyed]

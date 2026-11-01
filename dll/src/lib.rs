@@ -133,7 +133,7 @@ impl Part {
     fn pool(&self) -> Option<&'static config::Pool> { config::get().pools.get(self.pool as usize) }
     fn pool_name(&self) -> String { self.pool().map_or("out".to_string(), |p| p.name.clone()) }
     /// text and colour the reward tile shows for its pool (None: no label)
-    fn pool_label(&self) -> Option<(String, u32)> { self.pool().filter(|p| p.show_name).map(|p| (p.label.clone(), p.color)) }
+    fn pool_label(&self) -> Option<(String, u32)> { self.pool().filter(|p| p.show_name).map(|p| (p.shown_label(), p.color)) }
 }
 
 /// [pool.NAME] weight of a pool (0 for POOL_OUT), after the chips' `pool.<NAME>.weight` modifiers.
@@ -173,7 +173,8 @@ unsafe fn build_pool(lu: &Lineup) -> Vec<Part> {
     if cfg.os_rewards {
         for (k, t) in os::tunings().iter().enumerate() {
             let pool = by_id.get(&(t.row as u32)).copied().unwrap_or(unlisted);
-            let max = config::value(&cfg.max_occurrences, &[t.row as u32, t.item], &[os::name(t.row), penalty::part_name(t.item)]).unwrap_or(0) as u8;
+            let names: Vec<String> = os::names(t.row).into_iter().chain(Some(penalty::part_name(t.item))).collect();
+            let max = config::value(&cfg.max_occurrences, &[t.row as u32, t.item], &names).unwrap_or(0) as u8;
             v.push(Part { idx: OS_IDX + k as u16, equip_id: t.item, kind: KIND_OS, pool, os: t.row, max });
         }
     }

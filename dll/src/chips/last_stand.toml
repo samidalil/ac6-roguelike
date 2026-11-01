@@ -2,8 +2,10 @@
 # (conditionHp: the game turns the effect on and off itself); last_stand.lua applies the level's row in each mission.
 # The rates are the *AttackRate fields: the *AttackPowerRate ones did not change the damage (RE_NOTES).
 id = 10
-name = "Dernier recours"
-stat = "Dégâts sous 30 % PA"
+name = "Last Stand"
+stat = "Damage below 30% AP"
+name.fr = "Dernier recours"
+stat.fr = "Dégâts sous 30 % PB"
 levels = "10/20/30"
 
 [speffect.900000101]

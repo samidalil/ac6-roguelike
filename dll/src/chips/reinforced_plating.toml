@@ -2,8 +2,12 @@
 # OS Tunings: each pick adds a level. In the settings file it is known by its row (9000 + id) or its name, in
 # [part_rarity], [lost_on_failure] and [max_occurrences].
 id = 1                         # 1 to 32, unique: the chip's save slot (row 9001); changing it mid-run loses its level
-name = "Blindage renforcé"     # shown on the reward tile
-stat = "PB"                    # stat shown on the tile with the level's value: "PB +5 %"
+name = "Reinforced Plating"    # shown on the reward tile (English, and any game language without its own name)
+stat = "AP"                    # stat shown on the tile with the level's value: "AP +5%"
+# name / stat / unit in another game language: name.<code> = "..." (codes: fr, ja, de, it, es, es-419, pt, pl, ru, ko,
+# zh-tw, zh-cn; es-419 falls back to es). The settings may use any of the names.
+name.fr = "Blindage renforcé"
+stat.fr = "PB"
 levels = "5/10/15"             # effect value per level, in % (1 to 15 levels)
 
 [effect]

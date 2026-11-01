@@ -6,9 +6,11 @@
 # garage), "level.<OS Tuning row or chip row / name>" = "+1" (or "-1"), "flag.<id>" = 1 / 0 (event flag),
 # speffect = <SpEffectParam row> or "a/b/c" per level (applied to your AC; see nanorepair.toml).
 id = 6
-name = "Prime de performance"
-stat = "Prime"
+name = "Performance Bonus"
+stat = "Bonus"
 unit = " COAM"
+name.fr = "Prime de performance"
+stat.fr = "Prime"
 levels = "2000/4000/8000"
 
 [on.mission_cleared]

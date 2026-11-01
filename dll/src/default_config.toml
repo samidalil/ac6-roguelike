@@ -59,25 +59,30 @@ unlisted_pool = unlisted         # pool of the parts [part_rarity] does not list
 
 # [pool.NAME]: weight = odds of the pool, 0 or more (any scale; a pool with no part left is skipped, 0 = out), color =
 # its label colour on the reward tiles ("#RRGGBB" or 0xRRGGBB), show_name = 0 or 1 (1 shows the label on the tiles),
-# label = the text shown (default: the pool's name; always shown in upper case). 200 pools at most.
+# label = the text shown (default: the pool's name; always shown in upper case), label.<language> = the text shown
+# while the game is in that language (codes in [display]). 200 pools at most.
 [pool.unlisted]                  # always there, even without this section
 weight = 0
 color = "#6E7378"
 show_name = 0
 
 [pool.common]
+label.fr = "COMMUN"
 weight = 50
 color = "#C8CDD2"
 
 [pool.uncommon]
+label.fr = "PEU COMMUN"
 weight = 25
 color = "#4FA3FF"
 
 [pool.rare]
+label.fr = "RARE"
 weight = 15
 color = "#B36BFF"
 
 [pool.epic]
+label.fr = "ÉPIQUE"
 weight = 10
 color = "#FFC23D"
 

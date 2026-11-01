@@ -71,11 +71,17 @@ pub struct Pool {
     pub color: u32,
     /// the reward tiles show the label
     pub show_name: bool,
+    /// `label.<code>`: (lang.rs language index, text, upper case), shown in that language instead of `label`
+    pub labels: Vec<(usize, String)>,
 }
 /// Name of the internal pool of the parts [part_rarity] does not list.
 pub const UNLISTED: &str = "unlisted";
 impl Pool {
-    fn new(name: &str) -> Pool { Pool { name: name.to_string(), label: name.to_uppercase(), weight: 0, color: 0xFFFFFF, show_name: true } }
+    fn new(name: &str) -> Pool { Pool { name: name.to_string(), label: name.to_uppercase(), weight: 0, color: 0xFFFFFF, show_name: true, labels: Vec::new() } }
+    /// the label in the game's language: `label.<code>` (its parent's, English's), else `label`
+    pub fn shown_label(&self) -> String {
+        lang::chain(lang::current()).into_iter().find_map(|i| self.labels.iter().find(|l| l.0 == i)).map_or_else(|| self.label.clone(), |l| l.1.clone())
+    }
     /// the unlisted pool, or a pool [rarity] unlisted_pool names without a section: out, grey, no label
     fn unlisted(name: &str) -> Pool { Pool { color: 0x808080, show_name: false, ..Pool::new(name) } }
 }
@@ -219,6 +225,10 @@ pub fn load() {
                 ("weight", Value::Num(w)) => p.weight = *w,
                 ("show_name", Value::Num(b)) => p.show_name = *b != 0,
                 ("label", Value::Text(t)) => p.label = t.to_uppercase(),
+                (k, Value::Text(t)) if k.starts_with("label.") => match lang::index(&k[6..]) {
+                    Some(i) => { p.labels.retain(|l| l.0 != i); p.labels.push((i, t.to_uppercase())); }
+                    None => logf!("config line {}: [{}] {}: unknown language {}", n + 1, section, k, &k[6..]),
+                },
                 ("color", _) => match parse_color(&val) {
                     Some(rgb) => p.color = rgb,
                     None => logf!("config line {}: {} is not a colour (\"#RRGGBB\" or 0xRRGGBB)", n + 1, v),

@@ -45,7 +45,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   other offers queue a carrier item taken out at the commit; the vanilla OS Tuning menu stays locked (its unlock row
   points at a never-set flag, the unlock notification no longer names it). `[os_tuning]` rewrites a tuning's effect
   value per level in the OsReinforce param (the game reads it at each hit; fewer levels = lower max level).
-- `chip.rs` — our own OS chips: one file per chip in `chips/` next to the DLL (`id`, `name`, `stat`, `levels`,
+- `chip.rs` — our own OS chips: one file per chip in `chips/` next to the DLL (`id`, `name`, `stat`, `levels`; English
+  `name` / `stat` / `unit`, `name.<code>` / `stat.<code>` / `unit.<code>` per game language, every name matched in the settings,
   `[effect]` ap / en_capacity / weight / ammo / cooling / quick_boost_en = "+" / "-"), offered and leveled like OS Tunings (rows 9000 + id; levels
   in `CHIP_LEVELS`, 4 bits each; used up = `HIDE_FROM_POOL`). Effects on the player's AC only, through call hooks on the game's stat code:
   set max AP (exe+82AEC0), EN capacity (exe+88BAE0), total weight (exe+46CA70), add ammunition (exe+907750), weapon cooling (exe+908810), the quick
@@ -87,7 +88,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   key, es-419 -> es first), embedded at build; `lang/<code>.toml` next to the DLL overrides keys. The language is told
   from a game text that differs in every language (`MSG_LANG_SIGNATURE`) at each use, so it follows the game's
   LANGUAGE setting live; `[display] language` forces one. `{menu.buy}` / `{menu.sell}` / `{menu.assembly}` /
-  `{menu.os}` / `{ap}` are the game's own words. Debug `lang` logs the language and the tutorials.
+  `{menu.os}` / `{ap}` are the game's own words. Debug `lang` logs the language and the tutorials. Pool labels:
+  `label.<code>` per `[pool.NAME]`, else `label`.
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
 Game data: `data/regulation/*.toml` declarations (param edits, new rows) are compiled into `mod/regulation.bin` by

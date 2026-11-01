@@ -3,9 +3,12 @@
 # by Smithbox name), applied to your AC by the speffect action (see reinforced_plating.toml and
 # performance_bonus.toml for the rest of the format).
 id = 7
-name = "Nanoréparation"
-stat = "Réparation"
-unit = " PB/s"
+name = "Nanorepair"
+stat = "Repair"
+unit = " AP/s"
+name.fr = "Nanoréparation"
+stat.fr = "Réparation"
+unit.fr = " PB/s"
 levels = "20/40/60"
 
 [on.mission_start]

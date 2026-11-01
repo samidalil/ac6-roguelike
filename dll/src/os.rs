@@ -170,10 +170,15 @@ pub unsafe fn set_gone(g: &Game, man: usize, row: u16) {
 /// The core expansion tuning of an item id (tag bits ignored).
 pub fn of_item(item: u32) -> Option<Tuning> { tunings().iter().find(|t| t.item != 0 && t.item == item & 0x0FFF_FFFF).copied() }
 
+/// The tuning's name (the game's text, in the game's language) or the chip's own `name` (as the settings know it).
 pub fn name(row: u16) -> String {
     if let Some(c) = chip::chip(row) { return c.name.clone(); }
     tuning(row).and_then(|t| unsafe { msg::text(o::MSG_CAT_OS_NAME, t.name) }).filter(|s| !s.is_empty()).unwrap_or_else(|| format!("OS {}", row))
 }
+/// `name` as shown to the player: a chip's name in the game's language.
+pub fn shown_name(row: u16) -> String { chip::chip(row).map_or_else(|| name(row), |c| c.shown_name()) }
+/// Every name the settings may give the tuning or chip (a chip's `name.<code>` too).
+pub fn names(row: u16) -> Vec<String> { chip::chip(row).map_or_else(|| vec![name(row)], |c| c.names()) }
 
 /// Grid tile texts of an offer: (name, "OS TUNING  LV n/max") with n the level it brings; a chip's name also gives
 /// that level's effect ("Reinforced Plating: AP +5%").
@@ -182,7 +187,7 @@ pub unsafe fn label(gd: usize, row: u16) -> (String, String) { label_at(row, lev
 pub unsafe fn label_at(row: u16, next: i32) -> (String, String) {
     let t = tuning(row);
     let name = match chip::chip(row) {
-        Some(c) => lang::f("rewards.chip_tile", &[("name", &c.name), ("stat", &c.stat),
+        Some(c) => lang::f("rewards.chip_tile", &[("name", &c.shown_name()), ("stat", &c.shown_stat()),
             ("value", &format!("{}{}{}", if c.sign() < 0 { "-" } else { "+" }, chip::value(row, next), c.unit()))]),
         None => name(row),
     };
