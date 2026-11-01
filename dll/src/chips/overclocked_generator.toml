@@ -4,6 +4,7 @@ name = "Overclocked Generator"
 stat = "EN Capacity"
 name.fr = "Générateur surcadencé"
 stat.fr = "Capacité EN"
+# AI-translated (ja, de, it, es, es-419, pt, pl, ru, ko, zh-tw, zh-cn)
 name.ja = "ジェネレータ過給"
 stat.ja = "EN容量"
 name.de = "Übertakteter Generator"

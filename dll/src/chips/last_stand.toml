@@ -6,6 +6,7 @@ name = "Last Stand"
 stat = "Damage below 30% AP"
 name.fr = "Dernier recours"
 stat.fr = "Dégâts sous 30 % PB"
+# AI-translated (ja, de, it, es, es-419, pt, pl, ru, ko, zh-tw, zh-cn)
 name.ja = "背水の陣"
 stat.ja = "AP30%未満時の攻撃力"
 name.de = "Letztes Gefecht"

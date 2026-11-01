@@ -1,4 +1,5 @@
-# The mod's texts in Polish. DRAFT: machine-written from the game's own terms, to review. Same keys and format as
+# AI-translated
+# The mod's texts in Polish. Draft from the game's own terms, to review. Same keys and format as
 # en.toml; a missing key uses en.toml's. Counts are written "Części: 22" to keep the plural forms out.
 
 list_separator = ", "

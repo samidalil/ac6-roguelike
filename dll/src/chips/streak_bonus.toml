@@ -6,6 +6,7 @@ stat = "Streak of 3"
 unit = " COAM"
 name.fr = "Prime de série"
 stat.fr = "Série de 3"
+# AI-translated (ja, de, it, es, es-419, pt, pl, ru, ko, zh-tw, zh-cn)
 name.ja = "連続達成報酬"
 stat.ja = "3連続"
 name.de = "Serienprämie"

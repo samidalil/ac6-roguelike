@@ -1,4 +1,5 @@
-# The mod's texts in Traditional Chinese. DRAFT: machine-written from the game's own terms, to review. Same keys and
+# AI-translated
+# The mod's texts in Traditional Chinese. Draft from the game's own terms, to review. Same keys and
 # format as en.toml; a missing key uses en.toml's.
 
 list_separator = "、"

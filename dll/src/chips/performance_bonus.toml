@@ -11,6 +11,7 @@ stat = "Bonus"
 unit = " COAM"
 name.fr = "Prime de performance"
 stat.fr = "Prime"
+# AI-translated (ja, de, it, es, es-419, pt, pl, ru, ko, zh-tw, zh-cn)
 name.ja = "成果報酬"
 stat.ja = "ボーナス"
 name.de = "Leistungsprämie"

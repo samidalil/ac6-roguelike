@@ -4,6 +4,7 @@ name = "Light Alloys"
 stat = "Weight"
 name.fr = "Alliages légers"
 stat.fr = "Masse"
+# AI-translated (ja, de, it, es, es-419, pt, pl, ru, ko, zh-tw, zh-cn)
 name.ja = "軽量合金"
 stat.ja = "重量"
 name.de = "Leichtmetalllegierungen"

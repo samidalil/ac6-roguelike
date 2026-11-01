@@ -1,4 +1,5 @@
-# The mod's texts in Spanish (Spain; es-419.toml takes these for every key it does not have). DRAFT: machine-written
+# AI-translated
+# The mod's texts in Spanish (Spain; es-419.toml takes these for every key it does not have). Draft
 # from the game's own terms, to review. Same keys and format as en.toml; a missing key uses en.toml's.
 
 list_separator = ", "

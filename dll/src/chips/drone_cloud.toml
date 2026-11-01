@@ -7,6 +7,7 @@ stat = "Drones after Expansion"
 unit = " s"
 name.fr = "Nuée"
 stat.fr = "Drones après extension"
+# AI-translated (ja, de, it, es, es-419, pt, pl, ru, ko, zh-tw, zh-cn)
 name.ja = "ドローンクラウド"
 stat.ja = "コア拡張機能後のドローン"
 unit.ja = "秒"

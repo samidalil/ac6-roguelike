@@ -1,5 +1,6 @@
+# AI-translated
 # The mod's texts in Latin American Spanish: only what differs from es.toml (every other key comes from es.toml).
-# DRAFT: machine-written from the game's own terms, to review.
+# Draft from the game's own terms, to review.
 
 [tutorial]
 sell = "Vende piezas de AC desde el menú {menu.sell}.\n\n• Una pieza vendida te da {value}.\n• Se puede volver a comprar a su precio desde el menú\n   {menu.buy} hasta la siguiente renovación de la tienda.\n• Como máximo {copies} piezas vendidas se pueden recomprar:\n   por encima, la más antigua se descarta.\n• Más de {max_parts} piezas en el garaje: vende algunas\n   hasta volver al límite."

@@ -7,6 +7,7 @@ name = "Efficient Thrusters"
 stat = "EN Saving (Upward, Quick Boost)"
 name.fr = "Propulseurs économes"
 stat.fr = "Économie EN (ascension, boost rapide)"
+# AI-translated (ja, de, it, es, es-419, pt, pl, ru, ko, zh-tw, zh-cn)
 name.ja = "省エネスラスター"
 stat.ja = "EN消費軽減（上昇、クイックブースト）"
 name.de = "Sparsame Triebwerke"

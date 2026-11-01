@@ -68,6 +68,7 @@ show_name = 0
 
 [pool.common]
 label.fr = "COMMUN"
+# AI-translated
 label.ja = "コモン"
 label.de = "GEWÖHNLICH"
 label.it = "COMUNE"
@@ -83,6 +84,7 @@ color = "#C8CDD2"
 
 [pool.uncommon]
 label.fr = "PEU COMMUN"
+# AI-translated
 label.ja = "アンコモン"
 label.de = "UNGEWÖHNLICH"
 label.it = "NON COMUNE"
@@ -98,6 +100,7 @@ color = "#4FA3FF"
 
 [pool.rare]
 label.fr = "RARE"
+# AI-translated
 label.ja = "レア"
 label.de = "SELTEN"
 label.it = "RARO"
@@ -113,6 +116,7 @@ color = "#B36BFF"
 
 [pool.epic]
 label.fr = "ÉPIQUE"
+# AI-translated
 label.ja = "エピック"
 label.de = "EPISCH"
 label.it = "EPICO"
