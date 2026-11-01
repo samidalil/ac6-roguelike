@@ -68,21 +68,61 @@ show_name = 0
 
 [pool.common]
 label.fr = "COMMUN"
+label.ja = "コモン"
+label.de = "GEWÖHNLICH"
+label.it = "COMUNE"
+label.es = "COMÚN"
+label.pt = "COMUM"
+label.pl = "ZWYKŁY"
+label.ru = "ОБЫЧНЫЙ"
+label.ko = "일반"
+label.zh-tw = "普通"
+label.zh-cn = "普通"
 weight = 50
 color = "#C8CDD2"
 
 [pool.uncommon]
 label.fr = "PEU COMMUN"
+label.ja = "アンコモン"
+label.de = "UNGEWÖHNLICH"
+label.it = "NON COMUNE"
+label.es = "POCO COMÚN"
+label.pt = "INCOMUM"
+label.pl = "NIEZWYKŁY"
+label.ru = "НЕОБЫЧНЫЙ"
+label.ko = "고급"
+label.zh-tw = "優良"
+label.zh-cn = "优良"
 weight = 25
 color = "#4FA3FF"
 
 [pool.rare]
 label.fr = "RARE"
+label.ja = "レア"
+label.de = "SELTEN"
+label.it = "RARO"
+label.es = "RARO"
+label.pt = "RARO"
+label.pl = "RZADKI"
+label.ru = "РЕДКИЙ"
+label.ko = "희귀"
+label.zh-tw = "稀有"
+label.zh-cn = "稀有"
 weight = 15
 color = "#B36BFF"
 
 [pool.epic]
 label.fr = "ÉPIQUE"
+label.ja = "エピック"
+label.de = "EPISCH"
+label.it = "EPICO"
+label.es = "ÉPICO"
+label.pt = "ÉPICO"
+label.pl = "EPICKI"
+label.ru = "ЭПИЧЕСКИЙ"
+label.ko = "에픽"
+label.zh-tw = "史詩"
+label.zh-cn = "史诗"
 weight = 10
 color = "#FFC23D"
 

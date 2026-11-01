@@ -1,0 +1,49 @@
+# The mod's texts in Simplified Chinese. DRAFT: machine-written from the game's own terms, to review. Same keys and
+# format as en.toml; a missing key uses en.toml's.
+
+list_separator = "、"
+game_over = "GAME OVER"
+
+[number]
+thousands = ","
+
+[tutorial]
+renewal_each = "每次任务成功后"
+renewal_every = "每成功完成{n}次任务后"
+buy = "{menu.buy}选单中\n能购买随机选出的AC零件\n商品将于{renewal}更新\n\n・ 贩卖过的零件在下次更新前\n　 会再次上架\n・ 最多能持有{max_parts}个零件（包含装备中的零件）\n　 超过上限时无法购买"
+sell_value = "价值的{pct}%"
+sell_value_weapons = "价值的{pct}%（武器为{weapon_pct}%）"
+sell = "{menu.sell}选单中\n能将持有的零件进行贩卖\n\n・ 贩卖价格为零件{value}\n・ 贩卖过的零件在商店下次更新前\n　 能从{menu.buy}选单中以相同价格买回\n・ 最多能买回最近贩卖的{copies}个零件\n　 超过时将从最旧的开始报废\n・ 车库中的零件超过{max_parts}个时\n　 请贩卖至回到上限为止"
+
+[inventory]
+buy_refused = "持有零件已达上限（最多{max}个）\n请贩卖零件后再购买"
+full = "持有零件超过上限\n\n上限{max}个，目前持有{n}个\n请在{menu.sell}中贩卖{over}个零件"
+stuck = "持有零件超过上限\n\n上限{max}个，目前持有{n}个，且没有可贩卖的零件\n请在{menu.assembly}中从AC卸下{over}个零件，再于{menu.sell}中贩卖"
+
+[buyback]
+full_confirm = "买回清单已满：{part}将无法再买回\n{game_text}"
+
+[failure]
+title = "任务失败：损失"
+weapons = "失去的武器：{list}"
+parts = "失去的零件：{list}"
+replaced = "替换为：{list}"
+expansion = "失去的核心扩充机能：{name}"
+os_levels = "降低的OS等级：{list}"
+os_level = "{name}（LV {from} > {to}）"
+starters = "初始零件购买费用：{amount} COAM"
+sold = "已贩卖：{list}"
+sold_part = "{part}（{amount}）"
+autosell_title = "余额不足：自动贩卖"
+
+[rewards]
+choose = "选择零件"
+choose_page = "选择零件（{page}/{pages}）"
+given = "获得零件"
+os_tile = "{menu.os}  LV {level}/{max}"
+percent = "%"
+chip_tile = "{name}：{stat} {value}"
+
+[events]
+part_given = "获得零件：{part}"
+credits = "{chip}：{amount} COAM"

@@ -1,0 +1,51 @@
+# The mod's texts in Italian. DRAFT: machine-written from the game's own terms, to review. Same keys and format as
+# en.toml; a missing key uses en.toml's.
+
+list_separator = ", "
+game_over = "GAME OVER"
+
+[number]
+thousands = "."
+
+[tutorial]
+renewal_each = "dopo ogni missione completata"
+renewal_every = "ogni {n} missioni completate"
+buy = "Il menu {menu.buy} offre componenti AC estratti a caso,\nrinnovati {renewal}.\n\n• I componenti che hai venduto tornano in vendita\n   fino al rinnovo successivo.\n• Puoi possedere al massimo {max_parts} componenti, inclusi\n   quelli equipaggiati: oltre, l'acquisto è rifiutato."
+sell_value = "il {pct}% del suo valore"
+sell_value_weapons = "il {pct}% del suo valore\n   (armi: {weapon_pct}%)"
+sell = "Vendi componenti AC in tuo possesso dal menu {menu.sell}.\n\n• Un componente venduto rende {value}.\n• Puoi riacquistarlo al suo prezzo dal menu {menu.buy}\n   fino al prossimo rinnovo del negozio.\n• Al massimo {copies} componenti venduti restano riacquistabili:\n   oltre, il più vecchio viene rottamato.\n• Più di {max_parts} componenti in garage: vendine alcuni\n   fino a tornare al limite."
+
+[inventory]
+buy_refused = "Inventario pieno (massimo {max} componenti).\nVendi un componente per acquistarne un altro."
+full = "INVENTARIO PIENO\n\n{n} componenti per {max} posti: vendi {over} componenti in {menu.sell}."
+full_one = "INVENTARIO PIENO\n\n{n} componenti per {max} posti: vendi 1 componente in {menu.sell}."
+stuck = "INVENTARIO PIENO\n\n{n} componenti per {max} posti e nessun componente da vendere: rimuovi {over} componenti dall'AC in {menu.assembly}, poi vendili in {menu.sell}."
+stuck_one = "INVENTARIO PIENO\n\n{n} componenti per {max} posti e nessun componente da vendere: rimuovi 1 componente dall'AC in {menu.assembly}, poi vendilo in {menu.sell}."
+
+[buyback]
+full_confirm = "Lista di riacquisto piena: {part} non sarà più riacquistabile.\n{game_text}"
+
+[failure]
+title = "MISSIONE FALLITA: PERDITE"
+weapons = "Armi perse: {list}"
+parts = "Componenti persi: {list}"
+replaced = "Sostituiti da: {list}"
+expansion = "Espansione persa: {name}"
+os_levels = "Livelli SO persi: {list}"
+os_level = "{name} (LV {from} > {to})"
+starters = "Componenti iniziali addebitati: {amount} COAM"
+sold = "Venduti: {list}"
+sold_part = "{part} ({amount})"
+autosell_title = "SALDO NEGATIVO: VENDITA AUTOMATICA"
+
+[rewards]
+choose = "SCEGLI UN COMPONENTE"
+choose_page = "SCEGLI UN COMPONENTE ({page}/{pages})"
+given = "COMPONENTE OTTENUTO"
+os_tile = "{menu.os}  LV {level}/{max}"
+percent = "%"
+chip_tile = "{name}: {stat} {value}"
+
+[events]
+part_given = "Componente ottenuto: {part}"
+credits = "{chip}: {amount} COAM"

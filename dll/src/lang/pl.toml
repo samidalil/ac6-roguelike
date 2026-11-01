@@ -1,0 +1,49 @@
+# The mod's texts in Polish. DRAFT: machine-written from the game's own terms, to review. Same keys and format as
+# en.toml; a missing key uses en.toml's. Counts are written "Części: 22" to keep the plural forms out.
+
+list_separator = ", "
+game_over = "GAME OVER"
+
+[number]
+thousands = " "
+
+[tutorial]
+renewal_each = "po każdej udanej misji"
+renewal_every = "po każdych {n} udanych misjach"
+buy = "Menu {menu.buy} oferuje losowo wybrane części do AC,\nodnawiane {renewal}.\n\n• Sprzedane przez ciebie części są tam znów dostępne\ndo następnego odnowienia.\n• Limit części: {max_parts}, wliczając wyposażone:\npowyżej limitu zakup jest odrzucany."
+sell_value = "{pct}% jej wartości"
+sell_value_weapons = "{pct}% jej wartości\n(broń: {weapon_pct}%)"
+sell = "W menu {menu.sell} możesz sprzedawać części do AC.\n\n• Sprzedana część przynosi {value}.\n• Można ją odkupić po jej cenie w menu {menu.buy}\ndo następnego odnowienia sklepu.\n• Limit części do odkupienia: {copies}; powyżej limitu\nnajstarsza idzie na złom.\n• Ponad limit części w garażu ({max_parts}): sprzedawaj,\naż wrócisz do limitu."
+
+[inventory]
+buy_refused = "Ekwipunek pełny (limit części: {max}).\nSprzedaj część, aby kupić inną."
+full = "EKWIPUNEK PEŁNY\n\nCzęści: {n}, miejsca: {max}. Sprzedaj nadmiar ({over}) w {menu.sell}."
+stuck = "EKWIPUNEK PEŁNY\n\nCzęści: {n}, miejsca: {max}, brak części do sprzedania. Zdejmij nadmiar ({over}) z AC w {menu.assembly}, a potem sprzedaj w {menu.sell}."
+
+[buyback]
+full_confirm = "Lista odkupu pełna: {part} nie będzie już do odkupienia.\n{game_text}"
+
+[failure]
+title = "MISJA ZAKOŃCZONA NIEPOWODZENIEM: STRATY"
+weapons = "Utracona broń: {list}"
+parts = "Utracone części: {list}"
+replaced = "Zastąpione przez: {list}"
+expansion = "Utracone ulepszenie: {name}"
+os_levels = "Utracone poziomy SO: {list}"
+os_level = "{name} (LV {from} > {to})"
+starters = "Naliczone części startowe: {amount} COAM"
+sold = "Sprzedane: {list}"
+sold_part = "{part} ({amount})"
+autosell_title = "UJEMNE SALDO: AUTOMATYCZNA SPRZEDAŻ"
+
+[rewards]
+choose = "WYBIERZ CZĘŚĆ"
+choose_page = "WYBIERZ CZĘŚĆ ({page}/{pages})"
+given = "OTRZYMANO CZĘŚĆ"
+os_tile = "{menu.os}  LV {level}/{max}"
+percent = "%"
+chip_tile = "{name}: {stat} {value}"
+
+[events]
+part_given = "Otrzymano część: {part}"
+credits = "{chip}: {amount} COAM"

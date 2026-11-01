@@ -1,0 +1,49 @@
+# The mod's texts in Japanese. DRAFT: machine-written from the game's own terms, to review. Same keys and format as
+# en.toml; a missing key uses en.toml's.
+
+list_separator = "、"
+game_over = "GAME OVER"
+
+[number]
+thousands = ","
+
+[tutorial]
+renewal_each = "ミッション成功ごとに"
+renewal_every = "ミッションを{n}回成功するごとに"
+buy = "{menu.buy}メニューでは\nランダムに選ばれたACパーツを購入できます\nラインナップは{renewal}更新されます\n\n・売却したパーツは次の更新まで\n　再びラインナップに並びます\n・所持できるパーツは装備中を含めて{max_parts}個までです\n　上限を超える購入はできません"
+sell_value = "価値の{pct}%"
+sell_value_weapons = "価値の{pct}%（武器は{weapon_pct}%）"
+sell = "{menu.sell}メニューでは\n所持しているパーツを売却することができます\n\n・売却価格はパーツの{value}です\n・売却したパーツはショップの次の更新まで\n　{menu.buy}メニューから同じ価格で買い戻せます\n・買い戻せるのは直近に売却した{copies}個までです\n　それを超えると古いものから廃棄されます\n・ガレージのパーツが{max_parts}個を超えた場合は\n　上限に戻るまで売却してください"
+
+[inventory]
+buy_refused = "所持パーツが上限です（最大{max}個）\nパーツを売却してから購入してください"
+full = "所持パーツ上限超過\n\n上限{max}個に対して{n}個所持しています\n{menu.sell}で{over}個売却してください"
+stuck = "所持パーツ上限超過\n\n上限{max}個に対して{n}個所持しており、売却できるパーツがありません\n{menu.assembly}でACから{over}個外してから{menu.sell}で売却してください"
+
+[buyback]
+full_confirm = "買い戻しリストが満杯です：{part}は買い戻せなくなります\n{game_text}"
+
+[failure]
+title = "ミッション失敗：損失"
+weapons = "失った武器：{list}"
+parts = "失ったパーツ：{list}"
+replaced = "代わりに装備：{list}"
+expansion = "失ったコア拡張機能：{name}"
+os_levels = "低下したOSレベル：{list}"
+os_level = "{name}（LV {from} > {to}）"
+starters = "初期パーツの購入費用：{amount} COAM"
+sold = "売却：{list}"
+sold_part = "{part}（{amount}）"
+autosell_title = "残高不足：自動売却"
+
+[rewards]
+choose = "パーツを選択"
+choose_page = "パーツを選択（{page}/{pages}）"
+given = "パーツ獲得"
+os_tile = "{menu.os}  LV {level}/{max}"
+percent = "%"
+chip_tile = "{name}：{stat} {value}"
+
+[events]
+part_given = "パーツ獲得：{part}"
+credits = "{chip}：{amount} COAM"

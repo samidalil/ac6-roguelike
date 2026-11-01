@@ -1,0 +1,49 @@
+# The mod's texts in Korean. DRAFT: machine-written from the game's own terms, to review. Same keys and format as
+# en.toml; a missing key uses en.toml's.
+
+list_separator = ", "
+game_over = "GAME OVER"
+
+[number]
+thousands = ","
+
+[tutorial]
+renewal_each = "미션 성공 시마다"
+renewal_every = "미션을 {n}회 성공할 때마다"
+buy = "{menu.buy} 메뉴에서는\n무작위로 선택된 AC 파츠를 구입할 수 있습니다\n라인업은 {renewal} 갱신됩니다\n\n・매각한 파츠는 다음 갱신까지\n　다시 라인업에 나옵니다\n・보유할 수 있는 파츠는 장착 중인 것을 포함해 {max_parts}개까지입니다\n　한도를 넘는 구입은 할 수 없습니다"
+sell_value = "가치의 {pct}%"
+sell_value_weapons = "가치의 {pct}%(무기는 {weapon_pct}%)"
+sell = "{menu.sell} 메뉴에서는\n보유 중인 파츠를 매각할 수 있습니다\n\n・매각 가격은 파츠 {value}입니다\n・매각한 파츠는 상점의 다음 갱신까지\n　{menu.buy} 메뉴에서 같은 가격으로 재구입할 수 있습니다\n・재구입할 수 있는 것은 최근 매각한 {copies}개까지이며\n　이를 넘으면 오래된 것부터 폐기됩니다\n・차고의 파츠가 {max_parts}개를 넘으면\n　한도로 돌아갈 때까지 매각하십시오"
+
+[inventory]
+buy_refused = "보유 파츠가 한도에 도달했습니다(최대 {max}개)\n파츠를 매각한 후 구입하십시오"
+full = "보유 파츠 한도 초과\n\n한도 {max}개에 {n}개를 보유 중입니다\n{menu.sell}에서 {over}개를 매각하십시오"
+stuck = "보유 파츠 한도 초과\n\n한도 {max}개에 {n}개를 보유 중이며 매각할 수 있는 파츠가 없습니다\n{menu.assembly}에서 AC로부터 {over}개를 해제한 후 {menu.sell}에서 매각하십시오"
+
+[buyback]
+full_confirm = "재구입 목록이 가득 찼습니다: {part}은(는) 더 이상 재구입할 수 없습니다\n{game_text}"
+
+[failure]
+title = "미션 실패: 손실"
+weapons = "잃은 무기: {list}"
+parts = "잃은 파츠: {list}"
+replaced = "대신 장착: {list}"
+expansion = "잃은 코어 확장 기능: {name}"
+os_levels = "낮아진 OS 레벨: {list}"
+os_level = "{name} (LV {from} > {to})"
+starters = "초기 파츠 구입 비용: {amount} COAM"
+sold = "매각: {list}"
+sold_part = "{part} ({amount})"
+autosell_title = "잔액 부족: 자동 매각"
+
+[rewards]
+choose = "파츠 선택"
+choose_page = "파츠 선택 ({page}/{pages})"
+given = "파츠 획득"
+os_tile = "{menu.os}  LV {level}/{max}"
+percent = "%"
+chip_tile = "{name}: {stat} {value}"
+
+[events]
+part_given = "파츠 획득: {part}"
+credits = "{chip}: {amount} COAM"
