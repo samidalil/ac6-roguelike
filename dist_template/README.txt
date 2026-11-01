@@ -67,6 +67,12 @@ HOW IT PLAYS
 - If your credits go below 0, your spare parts are sold automatically, most expensive first.
 - If even that is not enough, the run is over: GAME OVER, back to the title. The save is dead; start a New Game.
 
+LANGUAGE
+The mod's texts (tutorials, dialogs, reward screen) follow the game's text language (title screen > LANGUAGE), in
+the game's 13 languages; French and English are written by hand, the others are drafts to review. [display]
+language = fr (en, ja, de...) in the settings forces one. To change a text, copy its key into lang/<code>.toml next
+to the DLL (same format as the built-in files, see the mod's source dll/src/lang).
+
 SETTINGS
 ac6_roguelike.toml (created next to the DLL on first launch). Edit it and restart the game:
 mission pay %, starting credits, ammo/repair cost %, sell and buy %, shop size, reroll interval, parts per mission,

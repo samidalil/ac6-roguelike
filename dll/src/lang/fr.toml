@@ -1,0 +1,54 @@
+# Textes du mod en français (le jeu en français). Une copie de ce fichier dans lang/ à côté de la DLL remplace les
+# textes qu'elle contient (relancer le jeu). \n = retour à la ligne : les tutoriels et les dialogues ne coupent pas
+# leurs lignes d'eux-mêmes. {nom} = une valeur remplie par le mod ; {menu.buy}, {menu.sell}, {menu.assembly},
+# {menu.os} et {ap} = les noms du jeu (ACHAT, VENTE, ASSEMBLAGE, AMÉLIORATION OS, PB).
+
+list_separator = ", "
+game_over = "GAME OVER"
+
+[number]
+thousands = " "                 # 1 234 567
+
+[tutorial]
+renewal_each = "après chaque mission réussie"
+renewal_every = "toutes les {n} missions réussies"
+buy = "Le menu {menu.buy} propose des pièces d'AC tirées au hasard,\nrenouvelées {renewal}.\n\n• Les pièces que vous avez vendues y sont de nouveau\nen vente jusqu'au prochain renouvellement.\n• Vous pouvez posséder {max_parts} pièces au plus, pièces\néquipées comprises : au-delà, l'achat est refusé."
+sell_value = "{pct} % de sa valeur"
+sell_value_weapons = "{pct} % de sa valeur\n(arme : {weapon_pct} %)"
+sell = "Le menu {menu.sell} permet de vendre vos pièces d'AC.\n\n• Une pièce vendue rapporte {value}.\n• Elle peut être rachetée à son prix dans le menu {menu.buy}\njusqu'au prochain renouvellement de la boutique.\n• Au plus {copies} pièces vendues restent rachetables : au-delà,\nla plus ancienne part à la casse.\n• Plus de {max_parts} pièces au garage : vendez-en jusqu'à\nrevenir à la limite."
+
+[inventory]
+buy_refused = "Inventaire plein ({max} pièces maximum).\nVendez une pièce pour en acheter une autre."
+full = "INVENTAIRE PLEIN\n\n{n} pièces pour {max} places : vendez {over} pièces dans {menu.sell}."
+full_one = "INVENTAIRE PLEIN\n\n{n} pièces pour {max} places : vendez 1 pièce dans {menu.sell}."
+stuck = "INVENTAIRE PLEIN\n\n{n} pièces pour {max} places et aucune pièce à vendre : retirez {over} pièces de l'AC dans {menu.assembly}, puis vendez-les dans {menu.sell}."
+stuck_one = "INVENTAIRE PLEIN\n\n{n} pièces pour {max} places et aucune pièce à vendre : retirez 1 pièce de l'AC dans {menu.assembly}, puis vendez-la dans {menu.sell}."
+
+[buyback]
+# {game_text} = la confirmation de vente du jeu ; deux lignes au plus (la boîte n'en montre pas plus)
+full_confirm = "Liste de rachat pleine : {part} ne sera plus rachetable.\n{game_text}"
+
+[failure]
+# le dialogue du jeu ne dépasse pas ~12 lignes : une ligne par catégorie
+title = "ÉCHEC DE LA MISSION : PERTES"
+weapons = "Armes perdues : {list}"
+parts = "Pièces perdues : {list}"
+replaced = "Remplacées par : {list}"
+expansion = "Extension perdue : {name}"
+os_levels = "Niveaux OS perdus : {list}"
+os_level = "{name} (LV {from} > {to})"
+starters = "Pièces de départ facturées : {amount} COAM"
+sold = "Vendues : {list}"
+sold_part = "{part} ({amount})"
+autosell_title = "SOLDE NÉGATIF : VENTE AUTOMATIQUE"
+
+[rewards]
+choose = "CHOISISSEZ UNE PIÈCE"
+choose_page = "CHOISISSEZ UNE PIÈCE ({page}/{pages})"
+given = "PIÈCE OBTENUE"
+os_tile = "{menu.os}  LV {level}/{max}"
+chip_tile = "{name} : {stat} {value}"
+
+[events]
+part_given = "Pièce obtenue : {part}"
+credits = "{chip} : {amount} COAM"

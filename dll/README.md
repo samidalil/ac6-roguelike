@@ -83,6 +83,11 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
 - `config.rs` / `default_config.toml` — settings file parser and defaults (economy, rewards, shop, pools:
   `[pool.NAME]` sections + the built-in unlisted pool, `[part_rarity]` part = pool, prices, per-item tables `[lost_on_failure]` / `[max_occurrences]` read through `config::lookup` / `config::value`, `[os_tuning]` values per level).
 - `dialog.rs` — the game's OK dialog, opened with our own text; `msg.rs` — message lookup hook (custom texts; the ACHAT / VENTE first-time tutorials rebuilt from the settings).
+- `lang.rs` / `lang/<code>.toml` — the mod's texts by key in the game's language (13 languages; English for a missing
+  key, es-419 -> es first), embedded at build; `lang/<code>.toml` next to the DLL overrides keys. The language is told
+  from a game text that differs in every language (`MSG_LANG_SIGNATURE`) at each use, so it follows the game's
+  LANGUAGE setting live; `[display] language` forces one. `{menu.buy}` / `{menu.sell}` / `{menu.assembly}` /
+  `{menu.os}` / `{ap}` are the game's own words. Debug `lang` logs the language and the tutorials.
 - `offsets.rs`, `mem.rs` — addresses, memory helpers (logging is in `lib.rs`).
 
 Game data: `data/regulation/*.toml` declarations (param edits, new rows) are compiled into `mod/regulation.bin` by

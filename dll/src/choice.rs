@@ -75,7 +75,7 @@ fn page_of(s: &[Offer], title: String) -> rewardmenu::Page {
         title,
     }
 }
-fn choice_title(k: usize, n: usize) -> String { if n > 1 { format!("CHOISISSEZ UNE PIÈCE ({}/{})", k, n) } else { "CHOISISSEZ UNE PIÈCE".to_string() } }
+fn choice_title(k: usize, n: usize) -> String { if n > 1 { lang::f("rewards.choose_page", &[("page", &k), ("pages", &n)]) } else { lang::t("rewards.choose") } }
 
 /// Results screen, game thread: roll reward page `p` (0-based) if it is the next page not rolled yet, the earlier
 /// pages' picks counted (not committed yet): an OS Tuning at its max level with them, a unique part owned or picked, a
@@ -143,7 +143,7 @@ pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
     let later = later_pages().saturating_sub(sets.len());
     let n = sets.iter().filter(|s| s.len() > 1).count() + later;
     let mut k = 0;
-    let mut pages: Vec<rewardmenu::Page> = sets.iter().map(|s| page_of(s, if s.len() < 2 { "PIÈCE OBTENUE".to_string() } else { k += 1; choice_title(k, n) })).collect();
+    let mut pages: Vec<rewardmenu::Page> = sets.iter().map(|s| page_of(s, if s.len() < 2 { lang::t("rewards.given") } else { k += 1; choice_title(k, n) })).collect();
     for _ in 0..later { pages.push(rewardmenu::Page::parts(Vec::new(), String::new())); }
     let handles: Vec<u32> = sets.iter().flatten().map(|x| x.id).collect();
     let mut placeholder = PLACEHOLDER.load(Relaxed) != 0;
@@ -151,7 +151,7 @@ pub fn pages(ids: &[u32]) -> Option<Vec<rewardmenu::Page>> {
     // pages in step with the class's
     for id in ids {
         if placeholder && *id == o::OS_CARRIER_ITEM { placeholder = false; continue; }
-        if !handles.contains(id) && id >> 28 != 4 { pages.push(rewardmenu::Page::part(*id, "PIÈCE OBTENUE")); }
+        if !handles.contains(id) && id >> 28 != 4 { pages.push(rewardmenu::Page::part(*id, &lang::t("rewards.given"))); }
     }
     Some(pages)
 }

@@ -55,6 +55,7 @@ macro_rules! logf { ($($a:tt)*) => {{ let mut s = String::new(); let _ = write!(
 mod penalty;
 mod buyback;
 mod msg;
+mod lang;
 mod dialog;
 mod config;
 mod trace;
@@ -1008,6 +1009,7 @@ fn boot() {
     let base = mem::module_base();
     logf!("module base = {:#X}, hook memory reserved at load: {:#X}", base, POOL.load(Relaxed));
     config::load();
+    lang::load();
     chip::load();
     msg::set_base(base);
     // before the menus are preloaded: our reward choice movie takes a spare menu table entry
@@ -1274,6 +1276,12 @@ fn boot() {
                             }
                             logf!("DEBUG: occur slots in use {}/{}: {:?}", counts.len(), o::OCCUR_SLOTS, counts);
                         }
+                        // the mod's language and a few of its texts as the game gets them
+                        "lang" => {
+                            logf!("DEBUG: language {}", lang::code());
+                            for id in [o::MSG_TUTO_ACHAT, o::MSG_TUTO_VENTE] { logf!("DEBUG: tutorial {}: {:?}", id, msg::shown(o::MSG_CAT_MENU_TEXT, id)); }
+                            logf!("DEBUG: {:?} / {:?} / {:?}", lang::f("rewards.choose_page", &[("page", &1), ("pages", &2)]), lang::t("rewards.given"), penalty::money(1234567));
+                        }
                         "osnote" => for c in [o::MSG_CAT_MENU_TITLE, o::MSG_CAT_MENU_TEXT] {
                             logf!("DEBUG: unlock notification {}: {:?}", c, msg::shown(c, o::MSG_OS_UNLOCKED));
                         },
@@ -1345,7 +1353,7 @@ fn boot() {
                             if n == 0 { log("DEBUG: reward choice: no part left in the pool, no grid"); } else {
                                 rewardmenu::set_pages(sets.iter().enumerate().map(|(i, s)| rewardmenu::Page {
                                     pools: s.iter().map(|p| p.pool_label()).collect(),
-                                    ..rewardmenu::Page::parts(s.iter().map(|p| p.grant_id()).collect(), format!("CHOISISSEZ UNE PIÈCE ({}/{})", i + 1, n))
+                                    ..rewardmenu::Page::parts(s.iter().map(|p| p.grant_id()).collect(), lang::f("rewards.choose_page", &[("page", &(i + 1)), ("pages", &n)]))
                                 }).collect());
                                 logf!("DEBUG: reward choice grid, {} page(s) of {:?} part(s)", n, sets.iter().map(|s| s.len()).collect::<Vec<_>>());
                                 rewardmenu::OPEN_REQUEST.store(true, Relaxed);
@@ -1355,7 +1363,7 @@ fn boot() {
                             rewardmenu::VANILLA.store(c.starts_with("vanilla "), Relaxed);
                             let ids: Vec<u32> = c[c.find(' ').unwrap_or(0) + 1..].split_whitespace().filter_map(|v| u32::from_str_radix(v.trim_start_matches("0x"), 16).ok()).take(12).collect();
                             logf!("DEBUG: parts grid {:X?}", ids);
-                            if !ids.is_empty() { rewardmenu::set_pages(vec![rewardmenu::Page::parts(ids, "CHOISISSEZ UNE PIÈCE".to_string())]); rewardmenu::OPEN_REQUEST.store(true, Relaxed); }
+                            if !ids.is_empty() { rewardmenu::set_pages(vec![rewardmenu::Page::parts(ids, lang::t("rewards.choose"))]); rewardmenu::OPEN_REQUEST.store(true, Relaxed); }
                         }
                         c if c.starts_with("give2 ") => match u32::from_str_radix(c[6..].trim().trim_start_matches("0x"), 16) {
                             Ok(id) => { logf!("DEBUG: give2 {:#X} (game thread, even if owned)", id); penalty::GIVE_FORCE.store(true, Relaxed); penalty::GIVE_REQUEST.store(id, Relaxed); }

@@ -392,6 +392,13 @@ pub const MSG_OS_UNLOCKED: u32 = 2101000;  // "Accès autorisé : AMÉLIORATION 
 /// First-time menu tutorials' texts (category MSG_CAT_MENU_TEXT; TutorialParam 2002000 / 2002010, same ids)
 pub const MSG_TUTO_ACHAT: u32 = 2002000;
 pub const MSG_TUTO_VENTE: u32 = 2002010;
+/// A game text that differs in each of the game's 13 languages (the "Scanning" tutorial title): lang.rs tells the
+/// game's language from it.
+pub const MSG_LANG_SIGNATURE: (u32, u32) = (MSG_CAT_MENU_TITLE, 1500300);
+/// Menu labels (the garage's title MSG_GARAGE_TITLE is one): the ASSEMBLY menu's name and the AP abbreviation.
+pub const MSG_CAT_MENU_LABEL: u32 = 200;
+pub const MSG_MENU_ASSEMBLY: u32 = 102001;
+pub const MSG_AP: u32 = 75000;
 /// UnlockParam_MenuCommand: row of the OS Tuning menu ({type 2 = event flag, flag 3131}) and a flag nothing sets
 /// (the game's own row 99999999 uses it): pointing the row at it keeps the menu locked.
 pub const MENU_ROW_OS_TUNING: u32 = 10080;

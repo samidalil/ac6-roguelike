@@ -110,20 +110,17 @@ pub unsafe fn clear(_game: &Game, _man: usize) {
 }
 
 /// The VENTE sale confirmation while the list is full: a line naming the copy the sale drops, then the game's own
-/// text on one line (its <?itemName?> / <?price?> tags filled by the game). One text per oldest row, kept for the session.
+/// text on one line (its <?itemName?> / <?price?> tags filled by the game). One text per oldest row and language, kept
+/// for the session.
 pub fn confirm_text(category: u32, id: u32) -> Option<usize> {
     if category != o::MSG_CAT_SHOP || id != o::MSG_SELL_CONFIRM || !full() { return None; }
     let oldest = SOLD[0].load(Relaxed).checked_sub(1)?;
-    static TEXTS: Mutex<Vec<(u16, usize)>> = Mutex::new(Vec::new());
-    let mut texts = TEXTS.lock().ok()?;
-    if let Some(t) = texts.iter().find(|t| t.0 == oldest) { return Some(t.1); }
-    let vanilla = unsafe { msg::text(category, id) }?;
-    let name = ROW_OF.get()?.iter().find(|e| *e.1 == oldest).map_or_else(|| format!("row {}", oldest), |e| penalty::part_name(*e.0));
     // two lines: the dialog has room for two above the credit boxes
-    let text = format!("Liste de rachat pleine : {} ne sera plus rachetable.\n{}", name, vanilla.replace('\n', " "));
-    let p = Box::leak(text.encode_utf16().chain(Some(0)).collect::<Vec<u16>>().into_boxed_slice()).as_ptr() as usize;
-    texts.push((oldest, p));
-    Some(p)
+    Some(lang::wide(&format!("buyback.full_confirm {}", oldest), || {
+        let vanilla = unsafe { msg::text(category, id) }.unwrap_or_default();
+        let name = ROW_OF.get().and_then(|r| r.iter().find(|e| *e.1 == oldest)).map_or_else(|| format!("row {}", oldest), |e| penalty::part_name(*e.0));
+        lang::f("buyback.full_confirm", &[("part", &name), ("game_text", &vanilla.replace('\n', " "))])
+    }))
 }
 
 /// Debug: fill the free entries with `row` (full-list test).

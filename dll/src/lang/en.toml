@@ -1,0 +1,54 @@
+# The mod's texts in English (the game in English, and every key another language does not have). A copy of this
+# file in lang/ next to the DLL replaces the texts it holds (restart the game). \n = new line: the tutorials and
+# dialogs do not wrap their lines. {name} = a value the mod fills in; {menu.buy}, {menu.sell}, {menu.assembly},
+# {menu.os} and {ap} = the game's own names (BUY, SELL, ASSEMBLY, OS TUNING, AP).
+
+list_separator = ", "
+game_over = "GAME OVER"
+
+[number]
+thousands = ","                 # 1,234,567
+
+[tutorial]
+renewal_each = "after every completed mission"
+renewal_every = "every {n} completed missions"
+buy = "The {menu.buy} menu offers randomly drawn AC parts,\nrenewed {renewal}.\n\n• Parts you have sold are back on sale there\n   until the next renewal.\n• You can own up to {max_parts} parts, equipped parts\n   included: beyond that, purchases are refused."
+sell_value = "{pct}% of its value"
+sell_value_weapons = "{pct}% of its value\n   (weapons: {weapon_pct}%)"
+sell = "Sell AC parts in your possession from the {menu.sell} menu.\n\n• A sold part earns {value}.\n• It can be bought back at its price from the {menu.buy}\n   menu until the next shop renewal.\n• Up to {copies} sold parts stay available to buy back:\n   beyond that, the oldest one is scrapped.\n• More than {max_parts} parts in the garage: sell some\n   until you are back to the limit."
+
+[inventory]
+buy_refused = "Inventory full ({max} parts maximum).\nSell a part to buy another one."
+full = "INVENTORY FULL\n\n{n} parts for {max} slots: sell {over} parts in {menu.sell}."
+full_one = "INVENTORY FULL\n\n{n} parts for {max} slots: sell 1 part in {menu.sell}."
+stuck = "INVENTORY FULL\n\n{n} parts for {max} slots and no part to sell: remove {over} parts from the AC in {menu.assembly}, then sell them in {menu.sell}."
+stuck_one = "INVENTORY FULL\n\n{n} parts for {max} slots and no part to sell: remove 1 part from the AC in {menu.assembly}, then sell it in {menu.sell}."
+
+[buyback]
+# {game_text} = the game's sale confirmation; two lines at most (the box shows no more)
+full_confirm = "Buy-back list full: {part} can no longer be bought back.\n{game_text}"
+
+[failure]
+# the game's dialog shows ~12 lines at most: one line per category
+title = "MISSION FAILED: LOSSES"
+weapons = "Weapons lost: {list}"
+parts = "Parts lost: {list}"
+replaced = "Replaced by: {list}"
+expansion = "Expansion lost: {name}"
+os_levels = "OS levels lost: {list}"
+os_level = "{name} (LV {from} > {to})"
+starters = "Starter parts charged: {amount} COAM"
+sold = "Sold: {list}"
+sold_part = "{part} ({amount})"
+autosell_title = "NEGATIVE BALANCE: AUTOMATIC SALE"
+
+[rewards]
+choose = "CHOOSE A PART"
+choose_page = "CHOOSE A PART ({page}/{pages})"
+given = "PART OBTAINED"
+os_tile = "{menu.os}  LV {level}/{max}"
+chip_tile = "{name}: {stat} {value}"
+
+[events]
+part_given = "Part obtained: {part}"
+credits = "{chip}: {amount} COAM"

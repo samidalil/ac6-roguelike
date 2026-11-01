@@ -146,7 +146,7 @@ unsafe fn run(g: &Game, man: usize, c: &chip::Chip, lv: i32, a: &Action, e: Even
             let v = n.at(&c.values, lv);
             let mut q = GARAGE.lock().unwrap_or_else(|e| e.into_inner());
             q.credits += v as i64;
-            q.lines.push(format!("{} : {}{} COAM", c.name, if v < 0 { "-" } else { "+" }, penalty::money(v.abs() as i64)));
+            q.lines.push(lang::f("events.credits", &[("chip", &c.name), ("amount", &format!("{}{}", if v < 0 { "-" } else { "+" }, penalty::money(v.abs() as i64)))]));
         }
         Action::Give(name) => {
             let mut q = GARAGE.lock().unwrap_or_else(|e| e.into_inner());
@@ -366,7 +366,7 @@ pub unsafe fn run_garage(game: &Game, gd: usize) {
     for name in give {
         match penalty::item_by_name(&name) {
             Some(id) => { let given = penalty::give_copy(game, gd, id); logf!("event actions: give {} ({:#X}): {}", name, id, given);
-                if given { lines.push(format!("Pièce obtenue : {}", penalty::part_name(id))); } }
+                if given { lines.push(lang::f("events.part_given", &[("part", &penalty::part_name(id))])); } }
             None => logf!("event actions: give {}: no such part", name),
         }
     }

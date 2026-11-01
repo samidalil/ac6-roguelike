@@ -570,37 +570,41 @@ unsafe fn apply_penalty(game: &Game, ctx: &Ctx, gd: usize) {
     if !over { dialog::show(&loss_report(&plan, &sold)); }
 }
 
-/// Text of the loss dialog shown in the garage after a failed sortie (game language: French). The game's dialog
+/// Text of the loss dialog shown in the garage after a failed sortie (in the game's language). The game's dialog
 /// box does not grow past ~12 lines (verified), so one line per category; long lines wrap inside the box.
 fn loss_report(plan: &FailurePlan, sold: &[(u32, i32)]) -> String {
-    let mut t = String::from("ÉCHEC DE LA MISSION : PERTES\n\n");
+    let mut t = lang::t("failure.title") + "\n\n";
+    let line = |t: &mut String, key: &str, list: &[String]| { *t += &lang::f(key, &[("list", &lang::list(list))]); t.push('\n'); };
     if !plan.weapons.is_empty() {
         let names: Vec<String> = plan.weapons.iter().map(|w| part_name(w.3)).collect();
-        t += &format!("Armes perdues : {}\n", names.join(", "));
+        line(&mut t, "failure.weapons", &names);
     }
     // a starter lost and bought back did not change: it only shows in the charge line (the box holds ~12 lines)
     let changed: Vec<_> = plan.frames.iter().filter(|f| !matches!(f.2, Fill::Keep) && !(matches!(f.2, Fill::Buy) && f.1.map(|l| l.1) == Some(FRAME_SLOTS[f.0].2))).collect();
     let lost: Vec<String> = changed.iter().filter_map(|f| f.1.map(|l| part_name(FRAME_SLOTS[f.0].3 | l.1))).collect();
-    if !lost.is_empty() { t += &format!("Pièces perdues : {}\n", lost.join(", ")); }
+    if !lost.is_empty() { line(&mut t, "failure.parts", &lost); }
     let repl: Vec<String> = changed.iter().filter_map(|f| match f.2 {
         Fill::Spare(_, item) => Some(part_name(item)),
         Fill::Buy => Some(part_name(FRAME_SLOTS[f.0].3 | FRAME_SLOTS[f.0].2)),
         Fill::Empty | Fill::Keep => None,
     }).collect();
-    if !repl.is_empty() { t += &format!("Remplacées par : {}\n", repl.join(", ")); }
-    if let Some((row, ..)) = plan.expansion { t += &format!("Extension perdue : {}\n", os::name(row)); }
+    if !repl.is_empty() { line(&mut t, "failure.replaced", &repl); }
+    if let Some((row, ..)) = plan.expansion { t += &lang::f("failure.expansion", &[("name", &os::name(row))]); t.push('\n'); }
     if !plan.os_levels.is_empty() {
-        let names: Vec<String> = plan.os_levels.iter().map(|&(row, lv)| format!("{} (LV {} > {})", os::name(row), lv, lv - 1)).collect();
-        t += &format!("Niveaux OS perdus : {}\n", names.join(", "));
+        let names: Vec<String> = plan.os_levels.iter().map(|&(row, lv)| lang::f("failure.os_level", &[("name", &os::name(row)), ("from", &lv), ("to", &(lv - 1))])).collect();
+        line(&mut t, "failure.os_levels", &names);
     }
     if plan.starter_cost > 0 {
-        t += &format!("Pièces de départ facturées : {} COAM\n", money(plan.starter_cost));
+        t += &lang::f("failure.starters", &[("amount", &money(plan.starter_cost))]);
+        t.push('\n');
     }
-    if !sold.is_empty() {
-        let names: Vec<String> = sold.iter().map(|&(item, p)| format!("{} ({})", part_name(item), money(p as i64))).collect();
-        t += &format!("Vendues : {}\n", names.join(", "));
-    }
+    if !sold.is_empty() { line(&mut t, "failure.sold", &sold_names(sold)); }
     t.trim_end().to_string()
+}
+
+/// "name (price)" of each part sold.
+fn sold_names(sold: &[(u32, i32)]) -> Vec<String> {
+    sold.iter().map(|&(item, p)| lang::f("failure.sold_part", &[("part", &part_name(item)), ("amount", &money(p as i64))])).collect()
 }
 
 /// Display name of an inventory item id (tag | equipId), from the game's own part-name texts.
@@ -613,12 +617,13 @@ pub fn part_name(item: u32) -> String {
     unsafe { msg::text(cat, id) }.filter(|n| !n.is_empty()).unwrap_or_else(|| format!("#{}", id))
 }
 
-/// 1234567 -> "1 234 567" (the game's own thousands separator).
+/// 1234567 -> "1 234 567" (the language's thousands separator, as the game writes it).
 pub fn money(v: i64) -> String {
     let d = v.abs().to_string();
+    let sep = lang::t("number.thousands");
     let mut out = String::new();
     for (i, c) in d.chars().enumerate() {
-        if i > 0 && (d.len() - i) % 3 == 0 { out.push(' '); }
+        if i > 0 && (d.len() - i) % 3 == 0 { out += &sep; }
         out.push(c);
     }
     if v < 0 { format!("-{}", out) } else { out }
@@ -655,8 +660,7 @@ unsafe fn auto_sell(game: &Game, ctx: &Ctx, gd: usize, deficit: i32) {
     log("AUTO-SELL:");
     for l in &lines { logf!("  {}", l); }
     if !over && !sold.is_empty() {
-        let names: Vec<String> = sold.iter().map(|&(item, p)| format!("{} ({})", part_name(item), money(p as i64))).collect();
-        let t = format!("SOLDE NÉGATIF : VENTE AUTOMATIQUE\n\nVendues : {}", names.join(", "));
+        let t = lang::t("failure.autosell_title") + "\n\n" + &lang::f("failure.sold", &[("list", &lang::list(&sold_names(&sold)))]);
         dialog::show(&t);
     }
 }
