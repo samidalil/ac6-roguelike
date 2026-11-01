@@ -67,7 +67,7 @@ static CHIPS: OnceLock<Vec<Chip>> = OnceLock::new();
 pub fn chips() -> &'static [Chip] { CHIPS.get().map_or(&[], |v| v.as_slice()) }
 pub fn chip(row: u16) -> Option<&'static Chip> { chips().iter().find(|c| c.row() == row) }
 
-const DEFAULTS: [(&str, &str); 24] = [
+const DEFAULTS: [(&str, &str); 26] = [
     ("reinforced_plating.toml", include_str!("chips/reinforced_plating.toml")),
     ("overclocked_generator.toml", include_str!("chips/overclocked_generator.toml")),
     ("light_alloys.toml", include_str!("chips/light_alloys.toml")),
@@ -92,6 +92,8 @@ const DEFAULTS: [(&str, &str); 24] = [
     ("swarm.toml", include_str!("chips/swarm.toml")),
     ("swarm.lua", include_str!("chips/swarm.lua")),
     ("overload.toml", include_str!("chips/overload.toml")),
+    ("plasma_echo.toml", include_str!("chips/plasma_echo.toml")),
+    ("plasma_echo.lua", include_str!("chips/plasma_echo.lua")),
 ];
 
 /// Boot (after the settings): read every chips/*.toml. A file with an error is left out (log).
@@ -144,8 +146,9 @@ fn parse(text: &str) -> Result<Chip, String> {
         let line = config::strip_comment(raw).trim();
         if line.is_empty() { continue; }
         if line.starts_with('[') && line.ends_with(']') { section = line[1..line.len() - 1].trim().to_string(); continue; }
-        // [speffect.<row id>]: a SpEffectParam row for tools/regulation (mod/regulation.bin), not read here
-        if section.starts_with("speffect.") { continue; }
+        // [speffect / behavior / bullet / atk / weapon.<row id>]: a SpEffectParam / BehaviorParam_PC / Bullet /
+        // AtkParam_Pc / EquipParamWeapon row for tools/regulation (mod/regulation.bin), not read here
+        if ["speffect.", "behavior.", "bullet.", "atk.", "weapon."].iter().any(|k| section.starts_with(k)) { continue; }
         let Some((k, v)) = line.rsplit_once('=') else { return Err(format!("line {}: no `key = value`", n + 1)) };
         let (k, v) = (k.trim().trim_matches('"').trim(), v.trim());
         let val = config::parse_value(v).ok_or_else(|| format!("line {}: {} is not a value", n + 1, v))?;

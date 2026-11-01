@@ -227,7 +227,7 @@ unsafe extern "system" fn frame_hook(this: usize) {
     script::run_queue(); // chip scripts' handlers of the events emitted since the last frame
     event::apply_speffects(base); // SpEffects queued for the player (event actions, scripts, debug)
     event::apply_resupplies(); // resupplies queued by chips
-    drone::tick(base); // drones queued by chip scripts
+    shot::tick(base); // shots queued by chip scripts
     event::apply_energy(); // EN refills queued by chips
     if RETIRE_REQUEST.swap(false, Relaxed) && game.defer_byte(gd) == 1 {
         let retire: unsafe extern "system" fn() -> u8 = core::mem::transmute(base + o::FN_RETIRE_MISSION);

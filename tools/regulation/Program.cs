@@ -1,6 +1,7 @@
 // RegBuild <game regulation.bin> <data dir> <out regulation.bin> <Smithbox AC6 defs dir> [<chips dir>]
-// Applies the declarations of every *.toml in the data dir (and the [speffect.<rowId>] sections of the chip files, as
-// SpEffectParam rows) to the game's regulation and writes an encrypted copy (served by me3 from the mod package).
+// Applies the declarations of every *.toml in the data dir (and the [speffect / behavior / bullet / atk / weapon.<rowId>]
+// sections of the chip files, as SpEffectParam / BehaviorParam_PC / Bullet / AtkParam_Pc / EquipParamWeapon rows) to the
+// game's regulation and writes an encrypted copy (served by me3 from the mod package).
 // Declarations:
 //   [ParamName.rowId]        a row of a param (file name in the regulation, e.g. EquipParamWeapon)
 //   copy = <rowId>           new row only: start from a copy of this row (else all fields 0)
@@ -45,13 +46,14 @@ class RegBuild
                 var row = p.Rows.FirstOrDefault(r => r.ID == d.Row);
                 if (row == null)
                 {
-                    row = new PARAM.Row(d.Row, "", p.AppliedParamdef);
                     if (d.Fields.TryGetValue("copy", out var c))
                     {
                         if (!int.TryParse(c.Value, out var from) || p.Rows.FirstOrDefault(r => r.ID == from) is not PARAM.Row orig)
                         { errors.Add($"{d.File}:{c.Line}: copy = {c.Value}: no row {c.Value} in {name}"); continue; }
-                        foreach (var (cell, i) in orig.Cells.Select((x, i) => (x, i))) row.Cells[i].Value = cell.Value;
+                        // a clone (a new row from the definition fails on some defs' default values, e.g. Bullet)
+                        row = new PARAM.Row(orig) { ID = d.Row, Name = "" };
                     }
+                    else row = new PARAM.Row(d.Row, "", p.AppliedParamdef);
                     p.Rows.Add(row);
                     added++;
                 }
@@ -105,7 +107,8 @@ class RegBuild
     };
 
     /// A tiny TOML subset: [Param.row] sections, key = value (number or "text"), # comments outside quotes. A chip file
-    /// (`chip`) only contributes its [speffect.<rowId>] sections (SpEffectParam rows); its other lines are the DLL's.
+    /// (`chip`) only contributes its [speffect / behavior / bullet / atk / weapon.<rowId>] sections; its other lines are
+    /// the DLL's.
     static IEnumerable<Decl> Parse(string path, bool chip)
     {
         Decl cur = null;
@@ -122,9 +125,11 @@ class RegBuild
                 var s = line[1..^1].Trim().Trim('"');
                 if (chip)
                 {
-                    skip = !s.StartsWith("speffect.", StringComparison.OrdinalIgnoreCase);
+                    var kind = new[] { ("speffect", "SpEffectParam"), ("behavior", "BehaviorParam_PC"), ("weapon", "EquipParamWeapon"), ("bullet", "Bullet"), ("atk", "AtkParam_Pc") }
+                        .FirstOrDefault(x => s.StartsWith(x.Item1 + ".", StringComparison.OrdinalIgnoreCase));
+                    skip = kind.Item1 == null;
                     if (skip) continue;
-                    s = "SpEffectParam" + s["speffect".Length..];
+                    s = kind.Item2 + s[kind.Item1.Length..];
                 }
                 var dot = s.LastIndexOf('.');
                 if (dot <= 0 || !int.TryParse(s[(dot + 1)..], out var row)) throw new FormatException($"{path}:{n + 1}: [ParamName.rowId] expected, not [{s}]");

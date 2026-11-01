@@ -118,6 +118,7 @@ color = "#FFC23D"
 9017 = 1    # Cœur libre
 9018 = 1    # Essaim
 9019 = 1    # Surcharge
+9020 = 1    # Écho plasma
 
 [os_tuning]
 # Effect of each OS Tuning level, by OsReinforce row: "value/value/..." (1 to 5 levels; their count is the tuning's
@@ -408,6 +409,7 @@ color = "#FFC23D"
 9017 = epic      # Cœur libre (no EN spent for a while after a core expansion)
 9018 = epic      # Essaim (laser drones where an enemy is destroyed)
 9019 = rare      # Surcharge (full EN when an enemy is staggered)
+9020 = epic      # Écho plasma (plasma cannon shots at your next target where an enemy is destroyed)
 
 [prices]
 # Value of a part, 0 or more: equipId = price, or "part name" = price (spacing and case do not matter; a name also matches

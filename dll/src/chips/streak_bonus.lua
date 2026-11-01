@@ -11,10 +11,12 @@
 --                   the text), level(), value()
 --   store           get() / set(v): one byte (0..255) saved with the run
 --   game            ap(), max_ap(), coam(), in_mission(), flag(id), level(row or name), tier_name(n),
---                   lock_id() (the enemy you are locked on, nil without a lock)
+--                   lock_id() (the enemy you are locked on, nil without a lock), lock_pos() (its x, y, z, or nil)
 --   after(s, fn)    runs fn s seconds later, in the same event (its actions too); dropped when the mission ends
 --   actions         credits(n), give("part name"), speffect(row), resupply(%), energy(%), drone(x, y, z) (a laser drone of yours
---                   at that world position), add_level(row or name, n),
+--                   at that world position), shoot(weapon, behavior, x, y, z[, tx, ty, tz]) (one shot of that
+--                   weapon's BehaviorParam_PC row from your AC at that position, flying to tx, ty, tz; see
+--                   plasma_echo.lua), add_level(row or name, n),
 --                   set_flag(id, bool)
 --   unsafe          (only with unsafe = true in the chip file) base, player(), readable(addr, n), read_u8/u16/i32/
 --                   u32/u64/f32(addr), write_u8/u16/i32/u32/u64/f32(addr, v): raw game memory, can break the game
