@@ -109,7 +109,7 @@ pub fn emit_with(e: Event, data: &[(&'static str, f64)]) {
     if subs.is_empty() { return; }
     let base = mem::module_base();
     let g = unsafe { Game::new(base) };
-    let Some(man) = (unsafe { g.flag_man() }) else { return };
+    let Some(man) = (unsafe { g.flag_man_fast() }) else { return };
     for c in subs {
         let lv = unsafe { chip::level(c.row()) }.unwrap_or(0);
         if lv == 0 { continue; }
@@ -127,7 +127,7 @@ pub fn emit_with(e: Event, data: &[(&'static str, f64)]) {
 /// A script's action (script.rs, game thread): `run` for the chip at `lv` on event `e`.
 pub unsafe fn act(c: &chip::Chip, lv: i32, a: &Action, e: Event) {
     let g = Game::new(mem::module_base());
-    let Some(man) = g.flag_man() else { return };
+    let Some(man) = g.flag_man_fast() else { return };
     run(&g, man, c, lv, a, e);
 }
 

@@ -2128,3 +2128,13 @@ Chip 9019 "Surcharge" (user decision: full EN on an enemy stagger, one level).
   once: the AC kept rising and spending from 2250.
 - Verified (AC test, LV1): `enemy staggered: character ... (max AP 11250)` -> `Energy(Value)` -> `player EN refilled to
   2300 / 2300` (EN held at 200 before); two plain hits gave no event, the natural stagger on the third gave one.
+
+## Event lag: memory checks (2026-11-02, fix)
+User report: a small lag on each enemy death. Timed in the game (Instant around each step, ESSAI AC, MT bipedes +
+drones, Pillage / Essaim / Écho plasma / Adrénaline on): the game's own AP-change call 0.04 ms; our dispatch of
+enemy_destroyed 66-73 ms; each script call ~11 ms (Pillage, Essaim, Écho plasma: a few Lua lines); SpEffects /
+resupplies / shots 0.2-1.5 ms. Cause: `Game::flag_man` checks the manager with two `mem::is_readable` (VirtualQuery),
+12.5-13.2 ms per call in the game process (flag_man_fast: 0 us), and every chip level read (`chip::flags`), the event
+dispatch, each script action and the script store went through it. They now use `flag_man_fast` (the manager exists
+on the game thread whenever a save is loaded); the scripts' game.ap() / max_ap() read the AP block without checks too.
+After: script calls 0.01-0.7 ms, the dispatch under 1 ms. Other `is_readable` users run on the DLL's own thread.

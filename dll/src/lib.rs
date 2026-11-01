@@ -264,7 +264,8 @@ impl Game {
         let gd = mem::rd_usize(gdm + o::GDM_PLAYER_GAMEDATA);
         if gd == 0 { None } else { Some(gd) }
     }
-    /// The event flag manager without the readability checks (a reward roll at the results: the manager exists).
+    /// The event flag manager without the readability checks (a reward roll at the results: the manager exists). Used by
+    /// the chip levels, events and scripts on the game thread: `flag_man`'s two VirtualQuery calls take ~13 ms there.
     unsafe fn flag_man_fast(&self) -> Option<usize> {
         let m = mem::rd_usize(self.base + o::EVENTFLAGMAN_GLOBAL);
         if m == 0 { None } else { Some(m) }

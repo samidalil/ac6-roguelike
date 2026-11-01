@@ -176,11 +176,22 @@ fn act(c: &chip::Chip, a: event::Action) {
 
 fn with_flags<R>(f: impl FnOnce(&Game, usize) -> R) -> Option<R> {
     let g = unsafe { Game::new(mem::module_base()) };
-    let man = unsafe { g.flag_man() }?;
+    let man = unsafe { g.flag_man_fast() }?;
     Some(f(&g, man))
 }
 fn game_data() -> Option<usize> { unsafe { Game::new(mem::module_base()).game_data_fast() } }
-fn player_ap() -> Option<(i32, i32)> { unsafe { Game::new(mem::module_base()).player_ap() }.map(|x| (x.0, x.1)) }
+/// The player's (AP, max AP), without readability checks (each costs milliseconds in the game process: RE_NOTES
+/// "Event lag: memory checks").
+fn player_ap() -> Option<(i32, i32)> {
+    let base = mem::module_base();
+    unsafe {
+        let wcm = mem::rd_usize(base + o::WORLDCHRMAN_GLOBAL);
+        let chr = if wcm == 0 { 0 } else { mem::rd_usize(wcm + o::WCM_PLAYER) };
+        let mods = if chr == 0 { 0 } else { mem::rd_usize(chr + o::PLAYER_MODULES) };
+        let blk = if mods == 0 { 0 } else { mem::rd_usize(mods) };
+        (blk != 0).then(|| (mem::rd_i32(blk + o::CHR_AP), mem::rd_i32(blk + o::CHR_AP_MAX)))
+    }
+}
 
 /// `unsafe`: raw memory of the game (addresses as integers; reads of unmapped memory give nil, writes there do nothing),
 /// the exe base and the player character.
