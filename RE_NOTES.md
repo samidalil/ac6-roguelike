@@ -2198,3 +2198,19 @@ Chip 9020 "Écho plasma" (user decisions: a plain plasma cannon shot, aimed, aft
 - Verified (ESSAI AC, MT bipedes + drones, AI off, Écho plasma LV3, Essaim off): MT 2 destroyed by an AP write while
   locked -> 3 shots from it at air unit a after the lock moved (0.7 s) -> a destroyed -> shots at b -> MT 3 (228 + 228 +
   14) -> MT 4: 5 kills from one, the player did not move. Essaim's drones still hit 3 x 140 from slot 19.
+
+## Shock on stagger: enemy SpEffects, Décharge (2026-11-02, implemented)
+Chip 9021 "Décharge" (user decisions: on each enemy stagger the Shock bar fills almost at once, through a SpEffect on
+the enemy; one level, every stagger, epic).
+- Game texts: "Shock" = electric (past the tolerance, a forced discharge of electricity causes additional damage);
+  "ACS Failure" = incendiary (stability dramatically reduced); "Camera Disruption" = jamming.
+- Shock is SpEffect-driven: rows with stateInfo 5 / spCategory 40 / overwriteGroupId 6600 build it by `registStun` and
+  hold the discharge damage in `changeHpPoint` (stun bomb blast 250021300: 18 / 1200; 6600..6603: 100 / 1500..3000;
+  the stun needle's bullet only adds a 0.1 s marker 3230820, its buildup comes with its other rows).
+- Action `enemy_speffect = <row>`: the enemy hooks (stagger, AP change) emit their event with the enemy as subject
+  (event.rs `emit_about`); the row is applied on the game thread through exe+968EA0 with the enemy's own SpEffect
+  manager (chr +0x308), the enemy as target and the player as source, if the enemy is still among the map's characters.
+- Row 900000211: copy of 250021300 with registStun 9999.
+- Verified (ESSAI AC, training AC AI off, gauge held at 1600 until a bazooka hit): `enemy staggered` -> `speffect
+  900000211 applied to the enemy` -> AP -1200 in the same frame (no other hit).
+- A first try (stun needles dropped from above on the staggered enemy: 2410 + 2 x 46) was not what the user wanted.

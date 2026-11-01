@@ -1,0 +1,16 @@
+# Discharge: each enemy staggered (its ACS overloaded) has its Shock bar filled almost at once: the game's own Shock
+# discharge follows (an electric burst of damage). A SpEffect on the enemy (enemy_speffect: the enemy of the event),
+# the stun bomb's Shock row (250021300: Shock buildup registStun 18, discharge 1200) with a buildup that fills any
+# tolerance. One level.
+id = 21
+name = "Décharge"
+stat = "Choc sur déséquilibre"
+unit = ""
+levels = "1"
+
+[on.enemy_staggered]
+enemy_speffect = 900000211
+
+[speffect.900000211]
+copy = 250021300
+registStun = 9999

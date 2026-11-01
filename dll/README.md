@@ -64,7 +64,8 @@ Settings: `ac6_roguelike.toml` next to the DLL, written from `src/default_config
   in the garage on the game thread, listed in a dialog once the garage menu is up; speffect applies a SpEffectParam
   row to the player through the game's own call exe+968EA0). `enemy_destroyed` comes from a hook on the game's AP
   change report (exe+7563FF -> exe+1714F00), `enemy_staggered` from one on each character's per-frame stagger state
-  (exe+8138FC / exe+810B6A -> exe+870B40); `energy` refills the player's EN.
+  (exe+8138FC / exe+810B6A -> exe+870B40); `energy` refills the player's EN; `enemy_speffect` applies a SpEffectParam
+  row to the event's enemy (its own manager, the player as source).
 - `shot.rs` — chip shots: any weapon's BehaviorParam_PC row fired from the player's AC at a world position and towards a
   point (drones, Écho plasma), the weapon loaded into the unused internal slots 19..31 (least recently used one reused).
 - `script.rs` — chip scripts: chips/<name>.lua next to a chip file, Lua 5.4 (mlua, vendored) on the game thread
