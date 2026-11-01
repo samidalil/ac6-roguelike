@@ -1,0 +1,13 @@
+# Drone cloud: each core expansion releases laser drones (the Vvc-700LD's) around your AC, one every `interval` s for
+# the level's value in seconds; they go for your lock target. The drones come from your AC, no drone weapon needed.
+# drone_cloud.lua spawns them on a ring `radius` m around you, `height` m above.
+id = 22
+name = "Nuée"
+stat = "Drones après extension"
+unit = " s"
+levels = "5/10/15"
+
+[params]
+interval = "0.2"
+radius = "4"
+height = "6"

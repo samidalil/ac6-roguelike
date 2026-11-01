@@ -11,7 +11,8 @@
 --                   the text), level(), value()
 --   store           get() / set(v): one byte (0..255) saved with the run
 --   game            ap(), max_ap(), coam(), in_mission(), flag(id), level(row or name), tier_name(n),
---                   lock_id() (the enemy you are locked on, nil without a lock), lock_pos() (its x, y, z, or nil)
+--                   lock_id() (the enemy you are locked on, nil without a lock), lock_pos() (its x, y, z, or nil),
+--                   player_pos() (your AC's x, y, z)
 --   after(s, fn)    runs fn s seconds later, in the same event (its actions too); dropped when the mission ends
 --   actions         credits(n), give("part name"), speffect(row), resupply(%), energy(%), drone(x, y, z) (a laser drone of yours
 --                   at that world position), shoot(weapon, behavior, x, y, z[, tx, ty, tz]) (one shot of that

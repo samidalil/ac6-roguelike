@@ -45,7 +45,8 @@ HOW IT PLAYS
   laser drones where it fell, hunting your enemies; no drone weapon needed), Surcharge (each enemy
   staggered fills your EN back up), Écho plasma (each enemy destroyed fires 1 / 2 / 3 plasma cannon shots from where
   it fell at your next target; no plasma cannon needed), Décharge (each enemy staggered gets its Shock bar filled:
-  the game's electric discharge follows). The AC chips
+  the game's electric discharge follows), Nuée (after each core expansion, a laser drone around you every 0.2 s for
+  5 / 10 / 15 s). The AC chips
   change your
   AC only (enemies are not affected) and do not show in Assemblage's stats: the AP and ammunition show on the mission
   HUD. A failed sortie takes one level of each. The ammunition bonus applies when the mission starts, not to
