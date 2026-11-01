@@ -120,6 +120,7 @@ color = "#FFC23D"
 9019 = 1    # Surcharge
 9020 = 1    # Écho plasma
 9021 = 1    # Décharge
+9022 = 1    # Nuée
 
 [os_tuning]
 # Effect of each OS Tuning level, by OsReinforce row: "value/value/..." (1 to 5 levels; their count is the tuning's
@@ -412,6 +413,7 @@ color = "#FFC23D"
 9019 = rare      # Surcharge (full EN when an enemy is staggered)
 9020 = epic      # Écho plasma (plasma cannon shots at your next target where an enemy is destroyed)
 9021 = epic      # Décharge (Shock bar filled on each enemy staggered)
+9022 = epic      # Nuée (laser drones around you for a while after each core expansion)
 
 [prices]
 # Value of a part, 0 or more: equipId = price, or "part name" = price (spacing and case do not matter; a name also matches

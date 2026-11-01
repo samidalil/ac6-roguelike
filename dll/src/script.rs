@@ -173,6 +173,15 @@ fn env(lua: &Lua, c: &'static chip::Chip) -> mlua::Result<Table> {
     t.set("in_mission", lua.create_function(|_, ()| Ok(game_data().is_some_and(|gd| unsafe { Game::new(mem::module_base()).defer_byte(gd) } != 0)))?)?;
     t.set("flag", lua.create_function(|_, id: u32| Ok(with_flags(|g, man| unsafe { g.get_flag(man, id) }).flatten()))?)?;
     t.set("lock_id", lua.create_function(|_, ()| Ok(lock_id()))?)?;
+    t.set("player_pos", lua.create_function(|_, ()| {
+        let base = mem::module_base();
+        let wcm = unsafe { mem::rd_usize(base + o::WORLDCHRMAN_GLOBAL) };
+        let chr = if wcm == 0 { 0 } else { unsafe { mem::rd_usize(wcm + o::WCM_PLAYER) } };
+        Ok(if chr == 0 { (None, None, None) } else {
+            let p = [0, 4, 8].map(|k| unsafe { f32::from_bits(mem::rd_u32(chr + o::CHR_POS + k)) });
+            (Some(p[0]), Some(p[1]), Some(p[2]))
+        })
+    })?)?;
     t.set("lock_pos", lua.create_function(|_, ()| {
         let t = unsafe { shot::lock_target(mem::module_base()) };
         Ok(t.map(|c| [0, 4, 8].map(|k| unsafe { f32::from_bits(mem::rd_u32(c + o::CHR_POS + k)) })).map_or((None, None, None), |p| (Some(p[0]), Some(p[1]), Some(p[2]))))

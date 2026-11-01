@@ -2214,3 +2214,24 @@ the enemy; one level, every stagger, epic).
 - Verified (ESSAI AC, training AC AI off, gauge held at 1600 until a bazooka hit): `enemy staggered` -> `speffect
   900000211 applied to the enemy` -> AP -1200 in the same frame (no other hit).
 - A first try (stun needles dropped from above on the staggered enemy: 2410 + 2 x 46) was not what the user wanted.
+
+## Nuée: drones over time after a core expansion; orbit units dropped (2026-11-02, implemented)
+Chip 9022 "Nuée" (user decisions: a laser drone around the AC every 0.2 s for 5 / 10 / 15 s after each core
+expansion, epic). drone_cloud.lua: `after()` chain, one pending timer at a time, ring of 4 m, 6 m above, golden-angle
+spread; new script read game.player_pos().
+- Verified (ESSAI AC, Assault Armor, LV3): `core expansion fired` -> 75 drones over 15 s, the training AC took 143 hits
+  (15 041). Frame-hook ticks per second (normally ~120): 82-88 for 2 s after the expansion with the chip, 59-74 for
+  3 s without it (the Assault Armor's own effect); steady 112-120 while ~15 drones fly; our frame work under 1 ms.
+- Dropped: releasing laser / bullet orbits at the expansion. An orbit unit is the weapon itself flying off the AC:
+  pressing fire only starts the deploy animation, which arms the slot's "deployed" state (BehaviorParam 133010090:
+  ammunition and heat over time until overheat), and the attack calls captured afterwards (133010000, index 0..2)
+  are the orbiting weapon firing. A hidden slot has no weapon model, so no unit can fly from it. Learned on the way
+  (details kept in branch feat/orbit-chip, not merged):
+  - animation (TAE) events: per character, a loop calls the handler object's vtable +0x10 (player: vtable
+    exe+37ED7F0, dispatcher exe+7832E0); event = +0 type, +8 params, +0x10 / +0x14 times, +0x18 first-frame flag,
+    +0x38 group; handlers find their weapon slot from handler +0x1C through the 19-row table exe+4CAFE70 (slots 0..18
+    only); a vtable-swap logger lists the events an animation plays (crafted events did not reach their handlers);
+  - behavior ids from animation events: exe+BA7EC0 = (weapon value + 100000) x 1000 + event value;
+  - a slot's continuous-fire state at slot +0x2C0 / +0x2C4, spent by exe+908610 with the row's continuous fields;
+  - exe+6F9430's a14 is a bullet-id slot (the created bullet's id written back; an existing one reused);
+  - hidden slots (19..31) get no per-frame weapon update; mode 0 (a dummy poly of the AC) works from them.
