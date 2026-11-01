@@ -2259,3 +2259,13 @@ spread; new script read game.player_pos().
   (`chip::Chip::shown_name` etc.; fallback: the language, its parent, the base fields; `os::names` gives the settings
   every name, so French names in an existing ac6_roguelike.toml still match). A chips/ folder written by an older DLL
   keeps its French-only files (only a missing folder is rewritten). Pools: `label.<code>` in [pool.NAME].
+- **Translations (2026-11-01).** dll/src/lang/<code>.toml for the 13 languages; ja, de, it, es, es-419, pt, pl, ru, ko,
+  zh-tw, zh-cn are drafts (marked in each file) written from the game's own terms: menu names via the placeholders,
+  OS TUNING / AP (it, es-419, pt "PA", pl "PP", ru "ПБ") / core expansion / EN capacity / weight / total rounds /
+  cooling / impact from the FMGs, the vanilla tutorials' bullet style (ja / ko "・" + ideographic-space indent, zh-tw
+  "‧", zh-cn "・ ", de / it / es English-like 3-space indent, pt / pl / ru none, ru menu names in «»). pl / ru write
+  counts as "Części: 22" to avoid plural forms; ja / ko / zh have no `_one` keys. es-419 only overrides what differs
+  from es. Chips: `name.<code>` lines in every chip file; pools: `label.<code>` for the shipped pools.
+- **The mod's movies hold no text of their own.** 02_rwdchoice.gfx: none (every label is filled by the game or the
+  DLL); 02_010_equipcap.gfx keeps the vanilla movie's two baked strings ("//LOAD CAPACITY STATUS", "//EN USAGE
+  STATUS", English in every language in vanilla too); the AS3 sets no text. Nothing to translate there.

@@ -8,6 +8,29 @@ stat = "AP"                    # stat shown on the tile with the level's value: 
 # zh-tw, zh-cn; es-419 falls back to es). The settings may use any of the names.
 name.fr = "Blindage renforcé"
 stat.fr = "PB"
+# AI-translated (ja, de, it, es, es-419, pt, pl, ru, ko, zh-tw, zh-cn)
+name.ja = "装甲強化"
+stat.ja = "AP"
+name.de = "Verstärkte Panzerung"
+stat.de = "AP"
+name.it = "Corazza rinforzata"
+stat.it = "PA"
+name.es = "Blindaje reforzado"
+stat.es = "AP"
+name.es-419 = "Blindaje reforzado"
+stat.es-419 = "PA"
+name.pt = "Blindagem Reforçada"
+stat.pt = "PA"
+name.pl = "Wzmocniony pancerz"
+stat.pl = "PP"
+name.ru = "Усиленная броня"
+stat.ru = "ПБ"
+name.ko = "장갑 강화"
+stat.ko = "AP"
+name.zh-tw = "強化裝甲"
+stat.zh-tw = "AP"
+name.zh-cn = "强化装甲"
+stat.zh-cn = "AP"
 levels = "5/10/15"             # effect value per level, in % (1 to 15 levels)
 
 [effect]

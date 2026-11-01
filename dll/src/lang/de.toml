@@ -1,0 +1,52 @@
+# AI-translated
+# The mod's texts in German. Draft from the game's own terms, to review. Same keys and format as
+# en.toml; a missing key uses en.toml's.
+
+list_separator = ", "
+game_over = "GAME OVER"
+
+[number]
+thousands = "."
+
+[tutorial]
+renewal_each = "nach jeder erfolgreichen Mission"
+renewal_every = "alle {n} erfolgreichen Missionen"
+buy = "Im Menü {menu.buy} gibt es zufällig gezogene AC-Teile,\nerneuert {renewal}.\n\n• Teile, die du verkauft hast, sind dort bis zur\n   nächsten Erneuerung wieder erhältlich.\n• Du kannst höchstens {max_parts} Teile besitzen, ausgerüstete\n   eingeschlossen: darüber hinaus wird der Kauf abgelehnt."
+sell_value = "{pct} % seines Werts"
+sell_value_weapons = "{pct} % seines Werts\n   (Waffen: {weapon_pct} %)"
+sell = "Im Menü {menu.sell} verkaufst du AC-Teile aus deinem Besitz.\n\n• Ein verkauftes Teil bringt {value}.\n• Du kannst es im Menü {menu.buy} zu seinem Preis\n   bis zur nächsten Erneuerung des Shops zurückkaufen.\n• Höchstens {copies} verkaufte Teile bleiben rückkaufbar:\n   darüber hinaus wird das älteste verschrottet.\n• Mehr als {max_parts} Teile in der Garage: verkaufe welche,\n   bis du wieder beim Limit bist."
+
+[inventory]
+buy_refused = "Inventar voll (höchstens {max} Teile).\nVerkaufe ein Teil, um ein anderes zu kaufen."
+full = "INVENTAR VOLL\n\n{n} Teile für {max} Plätze: verkaufe {over} Teile in {menu.sell}."
+full_one = "INVENTAR VOLL\n\n{n} Teile für {max} Plätze: verkaufe 1 Teil in {menu.sell}."
+stuck = "INVENTAR VOLL\n\n{n} Teile für {max} Plätze und kein Teil zum Verkaufen: nimm {over} Teile in {menu.assembly} vom AC ab und verkaufe sie in {menu.sell}."
+stuck_one = "INVENTAR VOLL\n\n{n} Teile für {max} Plätze und kein Teil zum Verkaufen: nimm 1 Teil in {menu.assembly} vom AC ab und verkaufe es in {menu.sell}."
+
+[buyback]
+full_confirm = "Rückkaufliste voll: {part} ist danach nicht mehr rückkaufbar.\n{game_text}"
+
+[failure]
+title = "MISSION GESCHEITERT: VERLUSTE"
+weapons = "Verlorene Waffen: {list}"
+parts = "Verlorene Teile: {list}"
+replaced = "Ersetzt durch: {list}"
+expansion = "Verlorene Erweiterung: {name}"
+os_levels = "Verlorene OS-Stufen: {list}"
+os_level = "{name} (LV {from} > {to})"
+starters = "Berechnete Starterteile: {amount} COAM"
+sold = "Verkauft: {list}"
+sold_part = "{part} ({amount})"
+autosell_title = "NEGATIVER KONTOSTAND: AUTOMATISCHER VERKAUF"
+
+[rewards]
+choose = "WÄHLE EIN TEIL"
+choose_page = "WÄHLE EIN TEIL ({page}/{pages})"
+given = "TEIL ERHALTEN"
+os_tile = "{menu.os}  LV {level}/{max}"
+percent = " %"
+chip_tile = "{name}: {stat} {value}"
+
+[events]
+part_given = "Teil erhalten: {part}"
+credits = "{chip}: {amount} COAM"

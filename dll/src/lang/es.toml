@@ -1,0 +1,52 @@
+# AI-translated
+# The mod's texts in Spanish (Spain; es-419.toml takes these for every key it does not have). Draft
+# from the game's own terms, to review. Same keys and format as en.toml; a missing key uses en.toml's.
+
+list_separator = ", "
+game_over = "GAME OVER"
+
+[number]
+thousands = "."
+
+[tutorial]
+renewal_each = "tras cada misión completada"
+renewal_every = "cada {n} misiones completadas"
+buy = "El menú {menu.buy} ofrece piezas de AC elegidas al azar,\nrenovadas {renewal}.\n\n• Las piezas que hayas vendido vuelven a estar a la venta\n   hasta la siguiente renovación.\n• Puedes tener {max_parts} piezas como máximo, incluidas\n   las equipadas: por encima, la compra se rechaza."
+sell_value = "el {pct} % de su valor"
+sell_value_weapons = "el {pct} % de su valor\n   (armas: {weapon_pct} %)"
+sell = "Vende piezas de AC desde el menú {menu.sell}.\n\n• Una pieza vendida te da {value}.\n• Puedes volver a comprarla a su precio desde el menú\n   {menu.buy} hasta la siguiente renovación de la tienda.\n• Como máximo {copies} piezas vendidas se pueden recomprar:\n   por encima, la más antigua se desguaza.\n• Más de {max_parts} piezas en el garaje: vende algunas\n   hasta volver al límite."
+
+[inventory]
+buy_refused = "Inventario lleno ({max} piezas como máximo).\nVende una pieza para comprar otra."
+full = "INVENTARIO LLENO\n\n{n} piezas para {max} espacios: vende {over} piezas en {menu.sell}."
+full_one = "INVENTARIO LLENO\n\n{n} piezas para {max} espacios: vende 1 pieza en {menu.sell}."
+stuck = "INVENTARIO LLENO\n\n{n} piezas para {max} espacios y ninguna pieza para vender: quita {over} piezas del AC en {menu.assembly} y véndelas en {menu.sell}."
+stuck_one = "INVENTARIO LLENO\n\n{n} piezas para {max} espacios y ninguna pieza para vender: quita 1 pieza del AC en {menu.assembly} y véndela en {menu.sell}."
+
+[buyback]
+full_confirm = "Lista de recompra llena: {part} ya no se podrá recomprar.\n{game_text}"
+
+[failure]
+title = "MISIÓN FALLIDA: PÉRDIDAS"
+weapons = "Armas perdidas: {list}"
+parts = "Piezas perdidas: {list}"
+replaced = "Sustituidas por: {list}"
+expansion = "Ampliación perdida: {name}"
+os_levels = "Niveles de SO perdidos: {list}"
+os_level = "{name} (LV {from} > {to})"
+starters = "Piezas iniciales cobradas: {amount} COAM"
+sold = "Vendidas: {list}"
+sold_part = "{part} ({amount})"
+autosell_title = "SALDO NEGATIVO: VENTA AUTOMÁTICA"
+
+[rewards]
+choose = "ELIGE UNA PIEZA"
+choose_page = "ELIGE UNA PIEZA ({page}/{pages})"
+given = "PIEZA OBTENIDA"
+os_tile = "{menu.os}  LV {level}/{max}"
+percent = " %"
+chip_tile = "{name}: {stat} {value}"
+
+[events]
+part_given = "Pieza obtenida: {part}"
+credits = "{chip}: {amount} COAM"

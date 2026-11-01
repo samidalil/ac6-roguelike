@@ -1,0 +1,51 @@
+# AI-translated
+# The mod's texts in Russian. Draft from the game's own terms, to review. Same keys and format as
+# en.toml; a missing key uses en.toml's. Counts are written "Деталей: 22" to keep the plural forms out; menu names in
+# «» like the game's own tutorials.
+
+list_separator = ", "
+game_over = "GAME OVER"
+
+[number]
+thousands = " "
+
+[tutorial]
+renewal_each = "после каждого успешного задания"
+renewal_every = "после каждого {n}-го успешного задания"
+buy = "В меню «{menu.buy}» продаются случайные детали для AC,\nобновляемые {renewal}.\n\n• Проданные вами детали снова продаются там\nдо следующего обновления.\n• Предел деталей: {max_parts}, включая установленные:\nсверх него покупка невозможна."
+sell_value = "{pct}% её стоимости"
+sell_value_weapons = "{pct}% её стоимости\n(оружие: {weapon_pct}%)"
+sell = "Продавайте детали для AC с помощью меню\n«{menu.sell}».\n\n• Проданная деталь приносит {value}.\n• Её можно выкупить по той же цене в меню «{menu.buy}»\nдо следующего обновления магазина.\n• Предел деталей для выкупа: {copies}; сверх него\nсамая старая идёт в утиль.\n• Если деталей в гараже больше предела ({max_parts}),\nпродавайте их, пока не вернётесь к пределу."
+
+[inventory]
+buy_refused = "Инвентарь заполнен (предел деталей: {max}).\nПродайте деталь, чтобы купить другую."
+full = "ИНВЕНТАРЬ ЗАПОЛНЕН\n\nДеталей: {n}, мест: {max}. Продайте лишние ({over}) в меню «{menu.sell}»."
+stuck = "ИНВЕНТАРЬ ЗАПОЛНЕН\n\nДеталей: {n}, мест: {max}, продать нечего. Снимите лишние ({over}) с AC в меню «{menu.assembly}», затем продайте их в меню «{menu.sell}»."
+
+[buyback]
+full_confirm = "Список выкупа заполнен: {part} больше нельзя будет выкупить.\n{game_text}"
+
+[failure]
+title = "ЗАДАНИЕ ПРОВАЛЕНО: ПОТЕРИ"
+weapons = "Потеряно оружие: {list}"
+parts = "Потеряны детали: {list}"
+replaced = "Заменены на: {list}"
+expansion = "Потеряна модификация: {name}"
+os_levels = "Потеряны уровни ОС: {list}"
+os_level = "{name} (LV {from} > {to})"
+starters = "Оплачены стартовые детали: {amount} COAM"
+sold = "Продано: {list}"
+sold_part = "{part} ({amount})"
+autosell_title = "ОТРИЦАТЕЛЬНЫЙ БАЛАНС: АВТОПРОДАЖА"
+
+[rewards]
+choose = "ВЫБЕРИТЕ ДЕТАЛЬ"
+choose_page = "ВЫБЕРИТЕ ДЕТАЛЬ ({page}/{pages})"
+given = "ДЕТАЛЬ ПОЛУЧЕНА"
+os_tile = "{menu.os}  LV {level}/{max}"
+percent = "%"
+chip_tile = "{name}: {stat} {value}"
+
+[events]
+part_given = "Получена деталь: {part}"
+credits = "{chip}: {amount} COAM"

@@ -17,17 +17,17 @@ use std::sync::{Mutex, OnceLock};
 pub const LANGS: [(&str, &str, &str, &str); 13] = [
     ("en", "engus", "Scanning", include_str!("lang/en.toml")),
     ("fr", "frafr", "Scan", include_str!("lang/fr.toml")),
-    ("ja", "jpnjp", "スキャン", ""),
-    ("de", "deude", "Scannen", ""),
-    ("it", "itait", "Scansione", ""),
-    ("es", "spaes", "Escáner", ""),
-    ("es-419", "spaar", "Escaneo", ""),
-    ("pt", "porbr", "Varredura", ""),
-    ("pl", "polpl", "Skanowanie", ""),
-    ("ru", "rusru", "Сканирование", ""),
-    ("ko", "korkr", "스캔", ""),
-    ("zh-tw", "zhotw", "掃描", ""),
-    ("zh-cn", "zhocn", "扫描", ""),
+    ("ja", "jpnjp", "スキャン", include_str!("lang/ja.toml")),
+    ("de", "deude", "Scannen", include_str!("lang/de.toml")),
+    ("it", "itait", "Scansione", include_str!("lang/it.toml")),
+    ("es", "spaes", "Escáner", include_str!("lang/es.toml")),
+    ("es-419", "spaar", "Escaneo", include_str!("lang/es-419.toml")),
+    ("pt", "porbr", "Varredura", include_str!("lang/pt.toml")),
+    ("pl", "polpl", "Skanowanie", include_str!("lang/pl.toml")),
+    ("ru", "rusru", "Сканирование", include_str!("lang/ru.toml")),
+    ("ko", "korkr", "스캔", include_str!("lang/ko.toml")),
+    ("zh-tw", "zhotw", "掃描", include_str!("lang/zh-tw.toml")),
+    ("zh-cn", "zhocn", "扫描", include_str!("lang/zh-cn.toml")),
 ];
 const EN: usize = 0;
 
