@@ -67,7 +67,7 @@ mod event;
 mod script;
 mod occur;
 mod cap;
-mod drone;
+mod shot;
 
 // ---------------------------------------------------------------- lineup param (read-only use)
 struct Lineup {
@@ -1291,7 +1291,16 @@ fn boot() {
                         c if c.starts_with("drone_at ") => {
                             // `drone_at x y z`: a chip drone at that world position
                             let a: Vec<f32> = c[9..].split_whitespace().filter_map(|v| v.parse::<f32>().ok()).collect();
-                            if a.len() == 3 { drone::queue([a[0], a[1], a[2]]); } else { logf!("DEBUG: bad drone_at {:?}", c); }
+                            if a.len() == 3 { shot::drone([a[0], a[1], a[2]]); } else { logf!("DEBUG: bad drone_at {:?}", c); }
+                        }
+                        c if c.starts_with("fire ") => {
+                            // `fire <equipId> <behavior> x y z`: a chip shot from that point at the player's lock target
+                            let a: Vec<f64> = c[5..].split_whitespace().filter_map(|v| v.parse().ok()).collect();
+                            if a.len() == 5 {
+                                let at = shot::lock_target(base).map(|t| [0, 4, 8].map(|k| f32::from_bits(mem::rd_u32(t + o::CHR_POS + k))));
+                                shot::shoot(shot::Shot { weapon: a[0] as u32, behavior: a[1] as i32, pos: [a[2] as f32, a[3] as f32, a[4] as f32],
+                                    at: at.map(|p| [p[0], p[1] + 3.0, p[2]]), index: 1 });
+                            } else { logf!("DEBUG: bad fire {:?}", c); }
                         }
                         c if c.starts_with("speffect ") => match c[9..].trim().parse::<i32>() {
                             // `speffect <id>`: a SpEffectParam row applied to the player (game thread, next frame)

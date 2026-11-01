@@ -420,6 +420,10 @@ pub const CHR_AP_MAX: usize = 0x27C;
 pub const CHR_LOCK_TARGET: usize = 0x2F0;
 /// A character's own handle (its low 32 bits = `e.id` of the enemy events)
 pub const CHR_HANDLE: usize = 8;
+/// WorldChrMan's character lists (shot.rs `characters`): the map's (0x18-byte entries, end at +8) and the player + opposing
+/// ACs (pointers, end at +0x10)
+pub const WCM_CHRS: usize = 0xA760;
+pub const WCM_ACS: usize = 0xAB58;
 
 
 // --- save requests (RE 2026-10-26): per-frame save step exe+1272440 picks the highest-priority set bit of

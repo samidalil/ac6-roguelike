@@ -173,6 +173,10 @@ fn env(lua: &Lua, c: &'static chip::Chip) -> mlua::Result<Table> {
     t.set("in_mission", lua.create_function(|_, ()| Ok(game_data().is_some_and(|gd| unsafe { Game::new(mem::module_base()).defer_byte(gd) } != 0)))?)?;
     t.set("flag", lua.create_function(|_, id: u32| Ok(with_flags(|g, man| unsafe { g.get_flag(man, id) }).flatten()))?)?;
     t.set("lock_id", lua.create_function(|_, ()| Ok(lock_id()))?)?;
+    t.set("lock_pos", lua.create_function(|_, ()| {
+        let t = unsafe { shot::lock_target(mem::module_base()) };
+        Ok(t.map(|c| [0, 4, 8].map(|k| unsafe { f32::from_bits(mem::rd_u32(c + o::CHR_POS + k)) })).map_or((None, None, None), |p| (Some(p[0]), Some(p[1]), Some(p[2]))))
+    })?)?;
     t.set("tier_name", lua.create_function(|_, i: usize| Ok(config::get().enemy_tiers.get(i.wrapping_sub(1)).map(|t| t.0.clone())))?)?;
     t.set("level", lua.create_function(|_, target: mlua::Value| {
         let Some(r) = event::row_of(&target.to_string()?) else { return Ok(None) };
@@ -187,7 +191,12 @@ fn env(lua: &Lua, c: &'static chip::Chip) -> mlua::Result<Table> {
         act(c, event::Action::Level(target.to_string()?, event::Amount::Fixed(n.unwrap_or(1)))); Ok(())
     })?)?;
     env.set("set_flag", lua.create_function(move |_, (id, v): (u32, bool)| { act(c, event::Action::Flag(id, v)); Ok(()) })?)?;
-    env.set("drone", lua.create_function(move |_, (x, y, z): (f32, f32, f32)| { drone::queue([x, y, z]); Ok(()) })?)?;
+    env.set("drone", lua.create_function(move |_, (x, y, z): (f32, f32, f32)| { shot::drone([x, y, z]); Ok(()) })?)?;
+    env.set("shoot", lua.create_function(move |_, (w, b, x, y, z, tx, ty, tz): (f64, f64, f32, f32, f32, Option<f32>, Option<f32>, Option<f32>)| {
+        let at = match (tx, ty, tz) { (Some(a), Some(b), Some(c)) => Some([a, b, c]), _ => None };
+        shot::shoot(shot::Shot { weapon: w as u32, behavior: b as i32, pos: [x, y, z], at, index: 1 });
+        Ok(())
+    })?)?;
     env.set("after", lua.create_function(move |_, (secs, f): (f64, mlua::Function)| {
         let n = TIMERS.with(|t| t.borrow().iter().filter(|x| x.chip == c.id).count());
         if n >= MAX_TIMERS { return Err(mlua::Error::runtime(format!("after: {} callbacks already pending", MAX_TIMERS))); }

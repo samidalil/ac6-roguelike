@@ -2163,3 +2163,38 @@ User report: killing an enemy while still locked on it sent Essaim's drones to t
 - Verified (ESSAI AC, MT bipedes + drones, AI off, Essaim LV3): MT 2 destroyed by an AP write while locked -> drones
   0.72 s later -> air unit a destroyed -> drones -> air unit b -> drones -> MT 3, each by the previous kill's drones.
   (A first version with a fixed 0.8 s delay missed once.)
+
+## Chip shots from anywhere: hidden slots, aiming, shooter knockback; Écho plasma (2026-11-02, implemented)
+Chip 9020 "Écho plasma" (user decisions: a plain plasma cannon shot, aimed, after a delay, at the next lock target).
+- Slots (weapon module 0x27, 32 slots): 0-3 the arms and backs, 8-9 kicks, 13 75000000, 14 80070400, 15 the core
+  expansion's weapon, 4-7 / 10-12 / 16-18 placeholders (100000), 19-31 unset (-1). A laser drone fired from every one of
+  4-7, 10-12, 16-31 hit (3 x 140). HUD: slot 16 shows its ammunition in the left-arm cell, slot 17 in the right-arm cell;
+  the others change nothing; the player's own weapons still fire from their slots. shot.rs uses 19..31 (13 slots): a
+  slot holding the weapon, else an empty one, else the least recently used one. Loading a weapon: 10-17 us; a shot
+  call: 20-55 us.
+- One behavior call = one shot: the weapon's own firing logic (ammunition, bursts, charge, spin-up) never runs. The
+  10-missile launcher (30020200 / 130220000) gives one missile per call; 10 calls in one frame = 10 missiles. Swapping
+  a slot's weapon right after its shot: a drone in flight kept its 3 hits, 3 missiles in flight all hit.
+- Direction: a real FASAN/60E shot (equipped, captured at exe+8F1324: behavior 132300000, slot 3) uses mode 0 (dummy poly
+  11300 of the back unit) and carries no target. In mode 1 the matrix's third column is the direction (a marker x of
+  12.345, found in memory 0.12 s after the shot: identity -> world +z whatever the AC faced; (0, 0, -1) -> -z). Aimed
+  from a hidden slot at the training AC: 10 hits x 129 (the equipped cannon: 10 x 120). Homing shots (drones, missiles)
+  ignore it and go for the lock target.
+- Shooter knockback: each plasma shot pushed the player ~10.5 m away from the shot's direction, whatever the AC faced
+  (the bazooka 5.7 m, missiles and drones 0). It follows the attack row, not the weapon (plasma behavior from a missile
+  launcher: 10.4 m; missile behavior from the plasma cannon: 0): AtkParam_Pc shooterKnockbackMPS / shooterFlyKnockbackMPS
+  (plasma 55 / 45, bazooka 40 / 35, missile and drone 0). Not it: BehaviorParam recoilBlurAddVal (70, camera), the
+  weapon's wepMotionCategoryIdSpecify (304 cannons, 300 missiles) or weaponCategory (21 / 22), the bullet fields
+  EmittePosType, deflectType, isProgressNetworkLatency, unk323_5, predictionShootObserveTime. plasma_echo.toml declares
+  copies: behavior 900000201 -> bullet 32300900 -> attack 32300900 with both knockbacks 0: drift 0.0 m, still 10 x 129.
+- Chip files can declare [behavior / bullet / atk / weapon.<row>] sections (BehaviorParam_PC / Bullet / AtkParam_Pc /
+  EquipParamWeapon rows, tools/regulation). A copied row is now a clone of its source (a new Bullet row from the
+  Smithbox definition failed on a default value). A new EquipParamWeapon row loads in a slot only with a weapon-style id
+  (30230800 loaded, 900000230 did not).
+- Lock target: chr +0x2F0 = its handle (-1: none); chr +0x2E0 is not its world position. Its character: by handle among
+  WorldChrMan +0xA760 / +0xA768 (the map's characters, 0x18-byte entries) and +0xAB58 / +0xAB68 (the player and the
+  opposing ACs, pointers: the training AC is only there). Scripts: game.lock_pos(), shoot(weapon, behavior, x, y, z[, tx,
+  ty, tz]).
+- Verified (ESSAI AC, MT bipedes + drones, AI off, Écho plasma LV3, Essaim off): MT 2 destroyed by an AP write while
+  locked -> 3 shots from it at air unit a after the lock moved (0.7 s) -> a destroyed -> shots at b -> MT 3 (228 + 228 +
+  14) -> MT 4: 5 kills from one, the player did not move. Essaim's drones still hit 3 x 140 from slot 19.
